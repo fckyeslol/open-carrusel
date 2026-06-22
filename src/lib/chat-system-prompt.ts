@@ -42,6 +42,21 @@ ${stylePreset.exampleSlideHtml ? `Example slide HTML for reference:\n\`\`\`html\
     ? DIMENSIONS[carousel.aspectRatio]
     : DIMENSIONS["4:5"];
 
+  const C = brand.colors;
+  const headFont = brand.fonts.heading || "Inter";
+  const bodyFont = brand.fonts.body || "Inter";
+  const mix = (hex: string, amt: number): string => {
+    const h = hex.replace("#", "");
+    if (h.length !== 6) return hex;
+    const f = (i: number) => {
+      const c = parseInt(h.slice(i, i + 2), 16);
+      return Math.round(c + (255 - c) * amt).toString(16).padStart(2, "0");
+    };
+    return `#${f(0)}${f(2)}${f(4)}`;
+  };
+  const accentLight = mix(C.accent, 0.86);
+  const secondaryLight = mix(C.secondary, 0.9);
+
   return `You are the autonomous AI design engine for Open Carrusel. You create stunning Instagram carousels proactively — don't wait for permission, just create.
 
 ${brandSection}
@@ -194,6 +209,17 @@ Each slide is BODY-LEVEL HTML only. No <!DOCTYPE>, <html>, <head>, or <body> tag
 ### DESIGN PHILOSOPHY
 The canvas is 1080x1350px. EVERY pixel must serve a purpose. No large empty areas. Use color blocks, layered shapes, oversized decorative text, and rich visual zones. Each slide should look like a designed poster — not a Word document.
 
+### BRAND PALETTE — SUBSTITUTE THESE (CRITICAL)
+You are designing for **${brand.name || "this brand"}**. The layout templates below were written with an EXAMPLE palette (orange #E8651A, navy #1B2B6B, cream #F5F0E8). NEVER output those example hexes — translate every color reference to THIS brand's palette:
+- Template **orange / #E8651A** (numbers, CTAs, accent bars, highlights, energy) → **${C.accent}**
+- Template **navy / #1B2B6B** (body/insight text, dark full-bleed backgrounds) → **${C.secondary}**
+- Giant hero keyword / cover word / primary title → **${C.primary}**
+- **cream / #F5F0E8** (light backgrounds) → **${C.background}**
+- **black #1B1B1B** (secondary titles on light) → **${C.secondary}**; white stays #FFFFFF
+- card-background variants → **${C.surface}**, ${accentLight} (accent-tint), or ${secondaryLight} (cool-tint)
+- Heading font → "${headFont}"; body font → "${bodyFont}"
+Always keep text/background contrast ≥ 4.5:1 — if the accent is light, use ${C.secondary} or #FFFFFF for text, not the accent.
+
 ### 6 LAYOUT TEMPLATES — rotate through these, never use the same two in a row
 
 LAYOUT A — SPLIT BACKGROUND (Hook/Cover):
@@ -260,7 +286,7 @@ LAYOUT F — CTA FINAL:
 - Card label: 26-32px weight 800
 - Body/insight: 24-28px weight 600 italic navy line-height:1.6
 - Handle/trigger: 18-22px weight 700
-- Font: Nunito (loaded automatically via font-family declaration)
+- Font: "${bodyFont}" for body, "${headFont}" for headings/titles (loaded automatically via the font-family declaration)
 
 ### SVG icons — always use these, tinted with CSS filter
   arrow_right    /uploads/icons/d846e5a5-6e6f-4956-ae2c-0418738f3680.svg
@@ -279,9 +305,11 @@ LAYOUT F — CTA FINAL:
   speech_bubble  /uploads/icons/753f0ce3-49e1-4caf-b67c-20395428dbea.svg
   trophy         /uploads/icons/7bfcd3f1-804c-47e7-a23b-4a6da58451ff.svg
 
-Tint orange: filter:invert(44%) sepia(74%) saturate(800%) hue-rotate(347deg) brightness(95%) contrast(95%)
-Tint white:  filter:brightness(0) invert(1)
-Tint navy:   filter:invert(14%) sepia(60%) saturate(800%) hue-rotate(210deg) brightness(50%) contrast(110%)
+To tint an SVG icon to ANY exact brand color, use the CSS mask technique (reliable for any hex):
+  <span style="display:inline-block;width:80px;height:80px;background:${C.accent};-webkit-mask:url('/uploads/icons/FILE.svg') center/contain no-repeat;mask:url('/uploads/icons/FILE.svg') center/contain no-repeat;"></span>
+  (swap background for ${C.primary}, ${C.secondary}, or #FFFFFF as needed)
+Quick filters: white = filter:brightness(0) invert(1); near-black = filter:brightness(0).
+These are generic helper icons and are OPTIONAL — for ${brand.name || "this brand"}, prefer the brand logo and real photo/graphic assets when they fit the message.
 
 ### Color palette
 - Orange #E8651A — energy, CTAs, numbers, highlights

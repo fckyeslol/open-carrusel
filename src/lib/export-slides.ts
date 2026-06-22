@@ -1,5 +1,6 @@
 import puppeteer, { type Browser } from "puppeteer";
 import { readFile } from "fs/promises";
+import { existsSync } from "fs";
 import path from "path";
 import sharp from "sharp";
 import { wrapSlideHtml, extractFontFamilies } from "./slide-html";
@@ -12,6 +13,28 @@ let browser: Browser | null = null;
 let exportCount = 0;
 const MAX_EXPORTS_BEFORE_RESTART = 50;
 
+/**
+ * Find a system Chrome/Edge to use instead of Puppeteer's bundled Chromium.
+ * On some Windows setups the bundled Chromium hangs at Page.captureScreenshot;
+ * the full system Chrome renders reliably. Override with PUPPETEER_EXECUTABLE_PATH.
+ */
+function findChrome(): string | undefined {
+  if (process.env.PUPPETEER_EXECUTABLE_PATH) return process.env.PUPPETEER_EXECUTABLE_PATH;
+  const local = process.env.LOCALAPPDATA || "";
+  const candidates =
+    process.platform === "win32"
+      ? [
+          "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+          "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+          `${local}\\Google\\Chrome\\Application\\chrome.exe`,
+          "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+        ]
+      : process.platform === "darwin"
+        ? ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"]
+        : ["/usr/bin/google-chrome", "/usr/bin/chromium-browser", "/usr/bin/chromium"];
+  return candidates.find((p) => p && existsSync(p));
+}
+
 async function getBrowser(): Promise<Browser> {
   if (browser && exportCount >= MAX_EXPORTS_BEFORE_RESTART) {
     await browser.close().catch(() => {});
@@ -19,8 +42,11 @@ async function getBrowser(): Promise<Browser> {
     exportCount = 0;
   }
   if (!browser || !browser.isConnected()) {
+    const executablePath = findChrome();
     browser = await puppeteer.launch({
       headless: true,
+      protocolTimeout: 120000,
+      ...(executablePath ? { executablePath } : {}),
       args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu"],
     });
     exportCount = 0;
@@ -104,6 +130,10 @@ export async function exportSlide(
     const screenshotBuffer = await page.screenshot({
       type: "png",
       clip: { x: 0, y: 0, width, height },
+      // captureBeyondViewport defaults to true when `clip` is set, which routes
+      // through an Emulation path that hangs captureScreenshot on this Windows/
+      // Chromium combo. Viewport == clip here, so disabling it is equivalent + reliable.
+      captureBeyondViewport: false,
     });
 
     exportCount++;
@@ -130,7 +160,9 @@ export async function exportAllSlides(
   onProgress?: (current: number, total: number) => void
 ): Promise<{ name: string; buffer: Buffer }[]> {
   const results: { name: string; buffer: Buffer }[] = [];
-  const CONCURRENCY = 3;
+  // Serialize: concurrent Page.captureScreenshot calls on one browser can deadlock
+  // (the screenshot hang seen on Windows). One page at a time is reliable.
+  const CONCURRENCY = 1;
 
   for (let i = 0; i < slides.length; i += CONCURRENCY) {
     const batch = slides.slice(i, i + CONCURRENCY);
