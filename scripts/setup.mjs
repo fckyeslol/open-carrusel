@@ -4,16 +4,21 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import crossSpawn from "cross-spawn";
+import { spawnSync } from "node:child_process";
 
 const ROOT = process.cwd();
+// Built-in spawn only — setup.mjs must run on a bare clone BEFORE `npm install`,
+// so it cannot depend on any package (e.g. cross-spawn). shell:true lets Windows
+// resolve npm/where via npm.cmd, and macOS/Linux resolve npm/which on PATH.
+const SHELL = process.platform === "win32";
 
 function log(msg) {
   process.stdout.write(msg + "\n");
 }
 
 function runSync(cmd, args, opts = {}) {
-  const res = crossSpawn.sync(cmd, args, { stdio: "inherit", ...opts });
+  const res = spawnSync(cmd, args, { stdio: "inherit", shell: SHELL, ...opts });
+  if (res.error) throw res.error;
   if (res.status !== 0) {
     throw new Error(`${cmd} ${args.join(" ")} exited with ${res.status}`);
   }
@@ -23,9 +28,10 @@ function tryProbeClaude() {
   const isWin = process.platform === "win32";
   const cmd = isWin ? "where" : "which";
   try {
-    const r = crossSpawn.sync(cmd, ["claude"], {
+    const r = spawnSync(cmd, ["claude"], {
       encoding: "utf-8",
       timeout: 2000,
+      shell: SHELL,
     });
     if (r.status === 0 && r.stdout) {
       const first = r.stdout.split(/\r?\n/).find((l) => l.trim());
