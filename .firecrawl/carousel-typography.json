@@ -1,0 +1,29 @@
+Job ID: 019e5d55-3ce1-736d-baf1-e13575e009a4
+Status: completed
+Credits Used: 0
+Expires: May 25, 2026, 11:12 PM
+
+Result:
+{
+  "status": "unavailable",
+  "message": "The specified URLs are not accessible. Both https://www.canva.com/learn/instagram-carousel/ and https://designshack.net/articles/inspiration/instagram-carousel-design/ return 404 errors (page not found). The requested data about viral Instagram carousel typography cannot be extracted from these sources.",
+  "sources_checked": [
+    {
+      "url": "https://www.canva.com/learn/instagram-carousel/",
+      "status": "404 - Not Found"
+    },
+    {
+      "url": "https://designshack.net/articles/inspiration/instagram-carousel-design/",
+      "status": "404 - Not Found"
+    }
+  ],
+  "typography_data": null,
+  "font_sizes": null,
+  "font_families": null,
+  "text_hierarchy": null,
+  "heading_styles": null,
+  "body_text_styles": null,
+  "color_combinations": null,
+  "design_patterns": null,
+  "viral_elements": null
+}

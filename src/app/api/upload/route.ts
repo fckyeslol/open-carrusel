@@ -69,13 +69,24 @@ export async function POST(request: Request) {
       );
     }
 
-    // Reject SVGs explicitly (XSS risk)
     const ext = path.extname(file.name).toLowerCase();
+
+    // SVGs: sanitize and store directly (strip scripts/event-handlers for XSS safety)
     if (ext === ".svg" || file.type === "image/svg+xml") {
-      return NextResponse.json(
-        { error: "SVG files are not allowed" },
-        { status: 400 }
-      );
+      const text = Buffer.from(await file.arrayBuffer()).toString("utf-8");
+      // Strip <script> blocks, on* event attributes, javascript: hrefs, <foreignObject>
+      const sanitized = text
+        .replace(/<script[\s\S]*?<\/script>/gi, "")
+        .replace(/\bon\w+\s*=\s*["'][^"']*["']/gi, "")
+        .replace(/\bon\w+\s*=\s*[^\s>]+/gi, "")
+        .replace(/href\s*=\s*["']javascript:[^"']*["']/gi, "")
+        .replace(/<foreignObject[\s\S]*?<\/foreignObject>/gi, "");
+      const svgDir = path.join(UPLOAD_DIR, "icons");
+      await mkdir(svgDir, { recursive: true });
+      const id = generateId();
+      const filename = `${id}.svg`;
+      await writeFile(path.join(svgDir, filename), sanitized, "utf-8");
+      return NextResponse.json({ id, url: `/uploads/icons/${filename}`, type: "svg" });
     }
 
     const arrayBuffer = await file.arrayBuffer();

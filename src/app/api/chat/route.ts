@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawn } from "child_process";
 import crossSpawn from "cross-spawn";
-import { getClaudePath, isClaudeAvailable } from "@/lib/claude-path";
+import { getClaudePath, isClaudeAvailable, resolveDirectExecutable } from "@/lib/claude-path";
 import { buildSystemPrompt } from "@/lib/chat-system-prompt";
 import { getBrand } from "@/lib/brand";
 import { getCarousel } from "@/lib/carousels";
@@ -49,9 +49,13 @@ export async function POST(request: NextRequest) {
   const brand = await getBrand();
   const carousel = carouselId ? await getCarousel(carouselId) : null;
   const stylePreset = stylePresetId ? await getPreset(stylePresetId) : null;
-  const systemPrompt = buildSystemPrompt(brand, carousel, stylePreset);
+  const host = request.headers.get("host") || "localhost:3000";
+  const baseUrl = `http://${host}`;
+  const systemPrompt = buildSystemPrompt(brand, carousel, stylePreset, baseUrl);
 
   const claudePath = getClaudePath();
+  // Resolve to the actual .exe on Windows to bypass cmd.exe's 8191-char command line limit
+  const spawnPath = resolveDirectExecutable(claudePath);
   const abortController = new AbortController();
 
   const args = [
@@ -71,8 +75,6 @@ export async function POST(request: NextRequest) {
     "Read",
     "--max-budget-usd",
     "1.00",
-    "--name",
-    "carrusel-chat",
   ];
 
   if (sessionId) {
@@ -85,12 +87,13 @@ export async function POST(request: NextRequest) {
     start(controller) {
       let childProcess: ReturnType<typeof spawn>;
 
+      // Use crossSpawn only if we still have a .cmd shim (couldn't resolve to .exe)
       const isWindowsShim =
-        process.platform === "win32" && /\.(cmd|bat)$/i.test(claudePath);
+        process.platform === "win32" && /\.(cmd|bat)$/i.test(spawnPath);
       const spawner = isWindowsShim ? crossSpawn : spawn;
 
       try {
-        childProcess = spawner(claudePath, args, {
+        childProcess = spawner(spawnPath, args, {
           cwd: process.cwd(),
           signal: abortController.signal,
           stdio: ["pipe", "pipe", "pipe"],
@@ -100,7 +103,7 @@ export async function POST(request: NextRequest) {
       } catch (err) {
         const e = err as NodeJS.ErrnoException;
         console.error("[chat] failed to spawn Claude CLI", {
-          claudePath,
+          claudePath: spawnPath,
           platform: process.platform,
           code: e?.code,
           message: e?.message,
@@ -157,7 +160,7 @@ export async function POST(request: NextRequest) {
         clearTimeout(timeout);
         const e = err as NodeJS.ErrnoException;
         console.error("[chat] Claude subprocess error", {
-          claudePath,
+          claudePath: spawnPath,
           platform: process.platform,
           code: e?.code,
           syscall: e?.syscall,
@@ -200,7 +203,7 @@ export async function POST(request: NextRequest) {
 
         if (code && code !== 0) {
           console.error("[chat] Claude subprocess exited non-zero", {
-            claudePath,
+            claudePath: spawnPath,
             platform: process.platform,
             exitCode: code,
             stderr: stderrBuf,

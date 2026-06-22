@@ -1,0 +1,31 @@
+{
+  "icons": {
+    "arrow_right": "/uploads/icons/d846e5a5-6e6f-4956-ae2c-0418738f3680.svg",
+    "arrow_right2": "/uploads/icons/7ed4317b-138e-42f3-abf9-9a3301d37480.svg",
+    "book_arrow": "/uploads/icons/57d30eef-e9c1-4285-9fde-bdee03e75585.svg",
+    "chart_bars": "/uploads/icons/f42d57e6-ca47-45f6-b3a6-aceaf609297f.svg",
+    "clock-openclipart": "/uploads/icons/96f07cbe-36b8-40b2-b93d-3f8bc09839f7.svg",
+    "clock": "/uploads/icons/397e6c02-c016-4c36-8bbe-4338f0fe5d14.svg",
+    "computer": "/uploads/icons/88dccb9a-8e5d-4111-9a2a-c10a950afae5.svg",
+    "laptop": "/uploads/icons/8a204d68-6603-44fb-924b-eecbfee59f0e.svg",
+    "magnifier": "/uploads/icons/ee6ca544-6594-4250-8ac5-0546977eb653.svg",
+    "notebook": "/uploads/icons/291772df-566e-457a-a7ce-f8b17af3221a.svg",
+    "person_read": "/uploads/icons/1877763e-2839-49cf-94b7-e5d1ba5eb00d.svg",
+    "phone": "/uploads/icons/32004b5c-54a7-4414-a5b4-3ac4b30fab92.svg",
+    "projector": "/uploads/icons/455f10a8-79c2-4580-b9eb-49ed775e9238.svg",
+    "rulers": "/uploads/icons/01cb1e1f-41e1-4356-ab8b-3208bd035013.svg",
+    "speech_bubble": "/uploads/icons/753f0ce3-49e1-4caf-b67c-20395428dbea.svg",
+    "trophy": "/uploads/icons/7bfcd3f1-804c-47e7-a23b-4a6da58451ff.svg"
+  },
+  "references": {
+    "bebrand-slide-1": "/uploads/2d1c9ce6-e18e-4437-8a24-68802cbcbd3e.png",
+    "bebrand-slide-2": "/uploads/86df08be-43fb-43b1-8a58-fc38a8ac9c64.png",
+    "bebrand-slide-3": "/uploads/73294bce-afdb-411e-8105-f6ee8c3c057a.png",
+    "bebrand-slide-4": "/uploads/9e395778-6e02-4e54-ad8e-29efd42cab5f.png",
+    "etsy-educational-1": "/uploads/3737adde-a3ba-4333-b664-359858bb753f.png",
+    "etsy-educational-2": "/uploads/b49aeda6-264a-4241-8ee3-25e2715175cb.png",
+    "etsy-educational-3": "/uploads/ac188663-b368-4c1b-b13a-4fba6a79e347.png",
+    "etsy-educational-4": "/uploads/8fff643a-0178-4275-af2e-1bf2bd1c9f1d.png",
+    "etsy-educational-5": "/uploads/af8d23a2-afd4-4f1d-94c1-eca4e281d672.png"
+  }
+}

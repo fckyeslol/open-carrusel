@@ -3,6 +3,29 @@ import os from "os";
 import path from "path";
 import { spawnSync } from "child_process";
 
+/**
+ * On Windows, .cmd shims route through cmd.exe which has an 8191-char command line limit.
+ * This parses the .cmd file to find the actual .exe, so we can spawn via CreateProcess
+ * directly (32767-char limit — enough for long prompts + system prompts).
+ */
+export function resolveDirectExecutable(claudePath: string): string {
+  if (process.platform !== "win32" || !/\.(cmd|bat)$/i.test(claudePath)) {
+    return claudePath;
+  }
+  try {
+    const content = fs.readFileSync(claudePath, "utf-8");
+    // Matches lines like: "%dp0%\node_modules\@anthropic-ai\claude-code\bin\claude.exe" %*
+    const match = content.match(/"(?:%dp0%\\)([^"\r\n]+\.exe)"/i);
+    if (match) {
+      const resolved = path.join(path.dirname(claudePath), match[1]);
+      if (fs.existsSync(resolved)) return resolved;
+    }
+  } catch {
+    // fall through
+  }
+  return claudePath;
+}
+
 function buildCandidates(): string[] {
   const home = os.homedir();
   const candidates: string[] = [];

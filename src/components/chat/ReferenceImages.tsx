@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { ImagePlus, X } from "lucide-react";
+import { Upload, X, Copy, Check, Image } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ReferenceImage } from "@/types/carousel";
 
@@ -17,13 +17,13 @@ export function ReferenceImages({
   onImagesChange,
 }: ReferenceImagesProps) {
   const [uploading, setUploading] = useState(false);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewImg, setPreviewImg] = useState<ReferenceImage | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
 
   const handleUpload = useCallback(
     async (file: File) => {
       setUploading(true);
       try {
-        // Upload the file
         const formData = new FormData();
         formData.append("file", file);
         const uploadRes = await fetch("/api/upload", {
@@ -33,14 +33,10 @@ export function ReferenceImages({
         if (!uploadRes.ok) return;
         const uploadData = await uploadRes.json();
 
-        // Register as reference image
         await fetch(`/api/carousels/${carouselId}/references`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            url: uploadData.url,
-            name: file.name,
-          }),
+          body: JSON.stringify({ url: uploadData.url, name: file.name }),
         });
 
         onImagesChange();
@@ -67,65 +63,88 @@ export function ReferenceImages({
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
-      const file = e.dataTransfer.files[0];
-      if (file && file.type.startsWith("image/")) handleUpload(file);
+      const files = Array.from(e.dataTransfer.files).filter((f) =>
+        f.type.startsWith("image/")
+      );
+      files.forEach(handleUpload);
     },
     [handleUpload]
   );
 
-  const handleClick = useCallback(() => {
+  const handlePick = useCallback(() => {
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "image/png,image/jpeg,image/webp";
+    input.multiple = true;
     input.onchange = (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (file) handleUpload(file);
+      const files = Array.from((e.target as HTMLInputElement).files ?? []);
+      files.forEach(handleUpload);
     };
     input.click();
   }, [handleUpload]);
+
+  const copyUrl = useCallback((url: string) => {
+    navigator.clipboard.writeText(url).catch(() => {});
+    setCopied(url);
+    setTimeout(() => setCopied(null), 1500);
+  }, []);
 
   return (
     <div className="border-b border-border">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2">
-        <span className="text-xs font-medium text-muted-foreground">
-          Reference Images
-        </span>
+        <div className="flex items-center gap-1.5">
+          <Image className="h-3 w-3 text-muted-foreground" />
+          <span className="text-xs font-medium text-muted-foreground">
+            Assets
+          </span>
+          {images.length > 0 && (
+            <span className="text-[10px] text-muted-foreground/60">
+              ({images.length})
+            </span>
+          )}
+        </div>
         <Button
           variant="ghost"
           size="sm"
-          onClick={handleClick}
+          onClick={handlePick}
           disabled={uploading}
           className="h-6 text-xs gap-1 px-2"
         >
-          <ImagePlus className="h-3 w-3" />
-          {uploading ? "Uploading..." : "Add"}
+          <Upload className="h-3 w-3" />
+          {uploading ? "Subiendo..." : "Subir"}
         </Button>
       </div>
 
-      {/* Images grid or drop zone */}
+      {/* Drop zone or grid */}
       {images.length === 0 ? (
         <div
           onDrop={handleDrop}
           onDragOver={(e) => e.preventDefault()}
-          onClick={handleClick}
-          className="mx-4 mb-3 border border-dashed border-border rounded-lg p-3 text-center cursor-pointer hover:border-muted-foreground/50 hover:bg-muted/30 transition-colors"
+          onClick={handlePick}
+          className="mx-4 mb-3 border border-dashed border-border rounded-lg p-4 text-center cursor-pointer hover:border-muted-foreground/40 hover:bg-muted/20 transition-colors"
         >
-          <ImagePlus className="h-4 w-4 mx-auto text-muted-foreground/50 mb-1" />
-          <p className="text-[10px] text-muted-foreground">
-            Drop reference images here
+          <Upload className="h-4 w-4 mx-auto text-muted-foreground/40 mb-2" />
+          <p className="text-[11px] text-muted-foreground font-medium">
+            Sube logos, gráficos e ilustraciones
           </p>
-          <p className="text-[9px] text-muted-foreground/70">
-            The AI will study these to match your style
+          <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+            Claude los usará en las slides · PNG, JPG, WebP
           </p>
         </div>
       ) : (
-        <div className="flex gap-2 px-4 pb-3 overflow-x-auto">
+        <div className="px-4 pb-3 space-y-1.5 max-h-44 overflow-y-auto">
           {images.map((img) => (
-            <div key={img.id} className="oc-enter-pop relative group shrink-0">
+            <div
+              key={img.id}
+              className="flex items-center gap-2 group rounded-lg px-2 py-1.5 hover:bg-muted/40 transition-colors"
+            >
+              {/* Thumbnail */}
               <button
-                onClick={() => setPreviewUrl(previewUrl === img.url ? null : img.url)}
-                className="block w-14 h-14 rounded-lg overflow-hidden border border-border hover:border-accent transition-colors"
+                onClick={() =>
+                  setPreviewImg(previewImg?.id === img.id ? null : img)
+                }
+                className="shrink-0 w-9 h-9 rounded-md overflow-hidden border border-border hover:border-accent transition-colors"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
@@ -134,45 +153,102 @@ export function ReferenceImages({
                   className="w-full h-full object-cover"
                 />
               </button>
-              {/* Remove button */}
-              <button
-                onClick={() => handleRemove(img.id)}
-                className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-destructive text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                aria-label={`Remove ${img.name}`}
-              >
-                <X className="h-2.5 w-2.5" />
-              </button>
+
+              {/* Name + URL */}
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] font-medium text-foreground truncate leading-tight">
+                  {img.name.replace(/\.[^.]+$/, "")}
+                </p>
+                <p className="text-[10px] text-muted-foreground/70 font-mono truncate leading-tight">
+                  {img.url}
+                </p>
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={() => copyUrl(img.url)}
+                  className="h-6 w-6 rounded flex items-center justify-center hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                  title="Copiar URL"
+                >
+                  {copied === img.url ? (
+                    <Check className="h-3 w-3 text-green-500" />
+                  ) : (
+                    <Copy className="h-3 w-3" />
+                  )}
+                </button>
+                <button
+                  onClick={() => handleRemove(img.id)}
+                  className="h-6 w-6 rounded flex items-center justify-center hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+                  title="Eliminar"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
             </div>
           ))}
-          {/* Add more button */}
+
+          {/* Add more */}
           <button
-            onClick={handleClick}
-            className="shrink-0 w-14 h-14 rounded-lg border border-dashed border-border flex items-center justify-center hover:border-muted-foreground/50 transition-colors"
+            onClick={handlePick}
+            disabled={uploading}
+            onDrop={handleDrop}
+            onDragOver={(e) => e.preventDefault()}
+            className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg border border-dashed border-border text-[11px] text-muted-foreground hover:border-muted-foreground/40 hover:text-foreground hover:bg-muted/20 transition-colors"
           >
-            <ImagePlus className="h-3.5 w-3.5 text-muted-foreground" />
+            <Upload className="h-3 w-3" />
+            {uploading ? "Subiendo..." : "Agregar más"}
           </button>
         </div>
       )}
 
-      {/* Preview modal */}
-      {previewUrl && (
+      {/* Preview lightbox */}
+      {previewImg && (
         <div
-          className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-8"
-          onClick={() => setPreviewUrl(null)}
+          className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-8"
+          onClick={() => setPreviewImg(null)}
         >
-          <div className="relative max-w-2xl max-h-full">
+          <div
+            className="relative bg-card rounded-xl overflow-hidden shadow-2xl max-w-lg w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={previewUrl}
-              alt="Reference preview"
-              className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl"
+              src={previewImg.url}
+              alt={previewImg.name}
+              className="w-full max-h-[60vh] object-contain bg-muted/20"
             />
-            <button
-              onClick={() => setPreviewUrl(null)}
-              className="absolute -top-2 -right-2 h-8 w-8 rounded-full bg-white text-foreground flex items-center justify-center shadow-lg"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            <div className="p-3 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium truncate">{previewImg.name}</p>
+                <p className="text-xs font-mono text-muted-foreground truncate">
+                  {previewImg.url}
+                </p>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs gap-1"
+                  onClick={() => copyUrl(previewImg.url)}
+                >
+                  {copied === previewImg.url ? (
+                    <Check className="h-3 w-3 text-green-500" />
+                  ) : (
+                    <Copy className="h-3 w-3" />
+                  )}
+                  Copiar URL
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 w-7 p-0"
+                  onClick={() => setPreviewImg(null)}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
       )}
