@@ -78,7 +78,7 @@ It's open source under MIT. Fork it, tweak the system prompt, ship your own vari
 1. **Install [Claude Code](https://docs.anthropic.com/en/docs/claude-code)** and authenticate.
 2. **Clone and open the repo** in Claude Code:
    ```bash
-   git clone https://github.com/Hainrixz/open-carrusel.git
+   git clone https://github.com/fckyeslol/open-carrusel.git
    cd open-carrusel
    claude
    ```
@@ -89,10 +89,19 @@ It's open source under MIT. Fork it, tweak the system prompt, ship your own vari
 
 That's it. Dependencies install, the dev server starts, your browser opens. Now design carousels by chatting.
 
+> **Requisito:** necesitas [Claude Code](https://docs.anthropic.com/en/docs/claude-code) instalado y con sesión iniciada (la IA de la app usa tu CLI de Claude — no hace falta API key).
+>
+> **Marcas incluidas:** este fork trae 2 presets de marca y los instala solos en el primer `setup`. La marca activa por defecto es **Sembradores de Fe** (azul marino + dorado, con logo). Cámbiala cuando quieras:
+> ```bash
+> npm run brand sembradores   # marca Sembradores de Fe (por defecto)
+> npm run brand mateo          # marca Mateo.Pirela (naranja/azul)
+> ```
+> También puedes editar colores, fuentes y logo desde el ícono de engranaje en la app.
+
 ### Manual path (if you don't use Claude Code)
 
 ```bash
-git clone https://github.com/Hainrixz/open-carrusel.git
+git clone https://github.com/fckyeslol/open-carrusel.git
 cd open-carrusel
 npm run setup        # installs deps + seeds /data/
 npm run dev          # starts http://localhost:3000

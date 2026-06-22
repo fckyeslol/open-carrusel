@@ -1,0 +1,23 @@
+{
+  "name": "Mateo.Pirela",
+  "colors": {
+    "primary": "#E8651A",
+    "secondary": "#1B2B6B",
+    "accent": "#E8651A",
+    "background": "#F5F0E8",
+    "surface": "#EDE8DC"
+  },
+  "fonts": {
+    "heading": "Montserrat",
+    "body": "Nunito"
+  },
+  "customFonts": [],
+  "logoPath": null,
+  "styleKeywords": [
+    "creative",
+    "modern",
+    "playful"
+  ],
+  "createdAt": "2026-05-25T03:17:37.712Z",
+  "updatedAt": "2026-05-25T03:17:37.710Z"
+}

@@ -74,33 +74,73 @@ function findClaudePath() {
   return tryProbeClaude();
 }
 
+// Recursively copy files from src into dest, skipping any that already exist.
+function copyDirIfMissing(srcDir, destDir) {
+  if (!fs.existsSync(srcDir)) return 0;
+  fs.mkdirSync(destDir, { recursive: true });
+  let count = 0;
+  for (const entry of fs.readdirSync(srcDir, { withFileTypes: true })) {
+    const s = path.join(srcDir, entry.name);
+    const d = path.join(destDir, entry.name);
+    if (entry.isDirectory()) count += copyDirIfMissing(s, d);
+    else if (!fs.existsSync(d)) {
+      fs.copyFileSync(s, d);
+      count++;
+    }
+  }
+  return count;
+}
+
 function seedDataFiles() {
   const dataDir = path.join(ROOT, "data");
   const uploadsDir = path.join(ROOT, "public", "uploads");
   const exportsDir = path.join(dataDir, "exports");
   const fontCacheDir = path.join(dataDir, ".font-cache");
+  const brandsDir = path.join(dataDir, "brands");
 
-  for (const dir of [dataDir, uploadsDir, exportsDir, fontCacheDir]) {
+  for (const dir of [dataDir, uploadsDir, exportsDir, fontCacheDir, brandsDir]) {
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  const seeds = {
-    "brand.json": {
-      name: "",
-      colors: {
-        primary: "#1a1a2e",
-        secondary: "#16213e",
-        accent: "#e94560",
-        background: "#ffffff",
-        surface: "#f5f5f5",
-      },
-      fonts: { heading: "Inter", body: "Inter" },
-      customFonts: [],
-      logoPath: null,
-      styleKeywords: [],
-      createdAt: "",
-      updatedAt: "",
+  // Install bundled seed assets (brand profiles, logo, icons) on first run.
+  // data/ and public/uploads/ are gitignored, so the repo ships them under seed/.
+  const seedDir = path.join(ROOT, "seed");
+  const copiedUploads = copyDirIfMissing(path.join(seedDir, "uploads"), uploadsDir);
+  const copiedBrands = copyDirIfMissing(path.join(seedDir, "brands"), brandsDir);
+  if (copiedUploads) log(`  Installed ${copiedUploads} seed asset(s) into public/uploads`);
+  if (copiedBrands) log(`  Installed ${copiedBrands} brand profile(s) into data/brands`);
+
+  const genericBrand = {
+    name: "",
+    colors: {
+      primary: "#1a1a2e",
+      secondary: "#16213e",
+      accent: "#e94560",
+      background: "#ffffff",
+      surface: "#f5f5f5",
     },
+    fonts: { heading: "Inter", body: "Inter" },
+    customFonts: [],
+    logoPath: null,
+    styleKeywords: [],
+    createdAt: "",
+    updatedAt: "",
+  };
+
+  // Active brand: prefer the bundled seed/brand.json, else a neutral default.
+  const brandPath = path.join(dataDir, "brand.json");
+  if (!fs.existsSync(brandPath)) {
+    const seedBrand = path.join(seedDir, "brand.json");
+    if (fs.existsSync(seedBrand)) {
+      fs.copyFileSync(seedBrand, brandPath);
+      log("  Created data/brand.json (from seed)");
+    } else {
+      fs.writeFileSync(brandPath, JSON.stringify(genericBrand), "utf-8");
+      log("  Created data/brand.json");
+    }
+  }
+
+  const seeds = {
     "carousels.json": { carousels: [] },
     "templates.json": { templates: [] },
     "staged-actions.json": { actions: [] },

@@ -1,0 +1,26 @@
+{
+  "name": "Sembradores de Fe",
+  "colors": {
+    "primary": "#1C3F7C",
+    "secondary": "#14305C",
+    "accent": "#C9A227",
+    "background": "#FAF6EE",
+    "surface": "#F3ECDB"
+  },
+  "fonts": {
+    "heading": "Montserrat",
+    "body": "Mulish"
+  },
+  "customFonts": [],
+  "logoPath": "/uploads/sembradores-logo.png",
+  "styleKeywords": [
+    "fe",
+    "cálido",
+    "elegante",
+    "comunidad",
+    "esperanza",
+    "editorial"
+  ],
+  "createdAt": "2026-06-22T18:00:00.000Z",
+  "updatedAt": "2026-06-22T18:00:00.000Z"
+}
