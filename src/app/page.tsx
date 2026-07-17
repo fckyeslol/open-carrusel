@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Plus, Layers, Calendar, SlidersHorizontal, Trash2, Copy } from "lucide-react";
 import { TopBar } from "@/components/layout/TopBar";
 import { Button } from "@/components/ui/button";
@@ -118,10 +119,15 @@ export default function DashboardPage() {
                 Create Instagram carousels with AI
               </p>
             </div>
-            <Button onClick={() => setShowCreateDialog(true)} variant="accent">
-              <Plus className="h-4 w-4" />
-              New Carousel
-            </Button>
+            <div className="flex items-center gap-2">
+              <Link href="/30x">
+                <Button variant="outline">Carruseles 30x</Button>
+              </Link>
+              <Button onClick={() => setShowCreateDialog(true)} variant="accent">
+                <Plus className="h-4 w-4" />
+                New Carousel
+              </Button>
+            </div>
           </div>
 
           {/* Tabs */}

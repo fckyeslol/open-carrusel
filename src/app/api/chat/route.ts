@@ -76,7 +76,10 @@ export async function POST(request: NextRequest) {
     "--allowedTools",
     "Read",
     "--max-budget-usd",
-    "1.00",
+    // Generar un carrusel 30x lee varias imágenes de referente (visión, caro) y
+    // escribe N láminas ricas: $1 se queda corto y el proceso muere en exit 1.
+    // Configurable por env; default alto para el flujo 30x.
+    process.env.CLAUDE_MAX_BUDGET_USD || "8.00",
   ];
 
   if (sessionId) {

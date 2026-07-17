@@ -97,7 +97,20 @@ function buildDesignRules(adn) {
   if (brand.cta_default) lines.push(`CTA por defecto: "${brand.cta_default}".`);
   if (vi.tipografia?.familia) lines.push(`Tipografía de marca: ${vi.tipografia.familia} (usar para titulares).`);
   if (Array.isArray(vi.fondos) && vi.fondos.length) lines.push(`Tratamientos de fondo disponibles: ${vi.fondos.join(", ")}.`);
-  if (Array.isArray(voice.tono) && voice.tono.length) lines.push(`Tono de voz: ${voice.tono.join(", ")}.`);
+  // ── Voz (fuente: sección Avatares de Prewave, volcada al adn.json) ───────────
+  if (voice.acento && voice.acento !== "neutro")
+    lines.push(`Acento / dialecto: ${voice.acento} (regla dura: mantenerlo en toda la copy).`);
+  if (Array.isArray(voice.tono) && voice.tono.length) lines.push(`Rasgos de tono: ${voice.tono.join(", ")}.`);
+  if (voice.tono_descripcion) lines.push(`Tono de voz: ${voice.tono_descripcion}`);
+  if (voice.estilo_comunicacion) lines.push(`Estilo de comunicación: ${voice.estilo_comunicacion}`);
+  if (Array.isArray(voice.temas_centrales) && voice.temas_centrales.length)
+    lines.push(`Temas centrales del avatar: ${voice.temas_centrales.join(", ")}.`);
+  if (Array.isArray(voice.frases_muestra) && voice.frases_muestra.length)
+    lines.push(
+      `Frases de muestra (para CALIBRAR la voz, no para copiar literal salvo que encajen con el referente): ${voice.frases_muestra.join(" | ")}`
+    );
+  if (voice.firma_cierre_prewave)
+    lines.push(`Firma hablada de Prewave (referencia de voz, adaptar al carrusel): "${voice.firma_cierre_prewave}".`);
   if (Array.isArray(voice.do) && voice.do.length) lines.push(`HACER: ${voice.do.join(" | ")}.`);
   if (Array.isArray(voice.dont) && voice.dont.length) lines.push(`NO HACER: ${voice.dont.join(" | ")}.`);
   lines.push(

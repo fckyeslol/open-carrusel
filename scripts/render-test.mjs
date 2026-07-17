@@ -35,8 +35,21 @@ const page = await browser.newPage();
 await page.setViewport({ width: 1080, height: 1350, deviceScaleFactor: 1 });
 
 let html = await readFile(htmlPath, "utf-8");
-// Resolver /uploads/ a file:// para que las imágenes (si existen) carguen.
-html = html.replace(/(["'(])\/uploads\//g, `$1file:///${publicDir.replace(/\\/g, "/")}/uploads/`);
+// Inyectar cada /uploads/... como data URI (igual que el export real de la app),
+// para que el render de prueba muestre EXACTAMENTE lo que exporta la app.
+const imgRe = /(["'(])(\/uploads\/[^"')\s]+)/g;
+const matches = [...html.matchAll(imgRe)];
+for (const m of matches) {
+  const rel = m[2];
+  try {
+    const buf = await readFile(path.join(publicDir, rel));
+    const ext = path.extname(rel).toLowerCase();
+    const mime = ext === ".png" ? "image/png" : ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" : ext === ".svg" ? "image/svg+xml" : "image/webp";
+    html = html.replace(rel, `data:${mime};base64,${buf.toString("base64")}`);
+  } catch {
+    /* imagen inexistente: dejar la ruta (mostrará el fondo de respaldo) */
+  }
+}
 
 await page.setContent(html, { waitUntil: "networkidle2", timeout: 20000 });
 await page.evaluate(() => document.fonts.ready).catch(() => {});
