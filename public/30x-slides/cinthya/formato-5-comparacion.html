@@ -1,0 +1,67 @@
+<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1080px;height:1350px;overflow:hidden}
+.s{width:1080px;height:1350px;position:relative;overflow:hidden;background:#F6F5F0;color:#2A2320;font-family:'Inter',sans-serif;padding:74px 70px 130px;display:flex;flex-direction:column}
+.glow{position:absolute;top:-180px;right:-180px;width:640px;height:640px;border-radius:50%;
+  background:radial-gradient(circle at 50% 50%, rgba(229,172,191,.5), rgba(229,172,191,0) 66%)}
+.top{position:relative;display:flex;align-items:center;justify-content:space-between;z-index:2}
+.logo{height:38px;width:auto}
+.idx{font-family:'Instrument Serif',serif;font-size:36px;color:#C77E97}
+.main{position:relative;z-index:2;flex:1;display:flex;flex-direction:column;justify-content:center}
+.kicker{font-size:23px;font-weight:800;letter-spacing:4px;text-transform:uppercase;color:#C77E97}
+.title{margin-top:6px;font-family:'Instrument Serif',serif;font-size:84px;line-height:1;color:#2A2320}
+.ladder{margin-top:40px;display:flex;flex-direction:column;gap:24px}
+.card{border-radius:24px;padding:30px 34px}
+.card .lab{display:flex;align-items:center;gap:12px;font-size:21px;font-weight:800;letter-spacing:2px;text-transform:uppercase;margin-bottom:12px}
+.card .mark{width:33px;height:33px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:19px;font-weight:800}
+.card p{font-size:29px;line-height:1.34;font-weight:500}
+/* Malo */
+.malo{background:#efe7e4;border:1.5px solid #e0d3ce}
+.malo .lab{color:#a98d84}
+.malo .mark{background:#d8c3bc;color:#7a5f57}
+.malo p{color:#6f605a}
+/* Bueno */
+.bueno{background:#f3e4ea;border:1.5px solid #e9cdd8}
+.bueno .lab{color:#b06d88}
+.bueno .mark{background:#e5acbf;color:#5c3a47}
+.bueno p{color:#4a3f3a}
+/* Excelente (hero) */
+.exc{background:#2A2320;color:#F6F5F0;padding:30px 34px}
+.exc .lab{color:#E5ACBF}
+.exc .mark{background:#E5ACBF;color:#2A2320}
+.exc .grid{display:grid;grid-template-columns:auto 1fr;gap:8px 16px;font-size:23px;line-height:1.3}
+.exc .k{font-weight:800;color:#E5ACBF;white-space:nowrap}
+.exc .v{color:#eae2df;font-weight:500}
+.foot{position:absolute;left:70px;bottom:52px;z-index:2;font-family:'Instrument Serif',serif;font-style:italic;font-size:32px;color:#2A2320}
+</style></head><body>
+<div class="s">
+  <div class="glow"></div>
+  <div class="top"><img class="logo" src="/uploads/brand/30x-negro.png" alt="30X"><span class="idx">02</span></div>
+  <div class="main">
+  <div class="kicker">Claridad instantánea</div>
+  <div class="title">Explicar un tema</div>
+  <div class="ladder">
+    <div class="card malo">
+      <div class="lab"><span class="mark">✗</span>Prompt malo</div>
+      <p>Explícame [tema] de forma sencilla.</p>
+    </div>
+    <div class="card bueno">
+      <div class="lab"><span class="mark">→</span>Prompt bueno</div>
+      <p>Explícame [tema] en lenguaje simple, con ejemplos claros, y dime cuáles son las ideas más importantes que debo entender primero.</p>
+    </div>
+    <div class="card exc">
+      <div class="lab"><span class="mark">✓</span>Prompt excelente</div>
+      <div class="grid">
+        <span class="k">Contexto</span><span class="v">Quiero entender [tema] a fondo para explicarlo, aplicarlo y decidir mejor.</span>
+        <span class="k">Rol</span><span class="v">Sos un maestro experto en simplificar ideas complejas.</span>
+        <span class="k">Instrucción</span><span class="v">Dame la idea central en una frase, dividí el tema en partes, usá analogías y ejemplos reales.</span>
+        <span class="k">Formato</span><span class="v">Idea central · Explicación simple · Analogía · Ejemplo · Errores comunes · Cómo aplicarlo.</span>
+      </div>
+    </div>
+  </div>
+  </div>
+  <div class="foot">/ Cinthya Sánchez.</div>
+</div>
+</body></html>
