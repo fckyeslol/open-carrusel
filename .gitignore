@@ -54,3 +54,6 @@ Thumbs.db
 
 # throwaway standalone slide render pages (export workaround)
 /public/sdf-slides/
+
+# render de prueba 30x
+render-*.png

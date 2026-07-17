@@ -22,6 +22,24 @@ export async function getPreset(id: string): Promise<StylePreset | null> {
   return data.presets.find((p) => p.id === id) ?? null;
 }
 
+/** Resuelve el preset de un avatar por su slug (cinthya, guillermo, …). */
+export async function getPresetByAvatarSlug(slug: string): Promise<StylePreset | null> {
+  const data = await load();
+  const wanted = slug.trim().toLowerCase();
+  return (
+    data.presets.find((p) => p.avatarSlug?.toLowerCase() === wanted) ??
+    data.presets.find((p) => p.id === `avatar-${wanted}`) ??
+    data.presets.find((p) => p.tags?.includes(`avatar:${wanted}`)) ??
+    null
+  );
+}
+
+/** Lista solo los presets de avatar de 30x. */
+export async function listAvatarPresets(): Promise<StylePreset[]> {
+  const data = await load();
+  return data.presets.filter((p) => p.avatarSlug || String(p.id).startsWith("avatar-"));
+}
+
 export async function createPreset(
   params: Omit<StylePreset, "id" | "createdAt">
 ): Promise<StylePreset> {

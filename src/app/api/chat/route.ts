@@ -48,7 +48,9 @@ export async function POST(request: NextRequest) {
   // Build dynamic system prompt with current brand + carousel + style preset context
   const brand = await getBrand();
   const carousel = carouselId ? await getCarousel(carouselId) : null;
-  const stylePreset = stylePresetId ? await getPreset(stylePresetId) : null;
+  // Preferir el preset pedido; si no vino, usar el del carrusel (avatar 30x asociado).
+  const effectivePresetId = stylePresetId || carousel?.stylePresetId || null;
+  const stylePreset = effectivePresetId ? await getPreset(effectivePresetId) : null;
   const host = request.headers.get("host") || "localhost:3000";
   const baseUrl = `http://${host}`;
   const systemPrompt = buildSystemPrompt(brand, carousel, stylePreset, baseUrl);

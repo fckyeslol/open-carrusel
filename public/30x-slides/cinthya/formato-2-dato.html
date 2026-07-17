@@ -1,0 +1,41 @@
+<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1080px;height:1350px;overflow:hidden}
+.s{width:1080px;height:1350px;position:relative;overflow:hidden;background:#F6F5F0;font-family:'Inter',sans-serif;color:#2A2320}
+/* subtle paper texture via layered radial dots */
+.grain{position:absolute;inset:0;opacity:.5;background:
+ radial-gradient(circle at 20% 12%,rgba(229,172,191,.16),transparent 34%),
+ radial-gradient(circle at 88% 82%,rgba(42,35,32,.05),transparent 40%)}
+.eyebrow{position:absolute;top:120px;left:96px;display:flex;align-items:center;gap:18px;font-size:22px;font-weight:600;letter-spacing:4px;text-transform:uppercase;color:#8a7d73}
+.eyebrow .rule{width:52px;height:2px;background:#E5ACBF}
+.label{position:absolute;top:196px;left:96px;width:640px;font-family:'Instrument Serif',serif;font-size:52px;line-height:1.05;color:#2A2320}
+/* the giant number dominating the slide */
+.big{position:absolute;top:388px;left:70px;font-family:'Instrument Serif',serif;font-weight:400;font-size:520px;line-height:.78;letter-spacing:-14px;color:#2A2320}
+.big .pct{font-size:210px;color:#E5ACBF;letter-spacing:0}
+/* blush underline slab beneath the number */
+.slab{position:absolute;top:840px;left:98px;width:388px;height:22px;background:#E5ACBF;border-radius:4px}
+.context{position:absolute;top:912px;left:98px;width:720px;font-size:34px;line-height:1.42;color:#3a322c;font-weight:400}
+.context b{font-weight:600;color:#2A2320}
+/* source line with decorative brackets */
+.source{position:absolute;bottom:150px;left:98px;font-size:22px;color:#8a7d73;font-weight:500;letter-spacing:.5px}
+.source::before{content:'';display:inline-block;width:34px;height:2px;background:#C77E97;vertical-align:middle;margin-right:14px;margin-bottom:4px}
+.foot{position:absolute;bottom:60px;left:98px;right:98px;display:flex;align-items:center;justify-content:space-between}
+.foot .sign{font-family:'Instrument Serif',serif;font-style:italic;font-size:30px;color:#2A2320}
+.foot .pg{font-family:'Instrument Serif',serif;font-size:34px;color:#C77E97}
+.logo{position:absolute;top:110px;right:80px;width:96px;height:auto;opacity:.85}
+</style></head><body>
+<div class="s">
+ <div class="grain"></div>
+ <img class="logo" src="/uploads/30x-logo.png" alt="30X">
+ <div class="eyebrow"><span class="rule"></span>El dato que nadie mira</div>
+ <div class="label">De cada hora de trabajo directivo,<br>esto ya lo puede hacer un agente:</div>
+ <div class="big">40<span class="pct">%</span></div>
+ <div class="slab"></div>
+ <div class="context">No se trata de despedir personas. Se trata de <b>liberar criterio</b> para las decisiones que sí necesitan un humano al mando.</div>
+ <div class="source">McKinsey, Estado de la IA · lectura de Cinthya Sánchez</div>
+ <div class="foot"><div class="sign">/ Cinthya Sánchez.</div><div class="pg">02</div></div>
+</div></body></html>

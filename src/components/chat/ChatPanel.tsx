@@ -20,6 +20,8 @@ interface ChatPanelProps {
   onStreamStart?: () => void;
   onStreamEnd?: () => void;
   chatInputRef?: React.RefObject<HTMLTextAreaElement | null>;
+  /** Mensaje que se envía UNA vez al montar (generación 30x desde referente). */
+  autoSendMessage?: string;
 }
 
 export function ChatPanel({
@@ -29,6 +31,7 @@ export function ChatPanel({
   onStreamStart,
   onStreamEnd,
   chatInputRef,
+  autoSendMessage,
 }: ChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -227,6 +230,17 @@ export function ChatPanel({
     },
     [isStreaming, sessionId, carouselId, onStreamStart, onStreamEnd, persistMessages]
   );
+
+  // Auto-disparo de la generación 30x: envía el mensaje UNA sola vez, solo si el
+  // chat está vacío (carrusel recién ingestado desde un referente).
+  const autoSentRef = useRef(false);
+  useEffect(() => {
+    if (autoSentRef.current) return;
+    if (!autoSendMessage || !claudeAvailable) return;
+    if (messages.length > 0 || isStreaming) return;
+    autoSentRef.current = true;
+    handleSend(autoSendMessage);
+  }, [autoSendMessage, claudeAvailable, messages.length, isStreaming, handleSend]);
 
   if (!claudeAvailable) {
     return (

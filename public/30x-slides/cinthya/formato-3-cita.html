@@ -1,0 +1,40 @@
+<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1080px;height:1350px;overflow:hidden}
+/* deep Tierra field for the quote — a change of register mid-carousel */
+.s{width:1080px;height:1350px;position:relative;overflow:hidden;background:#2A2320;font-family:'Inter',sans-serif;color:#F6F5F0}
+.ov{position:absolute;inset:0;background:
+ radial-gradient(85% 60% at 50% 34%,rgba(229,172,191,.18),rgba(42,35,32,0) 62%),
+ radial-gradient(120% 90% at 50% 120%,rgba(0,0,0,.5),rgba(42,35,32,0) 55%)}
+/* faint portrait, masked, low in the composition */
+.photo{position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:760px;height:520px;
+ background:#211b18 url('/uploads/persons/cinthya/1.jpg') center 20%/cover no-repeat;opacity:.16;
+ -webkit-mask:radial-gradient(ellipse 70% 90% at 50% 100%,#000 30%,transparent 72%);mask:radial-gradient(ellipse 70% 90% at 50% 100%,#000 30%,transparent 72%)}
+/* giant decorative opening quote */
+.mark{position:absolute;top:150px;left:0;right:0;text-align:center;font-family:'Instrument Serif',serif;font-size:340px;line-height:1;color:#E5ACBF;opacity:.9;height:180px}
+.quote{position:absolute;top:404px;left:110px;right:110px;text-align:center;font-family:'Instrument Serif',serif;font-weight:400;font-size:80px;line-height:1.14;letter-spacing:-.5px;color:#F6F5F0}
+.quote em{font-style:italic;color:#E5ACBF}
+/* decorative divider with center diamond */
+.div{position:absolute;top:912px;left:0;right:0;display:flex;align-items:center;justify-content:center;gap:22px}
+.div .ln{width:120px;height:1px;background:rgba(246,245,240,.4)}
+.div .dm{width:12px;height:12px;background:#E5ACBF;transform:rotate(45deg)}
+.attr{position:absolute;top:976px;left:0;right:0;text-align:center}
+.attr .nm{font-size:28px;font-weight:600;letter-spacing:3px;text-transform:uppercase;color:#F6F5F0}
+.attr .role{margin-top:12px;font-size:21px;letter-spacing:1px;color:#c9b9ae;font-weight:400}
+.logo{position:absolute;top:70px;left:80px;width:96px;height:auto;opacity:.7}
+.pg{position:absolute;top:80px;right:88px;font-family:'Instrument Serif',serif;font-size:38px;color:#E5ACBF}
+</style></head><body>
+<div class="s">
+ <div class="ov"></div>
+ <div class="photo"></div>
+ <img class="logo" src="/uploads/30x-logo.png" alt="30X">
+ <div class="pg">03</div>
+ <div class="mark">&ldquo;</div>
+ <div class="quote">La ventaja no es tener la mejor IA.<br>Es hacer <em>las mejores preguntas.</em></div>
+ <div class="div"><span class="ln"></span><span class="dm"></span><span class="ln"></span></div>
+ <div class="attr"><div class="nm">Cinthya Sánchez</div><div class="role">CIO · Ex-Microsoft · Sensei de IA · Board member</div></div>
+</div></body></html>

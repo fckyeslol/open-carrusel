@@ -9,6 +9,13 @@ export function buildSystemPrompt(
   stylePreset?: StylePreset | null,
   baseUrl = "${baseUrl}"
 ): string {
+  // Integración 30x: si hay un preset de avatar activo, SU identidad (paleta,
+  // tipografía, nombre) manda sobre el brand global. Así "avatar = preset" define
+  // toda la marca del carrusel sin tocar el brand.json de la app.
+  if (stylePreset?.brand?.name) {
+    brand = stylePreset.brand;
+  }
+
   const brandSection = brand.name
     ? `## Brand identity
 - Name: ${brand.name}
@@ -144,6 +151,14 @@ Assets can be either style references OR actual content to embed in slides.
    - **Content assets** (logos, icons, illustrations, brand graphics): embed directly in slides via \`<img src="{url}" style="...">\`
 3. For logos and graphics: use them in the actual slide HTML — e.g., \`<img src="/uploads/logo.png" style="width:80px;position:absolute;top:60px;right:80px;">\`
 4. Always use the exact \`url\` field from the asset list (e.g., \`/uploads/abc123.png\`)
+
+### Fotos de personas del ministerio (reconocimiento facial)
+The Sembradores asset library is face-tagged. When the user asks for a carousel/flyer "con fotos de <persona>" or about a specific person, PULL that person's best photos automatically:
+\`\`\`
+node scripts/person-assets.cjs "<Nombre>" [N]
+\`\`\`
+It downloads that person's best images (clear portraits first) to \`/uploads/persons/<slug>/1.jpg, 2.jpg…\` and prints the exact paths + descriptions (also writes \`manifest.json\` there). Then Read them and embed in slides via \`<img src="/uploads/persons/<slug>/1.jpg" style="...">\`. If the name isn't found, the script lists the available people.
+Personas disponibles: Ronald Granados, Hugo, Caro Angarita, Karo Cerón, Jesús España, Jhon, María Carolina, Luciana, Aldemir Bilbao, Yaleidis.
 
 ## API — Use Python for all operations (NEVER curl — curl on Windows corrupts UTF-8/accented characters)
 

@@ -32,6 +32,21 @@ export default function CarouselEditorPage({ params }: PageProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [showSafeZones, setShowSafeZones] = useState(false);
   const [showFullscreen, setShowFullscreen] = useState(false);
+  // Generación 30x: mensaje a auto-enviar al chat cuando el carrusel viene de un
+  // referente recién ingestado (la /30x guarda el mensaje en sessionStorage).
+  const [autoGenMsg, setAutoGenMsg] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    try {
+      const msg = sessionStorage.getItem(`autogen-${id}`);
+      if (msg) {
+        setAutoGenMsg(msg);
+        sessionStorage.removeItem(`autogen-${id}`); // one-shot
+      }
+    } catch {
+      // sessionStorage no disponible
+    }
+  }, [id]);
 
   // Confirm dialog state
   const [confirmState, setConfirmState] = useState<{
@@ -246,6 +261,7 @@ export default function CarouselEditorPage({ params }: PageProps) {
               onStreamStart={handleStreamStart}
               onStreamEnd={handleStreamEnd}
               chatInputRef={chatInputRef}
+              autoSendMessage={autoGenMsg}
             />
           </div>
         )}

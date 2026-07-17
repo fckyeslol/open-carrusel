@@ -25,7 +25,8 @@ export async function getCarousel(id: string): Promise<Carousel | null> {
 
 export async function createCarousel(
   name: string,
-  aspectRatio: AspectRatio
+  aspectRatio: AspectRatio,
+  extra?: Partial<Pick<Carousel, "stylePresetId" | "avatarSlug" | "prewaveJobId" | "source" | "referenceUrl" | "tags">>
 ): Promise<Carousel> {
   const data = await load();
   const carousel: Carousel = {
@@ -36,7 +37,12 @@ export async function createCarousel(
     referenceImages: [],
     chatSessionId: null,
     isTemplate: false,
-    tags: [],
+    tags: extra?.tags ?? [],
+    stylePresetId: extra?.stylePresetId,
+    avatarSlug: extra?.avatarSlug,
+    prewaveJobId: extra?.prewaveJobId,
+    source: extra?.source,
+    referenceUrl: extra?.referenceUrl,
     createdAt: now(),
     updatedAt: now(),
   };
@@ -47,7 +53,22 @@ export async function createCarousel(
 
 export async function updateCarousel(
   id: string,
-  updates: Partial<Pick<Carousel, "name" | "aspectRatio" | "tags" | "chatSessionId" | "caption" | "hashtags">>
+  updates: Partial<
+    Pick<
+      Carousel,
+      | "name"
+      | "aspectRatio"
+      | "tags"
+      | "chatSessionId"
+      | "caption"
+      | "hashtags"
+      | "stylePresetId"
+      | "avatarSlug"
+      | "prewaveJobId"
+      | "source"
+      | "referenceUrl"
+    >
+  >
 ): Promise<Carousel | null> {
   const data = await load();
   const idx = data.carousels.findIndex((c) => c.id === id);

@@ -27,6 +27,12 @@ export interface Carousel {
   chatSessionId: string | null;
   isTemplate: boolean;
   tags: string[];
+  // ── Integración 30x ──────────────────────────────────────────────────────────
+  stylePresetId?: string; // preset del avatar (identidad) activo para este carrusel
+  avatarSlug?: string; // avatar destino (cinthya, guillermo, …)
+  prewaveJobId?: string; // job de la cola agent_jobs del que nació (si vino de la cola)
+  source?: "manual" | "queue"; // origen de la ingesta
+  referenceUrl?: string; // URL del referente de Instagram
   createdAt: string;
   updatedAt: string;
 }
