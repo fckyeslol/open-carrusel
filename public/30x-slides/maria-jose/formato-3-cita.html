@@ -1,0 +1,34 @@
+<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,400;0,500;0,600;0,700;0,800;1,500&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1080px;height:1350px;overflow:hidden}
+.s{width:1080px;height:1350px;position:relative;overflow:hidden;background:#3A2C1E;font-family:'Poppins',sans-serif}
+/* Textura de foto muy tenue + wash café + glow amarillo pastel central. */
+.tex{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 6%;opacity:.16;filter:grayscale(.35) sepia(.15)}
+.wash{position:absolute;inset:0;background:
+  radial-gradient(58% 42% at 50% 38%, rgba(240,239,159,.16), rgba(240,239,159,0) 60%),
+  linear-gradient(180deg, rgba(58,44,30,.82), rgba(58,44,30,.70) 45%, rgba(58,44,30,.95))}
+.logo{position:absolute;top:66px;left:70px;height:40px;width:auto;filter:brightness(0) invert(1)}
+.idx{position:absolute;top:70px;right:74px;font-size:38px;font-weight:600;color:#F0EF9F;opacity:.85}
+.mark{position:absolute;top:214px;left:0;right:0;text-align:center;font-weight:800;font-size:300px;line-height:.5;color:#F0EF9F;opacity:.85}
+.quote{position:absolute;top:470px;left:92px;right:92px;text-align:center;font-weight:700;font-size:70px;line-height:1.22;letter-spacing:-1px;color:#F6F5F0}
+.quote .em{color:#F0EF9F}
+.divider{position:absolute;top:980px;left:0;right:0;display:flex;align-items:center;justify-content:center;gap:20px}
+.divider .line{width:120px;height:2px;background:rgba(246,245,240,.32)}
+.divider .dot{width:12px;height:12px;transform:rotate(45deg);background:#F0EF9F}
+.name{position:absolute;top:1060px;left:0;right:0;text-align:center;font-size:32px;font-weight:800;letter-spacing:3px;text-transform:uppercase;color:#F6F5F0}
+.role{position:absolute;top:1116px;left:0;right:0;text-align:center;font-size:24px;font-weight:500;color:#D9CBB2}
+</style></head><body>
+<div class="s">
+  <img class="tex" src="/uploads/30x/maria-jose/hero.jpg" alt="">
+  <div class="wash"></div>
+  <img class="logo" src="/uploads/brand/30x-blanco.png" alt="30X">
+  <div class="idx">03</div>
+  <div class="mark">&ldquo;</div>
+  <div class="quote">El ecosistema no se construye<br>compitiendo. Se construye<br><span class="em">presentando gente.</span></div>
+  <div class="divider"><span class="line"></span><span class="dot"></span><span class="line"></span></div>
+  <div class="name">María José Echeverri</div>
+  <div class="role">Founder ColombiaTech Week</div>
+</div>
+</body></html>

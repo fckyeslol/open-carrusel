@@ -1,0 +1,41 @@
+<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1080px;height:1350px;overflow:hidden}
+.s{width:1080px;height:1350px;position:relative;overflow:hidden;background:#1E010B;font-family:'Inter',sans-serif}
+/* Foto a sangre (Dylan encuadrado a la derecha, mirando a la izquierda). Slot editable; detrás ciruela de respaldo. */
+.photo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:60% 50%;background:#1E010B}
+/* Wash de identidad Dylan: ciruela denso abajo/izq → transparente + glow rojo rockstar arriba/der. */
+.wash{position:absolute;inset:0;background:
+  radial-gradient(64% 50% at 84% 16%, rgba(249,36,36,.34), rgba(249,36,36,0) 60%),
+  linear-gradient(112deg, rgba(30,1,11,.94) 6%, rgba(30,1,11,.58) 44%, rgba(30,1,11,.20) 72%),
+  linear-gradient(0deg, rgba(30,1,11,.97) 2%, rgba(30,1,11,.40) 33%, rgba(30,1,11,0) 60%)}
+/* Grano/atmósfera sutil */
+.grain{position:absolute;inset:0;opacity:.05;background-image:radial-gradient(#F6F5F0 1px,transparent 1px);background-size:4px 4px;mix-blend-mode:overlay}
+.logo{position:absolute;top:64px;left:64px;height:44px;width:auto;filter:brightness(0) invert(1)}
+.idx{position:absolute;top:66px;right:70px;font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:40px;color:#D9CBB2;opacity:.85}
+.kicker{position:absolute;left:70px;top:250px;right:150px;font-size:22px;font-weight:700;letter-spacing:3.5px;text-transform:uppercase;color:#F92424;line-height:1.5}
+.kicker b{color:#D9CBB2;font-weight:800}
+.title{position:absolute;left:64px;right:120px;top:452px;font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:132px;line-height:.94;letter-spacing:-3px;color:#F6F5F0;text-shadow:0 6px 40px rgba(0,0,0,.55)}
+.title .em{color:#F92424}
+.sub{position:absolute;left:70px;right:210px;top:1024px;font-size:30px;font-weight:500;line-height:1.36;color:#EDE7E0}
+.sub b{font-weight:800;color:#F6F5F0}
+.foot{position:absolute;left:70px;bottom:150px;display:flex;align-items:center;gap:18px}
+.foot .dot{width:14px;height:14px;border-radius:3px;transform:rotate(45deg);background:#F92424}
+.sign{font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:38px;color:#F6F5F0}
+.swipe{position:absolute;left:70px;bottom:82px;font-size:22px;font-weight:800;letter-spacing:3px;color:#F92424;text-transform:uppercase}
+</style></head><body>
+<div class="s">
+  <img class="photo" src="/uploads/30x/dylan-rosemberg/hero.jpg" alt="">
+  <div class="wash"></div>
+  <div class="grain"></div>
+  <img class="logo" src="/uploads/brand/30x-blanco.png" alt="30X">
+  <div class="idx">01</div>
+  <div class="kicker">Founder @Growthrockstar · <b>Co-founder Crece30X</b></div>
+  <div class="title">Growth no es<br>gastar más.<br><span class="em">Es medir mejor.</span></div>
+  <div class="sub">Cinco decisiones que separan a quien <b>invierte</b> en growth de quien solo <b>quema</b> presupuesto.</div>
+  <div class="foot"><span class="dot"></span><span class="sign">Con Dylan Rosemberg</span></div>
+  <div class="swipe">Desliza →</div>
+</div>
+</body></html>

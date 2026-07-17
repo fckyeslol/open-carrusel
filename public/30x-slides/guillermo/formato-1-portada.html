@@ -1,0 +1,41 @@
+<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,600;1,700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1080px;height:1350px;overflow:hidden}
+.s{width:1080px;height:1350px;position:relative;overflow:hidden;background:#242424;font-family:'Open Sans',sans-serif}
+/* Foto a sangre (retrato B&N de Guillermo, cara a la izquierda). Respaldo oscuro detrás. */
+.photo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:left top;background:#242424}
+/* Wash "BE A DOER": scrim arriba para el logo, columna derecha oscura para el titular, base oscura. */
+.wash{position:absolute;inset:0;background:
+  linear-gradient(180deg, rgba(36,36,36,.82) 0%, rgba(36,36,36,0) 15%),
+  linear-gradient(100deg, rgba(36,36,36,0) 40%, rgba(36,36,36,.55) 72%, rgba(36,36,36,.80) 100%),
+  linear-gradient(0deg, rgba(36,36,36,.88) 3%, rgba(36,36,36,.42) 22%, rgba(36,36,36,0) 44%)}
+.grain{position:absolute;inset:0;opacity:.05;background-image:radial-gradient(#F6F5F0 1px,transparent 1px);background-size:4px 4px;mix-blend-mode:overlay}
+.logo{position:absolute;top:64px;left:64px;height:42px;width:auto}
+.idx{position:absolute;top:66px;right:66px;font-size:34px;font-weight:800;color:#FFD400;letter-spacing:1px}
+.kicker{position:absolute;top:250px;right:64px;width:470px;text-align:right;font-size:22px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#FFD400;line-height:1.55}
+.kicker b{color:#F6F5F0;font-weight:800}
+.rule{position:absolute;top:648px;right:64px;width:96px;height:8px;background:#FFD400}
+.title{position:absolute;top:690px;right:64px;left:360px;text-align:right;font-size:88px;font-weight:800;line-height:1.0;letter-spacing:-1.5px;text-transform:uppercase;color:#F6F5F0;text-shadow:0 6px 34px rgba(0,0,0,.55)}
+.title .em{color:#FFD400}
+.sub{position:absolute;top:1078px;right:64px;left:430px;text-align:right;font-size:27px;font-weight:600;line-height:1.4;color:#C9C9C7}
+.sub b{color:#F6F5F0;font-weight:700}
+.swipe{position:absolute;right:64px;bottom:74px;font-size:22px;font-weight:800;letter-spacing:3px;color:#FFD400;text-transform:uppercase}
+.sign{position:absolute;left:64px;bottom:74px;font-size:24px;font-weight:700;font-style:italic;color:#F6F5F0;opacity:.9}
+</style></head><body>
+<div class="s">
+  <img class="photo" src="/uploads/30x/guillermo/hero.jpg" alt="">
+  <div class="wash"></div>
+  <div class="grain"></div>
+  <img class="logo" src="/uploads/brand/30x-blanco.png" alt="30X">
+  <div class="idx">01</div>
+  <div class="kicker">Transformador digital · <b>Former CEO KPMG Colombia</b></div>
+  <div class="rule"></div>
+  <div class="title">Deja de<br>tener<br>miedo a<br><span class="em">salir mal.</span></div>
+  <div class="sub">Cinco decisiones para liderar la transformación digital <b>sin esperar a estar listo.</b></div>
+  <div class="sign">Con Guillermo Jaramillo</div>
+  <div class="swipe">Desliza →</div>
+</div>
+</body></html>

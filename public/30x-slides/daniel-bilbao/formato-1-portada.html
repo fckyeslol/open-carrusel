@@ -1,0 +1,41 @@
+<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Arimo:ital,wght@0,400;0,500;0,600;0,700;1,400;1,700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1080px;height:1350px;overflow:hidden}
+.s{width:1080px;height:1350px;position:relative;overflow:hidden;background:#0C1030;font-family:'Arimo',Arial,sans-serif}
+/* Foto a sangre (retrato de Daniel). Slot editable; navi noche de respaldo detrás. */
+.photo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 12%;background:#0C1030}
+/* Wash identidad Daniel: navy denso abajo (zona titular) + glow azul eléctrico arriba-derecha. */
+.wash{position:absolute;inset:0;background:
+  radial-gradient(56% 38% at 86% 16%, rgba(58,52,224,.34), rgba(58,52,224,0) 62%),
+  linear-gradient(0deg, rgba(12,16,48,.985) 32%, rgba(12,16,48,.78) 49%, rgba(12,16,48,.34) 61%, rgba(12,16,48,0) 72%),
+  linear-gradient(180deg, rgba(12,16,48,.55) 0%, rgba(12,16,48,0) 16%)}
+/* Grano/atmósfera sutil */
+.grain{position:absolute;inset:0;opacity:.05;background-image:radial-gradient(#C0C7D0 1px,transparent 1px);background-size:4px 4px;mix-blend-mode:overlay}
+.logo{position:absolute;top:64px;left:64px;height:44px;width:auto}
+.idx{position:absolute;top:66px;right:70px;font-size:34px;font-weight:700;letter-spacing:2px;color:#8A93FF}
+.kicker{position:absolute;left:70px;top:540px;right:110px;font-size:23px;font-weight:700;letter-spacing:4px;text-transform:uppercase;color:#8A93FF;line-height:1.5;display:flex;align-items:center;gap:18px}
+.kicker::before{content:'';width:46px;height:3px;background:#3A34E0;display:inline-block;flex:none}
+.title{position:absolute;left:66px;right:80px;top:606px;font-weight:700;font-size:120px;line-height:.95;letter-spacing:-3px;color:#F6F5F0;text-shadow:0 6px 44px rgba(0,0,0,.55)}
+.title .em{color:#8A93FF}
+.sub{position:absolute;left:72px;right:150px;top:1012px;font-size:30px;font-weight:500;line-height:1.36;color:#C0C7D0}
+.sub b{font-weight:700;color:#F6F5F0}
+.foot{position:absolute;left:72px;bottom:150px;display:flex;align-items:center;gap:18px}
+.foot .dot{width:14px;height:14px;border-radius:50%;background:#3A34E0}
+.sign{font-size:34px;font-weight:600;color:#F6F5F0}
+.swipe{position:absolute;left:72px;bottom:80px;font-size:22px;font-weight:700;letter-spacing:3px;color:#8A93FF;text-transform:uppercase}
+</style></head><body>
+<div class="s">
+  <img class="photo" src="/uploads/30x/daniel-bilbao/hero.jpg" alt="">
+  <div class="wash"></div>
+  <div class="grain"></div>
+  <img class="logo" src="/uploads/brand/30x-blanco.png" alt="30X">
+  <div class="idx">01</div>
+  <div class="kicker">CEO @Truora · Ecosistema Tech LatAm</div>
+  <div class="title">El talento<br>promedio<br><span class="em">te sale carísimo.</span></div>
+  <div class="sub">Cinco señales para detectar <b>—y soltar—</b> la mediocridad antes de que te contamine el equipo.</div>
+  <div class="foot"><span class="dot"></span><span class="sign">Con Daniel Bilbao</span></div>
+  <div class="swipe">Desliza →</div>
+</div>
+</body></html>

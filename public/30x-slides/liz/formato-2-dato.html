@@ -1,0 +1,39 @@
+<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,600;1,800&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1080px;height:1350px;overflow:hidden}
+.s{width:1080px;height:1350px;position:relative;overflow:hidden;background:#F6F5F0;font-family:'Nunito Sans',sans-serif;color:#000}
+/* Profundidad: glow violeta arriba-derecha + halo lila sangrando abajo-izq */
+.glow{position:absolute;top:-170px;right:-170px;width:780px;height:780px;border-radius:50%;
+  background:radial-gradient(circle at 50% 50%, rgba(129,119,254,.42), rgba(129,119,254,0) 66%)}
+.blob{position:absolute;bottom:-250px;left:-230px;width:680px;height:680px;border-radius:50%;
+  background:radial-gradient(circle at 50% 50%, rgba(192,199,208,.55), rgba(192,199,208,0) 64%)}
+.logo{position:absolute;top:66px;left:70px;height:40px;width:auto}
+.idx{position:absolute;top:68px;right:74px;font-size:38px;font-weight:900;color:#6B5FEA;letter-spacing:1px}
+.kicker{position:absolute;top:172px;left:72px;font-size:24px;font-weight:900;letter-spacing:4px;text-transform:uppercase;color:#6B5FEA;display:flex;align-items:center;gap:18px}
+.kicker::before{content:'';width:52px;height:4px;background:#8177FE;display:inline-block;border-radius:2px}
+.lead{position:absolute;top:236px;left:72px;right:130px;font-weight:800;font-size:50px;line-height:1.12;letter-spacing:-1px;color:#000}
+.num{position:absolute;top:412px;left:52px;font-weight:900;font-size:496px;line-height:.82;color:#000;letter-spacing:-14px}
+.num .pct{color:#8177FE;font-size:300px;vertical-align:baseline;letter-spacing:-6px}
+.bar{position:absolute;top:930px;left:74px;width:380px;height:14px;border-radius:7px;background:#8177FE}
+.body{position:absolute;top:988px;left:72px;right:150px;font-size:34px;line-height:1.42;font-weight:600;color:#1c1c22}
+.body b{font-weight:900;color:#000}
+.src{position:absolute;bottom:150px;left:74px;right:120px;font-size:23px;font-weight:700;color:#6c6c78;display:flex;align-items:center;gap:16px}
+.src::before{content:'';width:40px;height:3px;background:#8177FE;display:inline-block;border-radius:2px}
+.sign{position:absolute;bottom:78px;left:72px;font-size:34px;font-weight:800;color:#000}
+</style></head><body>
+<div class="s">
+  <div class="glow"></div>
+  <div class="blob"></div>
+  <img class="logo" src="/uploads/brand/30x-negro.png" alt="30X">
+  <div class="idx">02</div>
+  <div class="kicker">El dato que lo cambia todo</div>
+  <div class="lead">Los equipos que adoptan IA<br>en LatAm multiplican su<br>productividad en un año:</div>
+  <div class="num">3<span class="pct">×</span></div>
+  <div class="bar"></div>
+  <div class="body">No se trata de sumar herramientas. Se trata de <b>rediseñar cómo trabaja tu gente</b> alrededor de la inteligencia artificial.</div>
+  <div class="src">AI Summit LatAm · lectura de Liz Hernández</div>
+  <div class="sign">/ Liz Hernández.</div>
+</div>
+</body></html>

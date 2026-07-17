@@ -1,0 +1,41 @@
+<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,600;1,800&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1080px;height:1350px;overflow:hidden}
+.s{width:1080px;height:1350px;position:relative;overflow:hidden;background:#000;font-family:'Nunito Sans',sans-serif}
+/* Foto a sangre (retrato de perfil). Slot editable; detrás un negro de respaldo. */
+.photo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 4%;background:#000}
+/* Wash de identidad Liz: negro denso abajo/izq → transparente + glow violeta arriba/der. */
+.wash{position:absolute;inset:0;background:
+  radial-gradient(64% 50% at 84% 16%, rgba(129,119,254,.5), rgba(129,119,254,0) 60%),
+  linear-gradient(112deg, rgba(0,0,0,.94) 6%, rgba(0,0,0,.6) 44%, rgba(0,0,0,.18) 76%),
+  linear-gradient(0deg, rgba(0,0,0,.97) 3%, rgba(0,0,0,.42) 34%, rgba(0,0,0,0) 60%)}
+/* Grano/atmósfera sutil */
+.grain{position:absolute;inset:0;opacity:.05;background-image:radial-gradient(#C0C7D0 1px,transparent 1px);background-size:4px 4px;mix-blend-mode:overlay}
+.logo{position:absolute;top:64px;left:64px;height:44px;width:auto;filter:brightness(0) invert(1)}
+.idx{position:absolute;top:66px;right:72px;font-size:38px;font-weight:900;color:#F6F5F0;opacity:.6;letter-spacing:1px}
+.kicker{position:absolute;left:70px;top:252px;right:110px;font-size:23px;font-weight:800;letter-spacing:4px;text-transform:uppercase;color:#9E96FF;line-height:1.5}
+.kicker b{color:#F6F5F0;font-weight:900}
+.title{position:absolute;left:66px;right:80px;top:452px;font-weight:900;font-size:158px;line-height:.9;letter-spacing:-4px;color:#F6F5F0;text-shadow:0 6px 44px rgba(0,0,0,.6)}
+.title .em{color:#9E96FF}
+.sub{position:absolute;left:72px;right:150px;top:1010px;font-size:31px;font-weight:600;line-height:1.36;color:#DDE0E6}
+.sub b{font-weight:800;color:#FFF}
+.foot{position:absolute;left:72px;bottom:150px;display:flex;align-items:center;gap:18px}
+.foot .dot{width:14px;height:14px;border-radius:50%;background:#8177FE;box-shadow:0 0 18px rgba(129,119,254,.9)}
+.sign{font-size:38px;font-weight:800;color:#F6F5F0}
+.swipe{position:absolute;left:72px;bottom:82px;font-size:22px;font-weight:800;letter-spacing:3px;color:#9E96FF;text-transform:uppercase}
+</style></head><body>
+<div class="s">
+  <img class="photo" src="/uploads/30x/liz/hero.jpg" alt="">
+  <div class="wash"></div>
+  <div class="grain"></div>
+  <img class="logo" src="/uploads/brand/30x-blanco.png" alt="30X">
+  <div class="idx">01</div>
+  <div class="kicker">Founder @Morelatam · <b>AI Summit LatAm</b></div>
+  <div class="title">IA para<br>construir<br><span class="em">LatAm.</span></div>
+  <div class="sub">Cinco señales de que la inteligencia artificial ya está <b>redefiniendo</b> cómo se crea valor en la región.</div>
+  <div class="foot"><span class="dot"></span><span class="sign">Con Liz Hernández</span></div>
+  <div class="swipe">Desliza →</div>
+</div>
+</body></html>

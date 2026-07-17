@@ -1,0 +1,41 @@
+<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500;1,600&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1080px;height:1350px;overflow:hidden}
+.s{width:1080px;height:1350px;position:relative;overflow:hidden;background:#1B1233;font-family:'Inter',sans-serif}
+/* Foto a sangre (mentora). Slot editable; detrás un morado profundo de respaldo. */
+.photo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:60% 10%;background:#1B1233}
+/* Wash de identidad Alejandra: morado denso abajo/izq → transparente, + glow cian arriba/der. */
+.wash{position:absolute;inset:0;background:
+  radial-gradient(66% 52% at 84% 16%, rgba(21,134,142,.40), rgba(21,134,142,0) 62%),
+  linear-gradient(112deg, rgba(27,18,51,.95) 6%, rgba(27,18,51,.60) 44%, rgba(27,18,51,.24) 74%),
+  linear-gradient(0deg, rgba(27,18,51,.97) 2%, rgba(27,18,51,.40) 32%, rgba(27,18,51,0) 60%)}
+/* Grano/atmósfera sutil */
+.grain{position:absolute;inset:0;opacity:.05;background-image:radial-gradient(#F6F5F0 1px,transparent 1px);background-size:4px 4px;mix-blend-mode:overlay}
+.logo{position:absolute;top:64px;left:64px;height:44px;width:auto;filter:brightness(0) invert(1)}
+.idx{position:absolute;top:70px;right:70px;font-family:'Playfair Display',serif;font-size:42px;color:#F6F5F0;opacity:.72}
+.kicker{position:absolute;left:70px;top:250px;right:120px;font-size:22px;font-weight:700;letter-spacing:4.5px;text-transform:uppercase;color:#4CBCC4;line-height:1.55}
+.kicker b{color:#F6F5F0;font-weight:800}
+.title{position:absolute;left:66px;right:80px;top:452px;font-family:'Playfair Display',serif;font-weight:600;font-size:132px;line-height:.98;color:#F6F5F0;text-shadow:0 6px 44px rgba(0,0,0,.55);letter-spacing:-1px}
+.title .em{font-style:italic;font-weight:600;color:#4CBCC4}
+.sub{position:absolute;left:70px;right:170px;top:1024px;font-size:30px;font-weight:500;line-height:1.4;color:#E7E3F0}
+.sub b{font-weight:700;color:#F6F5F0}
+.foot{position:absolute;left:70px;bottom:150px;display:flex;align-items:center;gap:18px}
+.foot .dot{width:13px;height:13px;border-radius:50%;background:#15868E}
+.sign{font-family:'Playfair Display',serif;font-style:italic;font-size:38px;color:#F6F5F0}
+.swipe{position:absolute;left:70px;bottom:80px;font-size:21px;font-weight:700;letter-spacing:3px;color:#4CBCC4;text-transform:uppercase}
+</style></head><body>
+<div class="s">
+  <img class="photo" src="/uploads/30x/alejandra-deik/hero.jpg" alt="">
+  <div class="wash"></div>
+  <div class="grain"></div>
+  <img class="logo" src="/uploads/brand/30x-blanco.png" alt="30X">
+  <div class="idx">01</div>
+  <div class="kicker">Ex Manager B2B Frubana · <b>Pricing &amp; Márgenes</b></div>
+  <div class="title">El margen no<br>se recorta.<br><span class="em">Se diseña.</span></div>
+  <div class="sub">Cuatro decisiones de pricing que separan a quien <b>sobrevive</b> de quien <b>escala</b>.</div>
+  <div class="foot"><span class="dot"></span><span class="sign">Con Alejandra Deik</span></div>
+  <div class="swipe">Desliza →</div>
+</div>
+</body></html>

@@ -1,0 +1,35 @@
+<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,600;1,700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1080px;height:1350px;overflow:hidden}
+.s{width:1080px;height:1350px;position:relative;overflow:hidden;background:#242424;font-family:'Open Sans',sans-serif}
+/* Textura de foto muy tenue + wash oscuro + glow amarillo central */
+.tex{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:left top;opacity:.12;filter:grayscale(.2)}
+.wash{position:absolute;inset:0;background:
+  radial-gradient(58% 44% at 50% 40%, rgba(255,212,0,.16), rgba(255,212,0,0) 62%),
+  linear-gradient(180deg, rgba(36,36,36,.88), rgba(36,36,36,.74) 45%, rgba(36,36,36,.95))}
+.logo{position:absolute;top:64px;left:70px;height:40px;width:auto}
+.idx{position:absolute;top:66px;right:74px;font-size:34px;font-weight:800;color:#FFD400}
+.mark{position:absolute;top:214px;left:0;right:0;text-align:center;font-size:280px;font-weight:800;line-height:.5;color:#FFD400}
+.quote{position:absolute;top:492px;left:92px;right:92px;text-align:center;font-size:78px;font-weight:800;line-height:1.14;letter-spacing:-1px;color:#F6F5F0}
+.quote .em{color:#FFD400}
+.divider{position:absolute;top:958px;left:0;right:0;display:flex;align-items:center;justify-content:center;gap:20px}
+.divider .line{width:120px;height:2px;background:rgba(246,245,240,.32)}
+.divider .dot{width:14px;height:14px;transform:rotate(45deg);background:#FFD400}
+.name{position:absolute;top:1044px;left:0;right:0;text-align:center;font-size:32px;font-weight:800;letter-spacing:4px;text-transform:uppercase;color:#F6F5F0}
+.role{position:absolute;top:1102px;left:0;right:0;text-align:center;font-size:23px;font-weight:600;color:#C9C9C7}
+</style></head><body>
+<div class="s">
+  <img class="tex" src="/uploads/30x/guillermo/hero.jpg" alt="">
+  <div class="wash"></div>
+  <img class="logo" src="/uploads/brand/30x-blanco.png" alt="30X">
+  <div class="idx">03</div>
+  <div class="mark">&ldquo;</div>
+  <div class="quote">No necesitas estar listo.<br>Necesitas <span class="em">empezar.</span></div>
+  <div class="divider"><span class="line"></span><span class="dot"></span><span class="line"></span></div>
+  <div class="name">Guillermo Jaramillo</div>
+  <div class="role">Transformador digital · Former CEO KPMG Colombia</div>
+</div>
+</body></html>

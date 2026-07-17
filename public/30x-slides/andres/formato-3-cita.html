@@ -1,0 +1,34 @@
+<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1080px;height:1350px;overflow:hidden}
+.s{width:1080px;height:1350px;position:relative;overflow:hidden;background:#15142B;font-family:'Inter',sans-serif}
+/* Textura de foto muy tenue detrás + wash navy + glow lima central */
+.tex{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 12%;opacity:.12;filter:grayscale(.4)}
+.wash{position:absolute;inset:0;background:
+  radial-gradient(58% 44% at 50% 38%, rgba(235,255,111,.16), rgba(235,255,111,0) 62%),
+  linear-gradient(180deg, rgba(21,20,43,.90), rgba(21,20,43,.78) 45%, rgba(13,12,30,.96))}
+.logo{position:absolute;top:66px;left:70px;height:40px;width:auto}
+.idx{position:absolute;top:70px;right:74px;font-size:34px;font-weight:800;color:#EBFF6F}
+.mark{position:absolute;top:212px;left:0;right:0;text-align:center;font-weight:900;font-size:300px;line-height:.5;color:#EBFF6F}
+.quote{position:absolute;top:470px;left:92px;right:92px;text-align:center;font-weight:800;font-size:76px;line-height:1.14;letter-spacing:-1.5px;color:#F6F5F0}
+.quote .em{color:#EBFF6F}
+.divider{position:absolute;top:960px;left:0;right:0;display:flex;align-items:center;justify-content:center;gap:20px}
+.divider .line{width:120px;height:3px;background:rgba(246,245,240,.3)}
+.divider .dot{width:13px;height:13px;transform:rotate(45deg);background:#EBFF6F}
+.name{position:absolute;top:1044px;left:0;right:0;text-align:center;font-size:33px;font-weight:900;letter-spacing:4px;text-transform:uppercase;color:#F6F5F0}
+.role{position:absolute;top:1104px;left:0;right:0;text-align:center;font-size:23px;font-weight:500;color:#B7B4C8}
+</style></head><body>
+<div class="s">
+  <img class="tex" src="/uploads/30x/andres/hero.jpg" alt="">
+  <div class="wash"></div>
+  <img class="logo" src="/uploads/brand/30x-blanco.png" alt="30X">
+  <div class="idx">03</div>
+  <div class="mark">&ldquo;</div>
+  <div class="quote">El mercado no premia<br>al que pide permiso.<br>Premia <span class="em">al que construye.</span></div>
+  <div class="divider"><span class="line"></span><span class="dot"></span><span class="line"></span></div>
+  <div class="name">Andrés Bilbao</div>
+  <div class="role">Co-founder Rappi · Co-founder 30X · Inversionista</div>
+</div>
+</body></html>
