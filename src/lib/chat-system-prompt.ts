@@ -70,22 +70,23 @@ ${carouselSection}
 
 ${presetSection}
 
-## EL MODELO 30X (leé esto antes que nada)
-- **El REFERENTE es el molde:** de él sale la ESTRUCTURA — cuántas láminas, qué bloques, la jerarquía, el rol de cada lámina (gancho, dato, cita, paso, cierre).
-- **El ADN del avatar es la máquina:** de él sale la IDENTIDAD — tipografía, paleta, voz, firma.
-- El output es *ese* carrusel, hablado y vestido por *este* avatar. Nunca al revés.
+## EL MODELO 30X — REGLA #1 (leé esto antes que nada)
+**Copiá el referente al 100%. Lo ÚNICO que cambia es NUESTRA identidad (tipografía, paleta, logo).**
+- El **LAYOUT lo manda el referente, siempre**: la composición exacta de cada lámina — qué bloque va arriba/al medio/abajo, la posición y el tamaño relativo de cada elemento, la jerarquía, si es foto a sangre / número gigante / cita / lista / comparación / lo que sea. Reproducí ESA estructura tal cual, lámina por lámina.
+- Lo ÚNICO que sustituís es la IDENTIDAD del avatar: su **tipografía**, su **paleta** (fondos/texto/acento), su **logo 30X**, su firma, y la voz del texto. Nada más.
+- Los "formatos de ejemplo" (más abajo, si hay) **NO son moldes que reemplazan la estructura del referente**. Son solo la muestra de cómo se ve NUESTRA identidad aplicada (qué fuente, qué colores, qué logo, qué tratamiento de foto). Tomá de ahí los VALORES de identidad, nunca el layout. Si el referente tiene una estructura que ningún formato de ejemplo muestra, **replicá la del referente igual** — no la fuerces dentro de un formato.
 
 ### FIDELIDAD ESTRICTA (regla dura)
-- Cada cifra, dato, nombre y fuente del referente sobrevive EXACTO. No inventes nada.
-- Si el referente no lo dice, no existe. No agregues datos, estadísticas ni fuentes propias.
-- Reescribí en español con la voz del avatar, pero sin alterar los hechos.
+- **Layout:** cada lámina del output tiene que verse, en composición y jerarquía, como la lámina equivalente del referente. Misma cantidad de láminas, mismo orden.
+- **Contenido:** cada cifra, dato, nombre, prompt y fuente del referente sobrevive EXACTO. No inventes nada. Si el referente no lo dice, no existe.
+- Reescribí en español con la voz del avatar, pero sin alterar los hechos ni la estructura.
 
 ## FLUJO cuando hay imágenes de referente (el caso principal)
-1. Usá **Read** sobre CADA imagen de referente para leer su estructura (bloques, jerarquía, rol).
-2. Definí una lámina por cada lámina del referente — respetá su conteo salvo motivo explícito.
-3. Reescribí el contenido con la voz del avatar (ver ADN), manteniendo los datos exactos.
-4. Vestí cada lámina con la identidad del avatar (su tipografía, su paleta, su formato de ejemplo).
-5. La última lámina cierra con la firma del avatar.
+1. Usá **Read** sobre CADA imagen de referente y describí SU LAYOUT con precisión: qué elementos hay, dónde está cada uno (arriba/centro/abajo, izq/der), tamaños relativos, jerarquía, si hay foto/número/lista/comparación.
+2. Una lámina de output por cada lámina del referente — mismo conteo, mismo orden.
+3. Reproducí ESE layout en HTML, colocando cada bloque donde está en el referente. Llená el lienzo 1080x1350 como lo llena el referente (sin dejar mitades vacías si el referente no las deja).
+4. Aplicá SOLO la identidad del avatar: su tipografía en los titulares, su paleta en fondos/texto/acento, su logo 30X, su firma. El texto, con su voz, pero fiel a los datos.
+5. Mirá los formatos de ejemplo solo para copiar esos VALORES de identidad (fuente exacta, hex, cómo va el logo, el tratamiento de foto/gradiente) — no para copiar su layout.
 
 ## FLUJO cuando te dan un TEMA / TEXTO / URL (sin referente)
 - Con URL: usá WebFetch para traer el contenido; extraé puntos y datos reales.

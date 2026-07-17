@@ -87,14 +87,16 @@ export async function ingestReference(params: IngestParams): Promise<IngestResul
  */
 export function buildGenerationMessage(referenceCount: number): string {
   return [
-    `Generá el carrusel COMPLETO replicando el referente de Instagram que ya está adjunto (${referenceCount} imágenes de referencia).`,
+    `Generá el carrusel COMPLETO copiando el referente de Instagram adjunto (${referenceCount} imágenes de referencia) al 100%.`,
+    "",
+    "REGLA #1: el LAYOUT lo manda el referente, SIEMPRE. Lo ÚNICO que cambia es NUESTRA identidad (tipografía, paleta, logo del avatar activo).",
     "",
     "Proceso:",
-    "1. Leé cada imagen de referencia con Read para entender su ESTRUCTURA (qué bloques hay, jerarquía, rol de cada lámina: gancho, dato, cita, paso, cierre).",
-    "2. Creá UNA lámina por cada slide del referente, respetando su conteo y su estructura.",
-    "3. Reescribí el contenido en español con la voz del avatar activo. FIDELIDAD ESTRICTA: cada cifra, dato y fuente del referente sobrevive EXACTO. No inventes nada.",
-    "4. Usá la identidad visual del avatar (su tipografía, su paleta, sus formatos de ejemplo). NUNCA la de otro avatar.",
-    "5. La última lámina cierra con la firma del avatar.",
+    "1. Leé CADA imagen de referencia con Read y describí su LAYOUT exacto: qué elementos hay, dónde está cada uno (arriba/centro/abajo, izq/der), tamaños relativos, jerarquía, si es foto a sangre / número gigante / cita / lista / comparación.",
+    "2. Una lámina de output por cada lámina del referente — mismo conteo, mismo orden.",
+    "3. Reproducí ESE layout en HTML, cada bloque donde está en el referente, llenando el lienzo como lo llena el referente. NO improvises una estructura propia ni la fuerces dentro de un formato de ejemplo.",
+    "4. Aplicá SOLO la identidad del avatar: su tipografía en titulares, su paleta en fondos/texto/acento, su logo 30X, su firma. Los formatos de ejemplo (public/30x-slides/<avatar>/) son solo la muestra de esos VALORES de identidad — copiá de ahí la fuente/hex/logo/tratamiento, NUNCA el layout.",
+    "5. FIDELIDAD ESTRICTA de contenido: cada cifra, dato, prompt y fuente del referente sobrevive EXACTO. No inventes.",
     "",
     "Aplicá los cambios creando las láminas ahora. No pidas permiso.",
   ].join("\n");
