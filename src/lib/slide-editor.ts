@@ -18,7 +18,9 @@ export const EDITOR_RUNTIME = String.raw`
   var sel=null, drag=null;
   var st=document.createElement('style');
   st.setAttribute('data-oc-editor','1');
-  st.textContent='.oc-sel{outline:2px solid #4f7cff !important;outline-offset:2px}[data-oc-editor]{}*{cursor:default}';
+  st.textContent='.oc-sel{outline:2px solid #4f7cff !important;outline-offset:2px}*{cursor:default}'
+    +'svg{pointer-events:none !important}'          // pinceladas/papel/flechas: click pasa al texto de abajo
+    +'[class*="glow"],[class*="wash"],[class*="paper"]{pointer-events:none !important}'; // fondos decorativos
   document.head.appendChild(st);
   document.body.style.cursor='default';
 
@@ -131,7 +133,10 @@ export const EDITOR_RUNTIME = String.raw`
     var s=sel; if(s) s.classList.remove('oc-sel');
     st.remove();
     document.querySelectorAll('[contenteditable]').forEach(function(n){ n.removeAttribute('contenteditable'); });
-    post({oc:'html', html: document.body.innerHTML});
+    // CRÍTICO: nunca serializar el <script> del editor (contaminaría la lámina y
+    // provocaría runtimes duplicados al reabrir + errores de sandbox en el preview).
+    var html = document.body.innerHTML.replace(/<script[\s\S]*?<\/script>/gi, '');
+    post({oc:'html', html: html});
     document.head.appendChild(st);
     if(s) s.classList.add('oc-sel');
   }
@@ -152,6 +157,9 @@ export const EDITOR_RUNTIME = String.raw`
 /** Envuelve la lámina para edición: doc completo + fuentes CDN + runtime del editor. */
 export function wrapEditableSlide(slideHtml: string, aspectRatio: AspectRatio): string {
   const { width, height } = DIMENSIONS[aspectRatio];
+  // Defensivo: si una lámina quedó contaminada con un runtime previo, lo quitamos
+  // para no correr dos editores encima (rompía toda la interacción).
+  slideHtml = slideHtml.replace(/<script[\s\S]*?<\/script>/gi, "");
   const fams = extractFontFamilies(slideHtml);
   const fontLink = fams.length
     ? `<link href="https://fonts.googleapis.com/css2?${fams
