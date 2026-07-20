@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { CarouselPreview } from "@/components/editor/CarouselPreview";
+import { VisualEditor } from "@/components/editor/VisualEditor";
 import { SlideFilmstrip } from "@/components/editor/SlideFilmstrip";
 import { AspectRatioSelector } from "@/components/editor/AspectRatioSelector";
 import { ExportButton } from "@/components/editor/ExportButton";
@@ -31,6 +32,28 @@ export default function CarouselEditorPage({ params }: PageProps) {
   const [chatOpen, setChatOpen] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   const [showSafeZones, setShowSafeZones] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Guarda el HTML editado (debounced) sin recargar el editor.
+  const handleSlideHtmlChange = useCallback(
+    (slideId: string, newHtml: string) => {
+      setCarousel((prev) =>
+        prev
+          ? { ...prev, slides: prev.slides.map((s) => (s.id === slideId ? { ...s, html: newHtml } : s)) }
+          : prev
+      );
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(() => {
+        fetch(`/api/carousels/${id}/slides/${slideId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ html: newHtml }),
+        }).catch(() => {});
+      }, 500);
+    },
+    [id]
+  );
   const [showFullscreen, setShowFullscreen] = useState(false);
   // Generación 30x: mensaje a auto-enviar al chat cuando el carrusel viene de un
   // referente recién ingestado (la /30x guarda el mensaje en sessionStorage).
@@ -274,6 +297,14 @@ export default function CarouselEditorPage({ params }: PageProps) {
               value={carousel.aspectRatio}
               onChange={handleAspectChange}
             />
+            <Button
+              variant={editMode ? "accent" : "outline"}
+              size="sm"
+              onClick={() => setEditMode((v) => !v)}
+              title="Editor visual"
+            >
+              {editMode ? "Editando ✓" : "Editar"}
+            </Button>
             <div className="flex-1" />
             <Button
               variant="ghost"
@@ -332,14 +363,25 @@ export default function CarouselEditorPage({ params }: PageProps) {
             />
           </div>
 
-          {/* Carousel preview */}
-          <CarouselPreview
-            slides={carousel.slides}
-            aspectRatio={carousel.aspectRatio}
-            activeIndex={activeSlide}
-            onActiveChange={setActiveSlide}
-            showSafeZones={showSafeZones}
-          />
+          {/* Preview / Editor visual */}
+          {editMode && carousel.slides[activeSlide] ? (
+            <VisualEditor
+              key={carousel.slides[activeSlide].id}
+              html={carousel.slides[activeSlide].html}
+              aspectRatio={carousel.aspectRatio}
+              onChange={(newHtml) =>
+                handleSlideHtmlChange(carousel.slides[activeSlide].id, newHtml)
+              }
+            />
+          ) : (
+            <CarouselPreview
+              slides={carousel.slides}
+              aspectRatio={carousel.aspectRatio}
+              activeIndex={activeSlide}
+              onActiveChange={setActiveSlide}
+              showSafeZones={showSafeZones}
+            />
+          )}
 
           {/* Caption panel */}
           <CaptionPanel
