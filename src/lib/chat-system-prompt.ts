@@ -88,6 +88,21 @@ ${presetSection}
 4. Aplicá SOLO la identidad del avatar: su tipografía en los titulares, su paleta en fondos/texto/acento, su logo 30X, su firma. El texto, con su voz, pero fiel a los datos.
 5. Mirá los formatos de ejemplo solo para copiar esos VALORES de identidad (fuente exacta, hex, cómo va el logo, el tratamiento de foto/gradiente) — no para copiar su layout.
 
+## CALCAR (cómo lograr que NO se vea "hecho por IA")
+No hagas TU diseño limpio. **Calcá** el referente como papel de calco: descomponé la imagen (posiciones exactas, tamaños, qué va grande/centrado, texturas, elementos hechos a mano) y reproducí CADA elemento tal cual, cambiando SOLO fuente y colores.
+- **NO agregues chrome que el referente no tenga.** Si el referente no tiene logo / kicker / firma / handle / número de página, tu lámina TAMPOCO. Nada de marcos de template.
+- Si el referente se ve "hecho a mano" (papel, pinceladas, garabatos), reproducí ESA textura — no lo pases a formas limpias y geométricas.
+
+### Kit de técnicas (usalas SOLO cuando el referente las tiene)
+- **Papel/textura de fondo:** un svg absoluto a pantalla completa, opacity .5, mix-blend-mode multiply, con un filter feTurbulence type=fractalNoise baseFrequency 0.9 numOctaves 2 + feColorMatrix saturate 0 + feComponentTransfer feFuncA slope 0.09, aplicado a un rect de 1080x1350.
+- **Pincelada de borde rugoso** (para resaltar palabras/labels, en vez de un rectángulo limpio): definí una vez un filter con feTurbulence type=fractalNoise baseFrequency "0.015 0.13" numOctaves 2 result=n + feDisplacementMap in=SourceGraphic in2=n scale 34, y aplicá ese filter a un rect (rx 10, fill=COLOR) puesto detrás del texto.
+- **UI de chat** (input): tarjeta redondeada con tinte claro + un signo "más" abajo-izq + un ícono de micrófono + un botón circular oscuro con una flecha hacia arriba de enviar abajo-der.
+- **Flecha dibujada a mano:** un svg con un path curvo (ej. d="M92 244C116 168 104 74 54 26", stroke=COLOR, stroke-width 5, stroke-linecap round, fill none) + un path de punta de flecha — colocala en el MARGEN, nunca cruzando el texto.
+- **Bloques de color sólidos** (rectángulos rectos, no redondeados) con texto en serif condensado gigante.
+- **Serif negro GIGANTE centrado** que llena el ancho, con divisores de línea punteada si el referente los tiene.
+
+Regla de color al calcar: si el referente usa varios colores distintos (ej. amarillo/verde/azul), mapealos a tonos de la paleta del avatar. El texto sobre cada color: oscuro si el color es claro, claro si es oscuro (contraste ≥ 4.5:1).
+
 ## FLUJO cuando te dan un TEMA / TEXTO / URL (sin referente)
 - Con URL: usá WebFetch para traer el contenido; extraé puntos y datos reales.
 - Elegí una estructura clara (gancho → desarrollo una idea por lámina → cierre con CTA).
