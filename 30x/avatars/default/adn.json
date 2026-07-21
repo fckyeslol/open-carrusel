@@ -1,0 +1,85 @@
+{
+  "_README": "ADN pack INTERINO para pruebas (2026-07-09): usa los diseños 30x existentes como 'DNA' hasta que lleguen las plantillas por avatar. Se aplica a jobs sin avatar_hint. Reemplazar por packs por-avatar cuando lleguen las plantillas.",
+  "avatar": {
+    "slug": "default",
+    "name": "30x (genérico)",
+    "prewave_avatar_id": "",
+    "prewave_program_match": [
+      "*"
+    ]
+  },
+  "brand": {
+    "handle": "@30xmultipliers",
+    "tagline": "No es para todos. Es para quien quiere más",
+    "cta_default": "Síguenos y guarda",
+    "voice": "tuteo/neutral"
+  },
+  "voice_dna": {
+    "tono": [
+      "directo",
+      "de negocios"
+    ],
+    "do": [
+      "mantener cifras/datos EXACTOS del referente"
+    ],
+    "dont": [
+      "NO inventar cifras, fuentes ni datos",
+      "NO cambiar el significado del referente"
+    ]
+  },
+  "templates": {
+    "_nota": "Moldes 30x existentes reusados como DNA interino (algunos con piel de Multipliers — aceptado para la prueba).",
+    "comparative": {
+      "design_id": "DAHOV4jYR94",
+      "cover_page": 1,
+      "slot_pages": [
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "insight_page": 7,
+      "cta_page": 8
+    },
+    "data": {
+      "design_id": "DAHOtxP-Dpk",
+      "slot_pages": [
+        2,
+        3,
+        4,
+        5
+      ],
+      "_pages": 7
+    },
+    "single_tip": {
+      "design_id": "DAHOS_C5pck",
+      "slot_pages": [
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14
+      ],
+      "cta_page": 15
+    },
+    "cover": {
+      "design_id": "DAHOtxP-Dpk",
+      "page": 1
+    },
+    "cta": {
+      "design_id": "DAHOV4jYR94",
+      "page": 8
+    }
+  },
+  "status": "obsolete",
+  "_status_nota": "OBSOLETO desde 2026-07-15. Este pack era del modelo viejo (elegir un master de layout y reemplazar texto). El modelo nuevo es: la referencia es el molde, el ADN es la maquina. Necesita un lienzo propio (scripts/build_canvas.py) y una identidad visual real para volver."
+}

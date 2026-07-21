@@ -1,0 +1,56 @@
+{
+  "_README": "ADN pack de un avatar. Copiar esta carpeta a avatars/<slug>/ y rellenar. Cuando llegue el ADN + las plantillas de un avatar nuevo, esto es LO ÚNICO que se crea — cero código. Poner status='ready' solo cuando los templates que se usarán tengan design_id.",
+  "avatar": {
+    "slug": "<slug-corto-sin-espacios>",
+    "name": "<Nombre visible>",
+    "prewave_avatar_id": "<uuid opcional>",
+    "prewave_program_match": [
+      "<textos de programs/objective en el board de diseño que mapean a este avatar>"
+    ]
+  },
+  "brand": {
+    "handle": "@<handle_oficial>",
+    "tagline": "<tagline fija del avatar>",
+    "cta_default": "<CTA de cierre>",
+    "voice": "<voseo | tuteo | neutral — describir>"
+  },
+  "voice_dna": {
+    "tono": [
+      "<adjetivos de tono>"
+    ],
+    "do": [
+      "mantener cifras/datos exactos del referente",
+      "<reglas propias del ADN>"
+    ],
+    "dont": [
+      "NO inventar datos/fuentes",
+      "NO usar marca/voz de otro avatar",
+      "<prohibiciones del ADN>"
+    ]
+  },
+  "visual_identity": {
+    "_fuente": "Manual '8 marcas · 1 ADN' (30X Executive Education). Define el sistema de identidad de cada mentor.",
+    "_nota_critica": "La API de Canva NO puede cambiar la familia tipográfica. Estos datos describen cómo DEBE verse el avatar, pero solo se aplican si su TEMPLATE de carrusel ya está construido con esta fuente y colores. Son la especificación para construir/validar la plantilla, no algo que el agente pueda aplicar por texto.",
+    "titulo_rol": "<rol como aparece en el manual>",
+    "firma": "<cómo firma, p.ej. '/ Nombre.'>",
+    "tipografia": {
+      "familia": "",
+      "licencia": ""
+    },
+    "paleta": [],
+    "fondos": [
+      "FONDO 1 - IMAGEN",
+      "FONDO 2 - PLANO",
+      "FONDO 3 - FOTO MENTOR",
+      "FONDO 4 - DEGRADÉ"
+    ]
+  },
+  "canvas": {
+    "_nota": "Lienzo de ADN. NO es una plantilla de layout: es materia prima tipográfica — un diseño con la fuente y el fondo del avatar ya horneados, más una reserva de bloques de texto vacíos que el agente esculpe contra la estructura del referente. Existe solo porque la API de Canva no puede crear texto (`insert_fill` es solo imagen/video) ni cambiar la familia tipográfica. La estructura SIEMPRE viene del referente, nunca de acá.",
+    "design_id": "",
+    "pages": 12,
+    "blocks_per_page": 8
+  },
+  "status": "draft",
+  "_status_nota": "ready cuando visual_identity esté completo Y canvas.design_id exista."
+}

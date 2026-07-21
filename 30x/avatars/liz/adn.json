@@ -1,0 +1,108 @@
+{
+  "avatar": {
+    "slug": "liz",
+    "name": "Liz Hernandez",
+    "prewave_avatar_id": "<uuid opcional>",
+    "prewave_program_match": [
+      "Liz Hernandez"
+    ]
+  },
+  "brand": {
+    "handle": "@morelatam",
+    "_handle_nota": "El manual asocia @morelatam (su empresa). Confirmar si los carruseles se publican ahí o en su cuenta personal.",
+    "tagline": "",
+    "cta_default": "Síguenos y guarda",
+    "voice": "tuteo/neutral (a confirmar)"
+  },
+  "voice_dna": {
+    "_fuente_voz": "Sección Avatares de Prewave (tabla avatars), consultada en prod el 2026-07-17.",
+    "_tono_PENDIENTE": "Prewave NO tiene tone_of_voice cargado para Liz al 2026-07-17. Cargarlo primero en la sección Avatares de Prewave y re-alimentar; no inventar la voz acá.",
+    "tono": [],
+    "do": [
+      "mantener cifras/datos EXACTOS del referente",
+      "firmar como 'Liz Hernández.'"
+    ],
+    "dont": [
+      "NO inventar cifras, fuentes ni datos que no estén en el referente",
+      "NO usar la marca/voz de otro mentor",
+      "NO usar la tipografía ni la paleta de otro avatar"
+    ]
+  },
+  "visual_identity": {
+    "_fuente": "Manual '8 marcas · 1 ADN' — ADN 8 LIZ HERNÁNDEZ (pág. 42-46).",
+    "_nota_critica": "La API de Canva NO cambia la familia tipográfica ni puede crear texto. Esta identidad es la especificación para construir/validar el molde del avatar, no algo que el agente aplique por texto en cada carrusel.",
+    "titulo_rol": "Founder @Morelatam · AI Summit LatAm",
+    "firma": "Liz Hernández.",
+    "tipografia": {
+      "familia": "Nunito Sans",
+      "licencia": "https://fonts.google.com/specimen/Nunito+Sans",
+      "nota": "Sans redondeada y equilibrada; sirve para display y texto."
+    },
+    "paleta": [
+      {
+        "hex": "#F6F5F0",
+        "nombre": "30% White",
+        "rol": "complementario base 30x (fondo claro)"
+      },
+      {
+        "hex": "#000000",
+        "nombre": "Negro",
+        "rol": "oscuro / textos"
+      },
+      {
+        "hex": "#C0C7D0",
+        "nombre": "Lila",
+        "rol": "complementario"
+      },
+      {
+        "hex": "#8177FE",
+        "nombre": "Magenta",
+        "rol": "principal (acento)"
+      }
+    ],
+    "_paleta_nota": "ADN 8, pág. 45 (hex confirmados con su etiqueta). El manual nombra 'Lila' al swatch #C0C7D0 (que en realidad es un gris azulado) — se respeta el naming del manual.",
+    "fondos": [
+      "FONDO 1 - IMAGEN",
+      "FONDO 2 - PLANO",
+      "FONDO 3 - FOTO MENTOR",
+      "FONDO 4 - IMAGEN"
+    ],
+    "gradiente": true
+  },
+  "templates": {
+    "_nota": "design_id de la plantilla 30x del avatar por tipo de lámina. Vacío = pendiente. slot_pages = páginas repetibles de ese tipo dentro del molde. Ver layouts-library.md para qué es cada tipo.",
+    "cover": {
+      "design_id": "",
+      "page": 1
+    },
+    "data": {
+      "design_id": "",
+      "slot_pages": []
+    },
+    "comparative": {
+      "design_id": "",
+      "slot_pages": []
+    },
+    "single_tip": {
+      "design_id": "",
+      "slot_pages": []
+    },
+    "principle": {
+      "design_id": "",
+      "page": null
+    },
+    "process": {
+      "design_id": "",
+      "page": null
+    },
+    "insight": {
+      "design_id": "",
+      "page": null
+    },
+    "cta": {
+      "design_id": "",
+      "page": null
+    }
+  },
+  "status": "ready"
+}

@@ -1,0 +1,87 @@
+{
+ "2": {
+  "theme": "Claridad Instantánea",
+  "malo": "Explícame [tema] de forma sencilla.",
+  "bueno": "Explícame [tema] en lenguaje simple, con ejemplos claros y dime cuáles son las ideas más importantes que debo entender primero.",
+  "contexto": "Quiero entender profundamente [tema] para poder explicarlo, aplicarlo y tomar mejores decisiones sin confundirme.",
+  "rol": "Eres un maestro experto en simplificar ideas complejas y convertirlas en explicaciones claras, útiles y accionables.",
+  "instruccion": "Explícame [tema] desde cero. Primero dame la idea central en una frase. Después divide el tema en partes simples, usa analogías fáciles de recordar, ejemplos reales y errores comunes que debo evitar. Al final, dime cómo aplicarlo en mi vida, negocio o contenido.",
+  "fmt_intro": "Preséntalo en secciones claras:",
+  "fmt_list": [
+   "Idea central",
+   "Explicación simple",
+   "Analogía",
+   "Ejemplo real",
+   "Errores comunes",
+   "Cómo aplicarlo hoy."
+  ]
+ },
+ "3": {
+  "theme": "Ideas Virales",
+  "malo": "Dame ideas virales para contenido.",
+  "bueno": "Dame 10 ideas virales para [nicho], con ganchos fuertes, temas de alto interés y CTA para comentarios.",
+  "contexto": "Quiero crear contenido viral para [plataforma] sobre [nicho]. Mi audiencia ideal es [audiencia] y quiero atraer personas interesadas en [resultado].",
+  "rol": "Eres un estratega experto en contenido viral, psicología de atención y crecimiento orgánico en redes sociales.",
+  "instruccion": "Dame 15 ideas de contenido con alto potencial viral. Cada idea debe tocar un dolor, deseo o creencia fuerte de mi audiencia. Incluye un gancho irresistible, el ángulo principal, el formato recomendado y el CTA ideal para generar comentarios o DMs.",
+  "fmt_intro": "Preséntalo en una tabla:",
+  "fmt_list": [
+   "Idea",
+   "Gancho",
+   "Dolor o deseo",
+   "CTA",
+   "Por qué puede volverse viral."
+  ]
+ },
+ "4": {
+  "theme": "Guiones Virales",
+  "malo": "Hazme un guion viral.",
+  "bueno": "Hazme un guion viral sobre [tema] con gancho, contenido, reflexión y CTA para comentarios.",
+  "contexto": "Quiero crear un video corto para [plataforma] sobre [tema]. Mi audiencia es [audiencia] y quiero generar retención, comentarios y DMs.",
+  "rol": "Eres un guionista experto en Reels/TikTok, psicología de atención y contenido que convierte.",
+  "instruccion": "Crea 3 guiones virales de 30 a 45 segundos. Cada guion debe iniciar con un gancho anti-scroll, desarrollar una idea clara con frases cortas, incluir un giro o insight inesperado y cerrar con una reflexión + CTA. Debe sonar natural, como conversación con un amigo, sin frases genéricas.",
+  "fmt_intro": "Para cada guion entrega:",
+  "fmt_list": [
+   "Texto exacto para decir",
+   "Texto en pantalla",
+   "B-roll sugerido",
+   "Pausas y énfasis",
+   "CTA para comentarios",
+   "Título del video."
+  ]
+ },
+ "5": {
+  "theme": "Hooks Poderosos",
+  "malo": "Dame hooks para mi contenido.",
+  "bueno": "Dame 20 hooks para [nicho] que llamen la atención, generen curiosidad y conecten con el dolor de mi audiencia.",
+  "contexto": "Creo contenido sobre [nicho] para [audiencia]. Quiero atraer personas que sienten [dolor principal] y desean [resultado deseado].",
+  "rol": "Eres un estratega experto en hooks virales, psicología de atención y contenido que genera comentarios y DMs.",
+  "instruccion": "Crea 30 hooks anti-scroll divididos en 5 categorías: dolor, deseo, curiosidad, autoridad y controversia. Cada hook debe ser corto, directo, emocional y fácil de decir en video. Evita frases genéricas y haz que suenen naturales.",
+  "fmt_intro": "Preséntalo así:",
+  "fmt_list": [
+   "Categoría",
+   "Hook",
+   "Emoción que activa",
+   "Por qué funciona",
+   "Mejor formato para usarlo."
+  ]
+ },
+ "6": {
+  "theme": "Clientes con IA",
+  "malo": "Dame ideas para conseguir clientes.",
+  "bueno": "Dame una estrategia para atraer clientes usando IA, contenido y mensajes por WhatsApp para mi negocio de [nicho].",
+  "contexto": "Tengo un negocio de [nicho] y quiero atraer clientes usando IA, contenido y conversaciones por WhatsApp. Mi cliente ideal es [cliente ideal] y quiero lograr [resultado].",
+  "rol": "Eres un estratega experto en captación de clientes, embudos simples, contenido que convierte y ventas por conversación.",
+  "instruccion": "Diseña un sistema simple para atraer clientes en 7 días. Incluye ideas de contenido, CTA para comentarios, mensaje inicial de WhatsApp, preguntas de diagnóstico y una oferta clara para convertir interesados en clientes.",
+  "fmt_intro": "Preséntalo así:",
+  "fmt_list": [
+   "Perfil del cliente ideal",
+   "Dolor principal",
+   "5 ideas de contenido",
+   "CTA para comentarios",
+   "Mensaje de WhatsApp",
+   "Preguntas de diagnóstico",
+   "Oferta recomendada",
+   "Acción para hoy."
+  ]
+ }
+}

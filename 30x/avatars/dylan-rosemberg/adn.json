@@ -1,0 +1,134 @@
+{
+  "avatar": {
+    "slug": "dylan-rosemberg",
+    "name": "Dylan Rosemberg",
+    "prewave_avatar_id": "<uuid opcional>",
+    "prewave_program_match": [
+      "Dylan Rosemberg"
+    ]
+  },
+  "brand": {
+    "handle": "",
+    "_handle_TODO": "El manual cita '@Growthrockstar' (su empresa). Confirmar si los carruseles se publican ahí o en su cuenta personal.",
+    "tagline": "",
+    "cta_default": "Síguenos y guarda",
+    "voice": "neutro (voz confirmada desde Prewave — ver voice_dna)"
+  },
+  "voice_dna": {
+    "_fuente_voz": "Sección Avatares de Prewave (tabla avatars), consultada en prod el 2026-07-17. Es la FUENTE DE VERDAD del tono; el manual ADN solo aporta la identidad VISUAL.",
+    "tono": [
+      "Emprendedor joven y caso de éxito",
+      "cercano",
+      "provocador",
+      "obsesivo con el growth",
+      "generoso con el conocimiento",
+      "práctico",
+      "auténtico."
+    ],
+    "tono_descripcion": "Cercano, provocador y directo. Emprendedor joven y caso de éxito que habla de par a par. Growth y founder, nunca técnico ni corporativo. Motivador pero anti-humo. Voseo rioplatense.",
+    "estilo_comunicacion": "Storytelling con casos y resultados reales + frameworks aplicables. Una sola idea por pieza, desmenuzada en frases cortas. Bullets con flechas (→). Referencias virales adaptadas a su voz. Regla de oro: cada pieza muestra algo aplicable o un resultado real. Siempre cierra con CTA claro.",
+    "acento": "neutro",
+    "firma_cierre_prewave": "",
+    "temas_centrales": [
+      "Growth (adquisición",
+      "retención",
+      "monetización",
+      "experimentación)",
+      "builds con IA (\"cómo hacer X con Claude/IA\")",
+      "frameworks y playbooks aplicables",
+      "casos de éxito reales (alumni y empresas)",
+      "thought leadership: por qué el growth cambia con IA",
+      "vida de founder y emprendimiento en LATAM."
+    ],
+    "frases_muestra": [
+      "\"Growth no es marketing digital ni trucos: es estrategia, tácticas y experimentación.\" / \"Si no incomodás, no transformás.\" / \"No busco que salgas inspirado un rato. Busco que salgas con tareas concretas.\" / \"Un founder tiene que pensar en growth desde el momento de la idea.\" / \"Resultados de negocio, no teoría.\" / \"Comentá GROWTH y te lo mando.\""
+    ],
+    "do": [
+      "mantener cifras/datos EXACTOS del referente",
+      "respetar el tono y el estilo de comunicación de arriba (voz cargada en Prewave)",
+      "firmar como 'Dylan Rosemberg.'"
+    ],
+    "dont": [
+      "NO inventar cifras, fuentes ni datos que no estén en el referente",
+      "NO usar la marca/voz de otro mentor",
+      "NO usar la tipografía ni la paleta de otro avatar"
+    ]
+  },
+  "visual_identity": {
+    "_fuente": "Manual '8 marcas · 1 ADN' — ADN 5 DYLAN ROSEMBERG (pág. 26-30).",
+    "_nota_critica": "La API de Canva NO cambia la familia tipográfica ni puede crear texto. Esta identidad es la especificación para construir/validar el molde del avatar, no algo que el agente aplique por texto en cada carrusel.",
+    "titulo_rol": "Founder @Growthrockstar · Co-founder Crece30X",
+    "firma": "Dylan Rosemberg.",
+    "tipografia": {
+      "familia": "Bricolage Grotesque",
+      "licencia": "https://fonts.google.com/specimen/Bricolage+Grotesque",
+      "nota": "Grotesque de contraste variable con ink traps; carácter marcado."
+    },
+    "paleta": [
+      {
+        "hex": "#F6F5F0",
+        "nombre": "30% White",
+        "rol": "complementario base 30x (fondo claro)"
+      },
+      {
+        "hex": "#1E010B",
+        "nombre": "Ciruela Profundo",
+        "rol": "oscuro / textos"
+      },
+      {
+        "hex": "#D9CBB2",
+        "nombre": "Crema",
+        "rol": "complementario"
+      },
+      {
+        "hex": "#F92424",
+        "nombre": "Rojo Rockstar",
+        "rol": "principal (acento)"
+      }
+    ],
+    "_paleta_nota": "ADN 5, pág. 29 (hex confirmados con su etiqueta).",
+    "fondos": [
+      "FONDO 1 - IMAGEN",
+      "FONDO 2 - TEXTURA",
+      "FONDO 3 - DEGRADÉ",
+      "FONDO 4 - FOTO MENTOR"
+    ],
+    "gradiente": true
+  },
+  "templates": {
+    "_nota": "design_id de la plantilla 30x del avatar por tipo de lámina. Vacío = pendiente. slot_pages = páginas repetibles de ese tipo dentro del molde. Ver layouts-library.md para qué es cada tipo.",
+    "cover": {
+      "design_id": "",
+      "page": 1
+    },
+    "data": {
+      "design_id": "",
+      "slot_pages": []
+    },
+    "comparative": {
+      "design_id": "",
+      "slot_pages": []
+    },
+    "single_tip": {
+      "design_id": "",
+      "slot_pages": []
+    },
+    "principle": {
+      "design_id": "",
+      "page": null
+    },
+    "process": {
+      "design_id": "",
+      "page": null
+    },
+    "insight": {
+      "design_id": "",
+      "page": null
+    },
+    "cta": {
+      "design_id": "",
+      "page": null
+    }
+  },
+  "status": "ready"
+}

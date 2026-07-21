@@ -1,0 +1,162 @@
+{
+  "avatar": {
+    "slug": "andres",
+    "name": "Andrés Bilbao",
+    "prewave_avatar_id": "",
+    "prewave_program_match": [
+      "Andres Bilbao",
+      "Cuenta Andres Bilbao"
+    ]
+  },
+  "brand": {
+    "handle": "@andres_bilbao0",
+    "tagline": "El contenido pasa. El conocimiento se queda.",
+    "cta_default": "Síguenos y guarda",
+    "voice": "caleño (voz confirmada desde Prewave — ver voice_dna)"
+  },
+  "voice_dna": {
+    "_fuente_voz": "Sección Avatares de Prewave (tabla avatars), consultada en prod el 2026-07-17. Es la FUENTE DE VERDAD del tono; el manual ADN solo aporta la identidad VISUAL.",
+    "tono": [
+      "visionario",
+      "autentico",
+      "irreverente con criterio",
+      "Generoso con el conocimiento",
+      "Orgulloso de lo latinoamericano sin ego de palco",
+      "Dice lo que piensa aunque incomode",
+      "Se ríe de sí mismo"
+    ],
+    "tono_descripcion": "Directo, sin rodeos, con convicción. Habla como el amigo más listo de la reunión — no el que grita, el que sabe. Coloquial latinoamericano, energía alta, afirmaciones rotundas seguidas de explicación. No pide permiso para opinar.",
+    "estilo_comunicacion": "Estructura top-down + datos concretos + analogía pop. Primero dice qué va a decir, luego lo dice, luego lo sintetiza. Usa listas de 3, preguntas retóricas para crear curiosidad, y cierra siempre con una frase lapidaria que se puede citar sola.",
+    "acento": "caleño",
+    "firma_cierre_prewave": "Síguenos que te enseñamos las cosas que valen la pena",
+    "temas_centrales": [
+      "Negocios",
+      "emprendimiento",
+      "Escalabilidad",
+      "Liderazgo",
+      "alto desempeño",
+      "Comunicación",
+      "influencia",
+      "Inteligencia artificial aplicada",
+      "Creación de valor",
+      "Mentalidad emprendedora",
+      "Cultura organizacional"
+    ],
+    "frases_muestra": [
+      "\"O sos el más crack, o sos el más barato. Yo siempre trato de ser el más crack.\"",
+      "\"Si no incomodas, no transformas.\"",
+      "\"No soy malo en tecnología todavía.\"",
+      "\"El mercado no te paga por lo fácil que te queda — te paga por lo difícil que le queda a los demás.\"",
+      "\"Autoridad es precisión. Claridad. Y silencio.\"",
+      "\"Yo no me quedo con ideas en el aire. Mando el audio. Mando el texto. Lo que sea.\"",
+      "\"Buscar trabajo es un trabajo de tiempo completo.\"",
+      "\"Si vos querés escalar, el negocio tiene que poder funcionar sin vos encima todo el tiempo.\"",
+      "\"Tu primera respuesta era la fuerte. Todo lo que decís después la debilita.\"",
+      "\"Seguinos que nosotros te contamos las cosas que valen la pena.\""
+    ],
+    "do": [
+      "mantener cifras/datos EXACTOS del referente",
+      "respetar el tono y el estilo de comunicación de arriba (voz cargada en Prewave)",
+      "firmar como 'Andrés Bilbao.'"
+    ],
+    "dont": [
+      "NO inventar cifras, fuentes ni datos que no estén en el referente",
+      "NO usar la marca/voz de otro mentor",
+      "NO usar la tipografía ni la paleta de otro avatar"
+    ]
+  },
+  "visual_identity": {
+    "_fuente": "Manual '8 marcas · 1 ADN' — ADN 4 ANDRÉS BILBAO (pág. 21-25).",
+    "_nota_critica": "La API de Canva NO cambia la familia tipográfica ni puede crear texto. Esta identidad es la especificación para construir/validar el molde del avatar, no algo que el agente aplique por texto en cada carrusel.",
+    "titulo_rol": "Co-founder Rappi · Co-founder 30X · Inversionista",
+    "firma": "Andrés Bilbao.",
+    "tipografia": {
+      "familia": "Inter",
+      "licencia": "https://fonts.google.com/specimen/Inter",
+      "nota": "Variable font pensada para pantallas; x-height alta y muy legible."
+    },
+    "paleta": [
+      {
+        "hex": "#F6F5F0",
+        "nombre": "30% White",
+        "rol": "complementario base 30x (fondo claro)"
+      },
+      {
+        "hex": "#EBFF6F",
+        "nombre": "Lima",
+        "rol": "principal (acento)"
+      },
+      {
+        "hex": "#15142B",
+        "nombre": "Navy",
+        "rol": "complementario / detalles / textos"
+      },
+      {
+        "hex": "#FF791A",
+        "nombre": "Naranja",
+        "rol": "gradiente"
+      },
+      {
+        "hex": "#F0412A",
+        "nombre": "Rojo Vívido",
+        "rol": "gradiente"
+      }
+    ],
+    "_paleta_nota": "ADN 4, pág. 24. OJO: en el PDF los swatches NARANJA y ROJO VÍVIDO están mal etiquetados (NARANJA dice 'HEX 3A34E0' = azul; ROJO VÍVIDO dice 'HEX EBFF6F' = lima) — bug de copy-paste del manual. Los hex reales, muestreados del bloque, son Naranja #FF791A y Rojo Vívido #F0412A. Lima #EBFF6F y Navy #15142B sí coinciden con su etiqueta.",
+    "fondos": [
+      "FONDO 1 - MENTOR",
+      "FONDO 2 - PLANO",
+      "FONDO 3 - IMAGEN",
+      "FONDO 4 - DEGRADÉ"
+    ],
+    "gradiente": true
+  },
+  "templates": {
+    "_nota": "design_id vacío = plantilla del avatar aún no entregada. El orquestador SALTA este avatar hasta que status='ready'. Rellenar con los design_id que compartan por avatar.",
+    "cover": {
+      "design_id": "",
+      "page": 1
+    },
+    "data": {
+      "design_id": "",
+      "slot_pages": []
+    },
+    "comparative": {
+      "design_id": "DAHOV4jYR94",
+      "cover_page": 1,
+      "slot_pages": [
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "insight_page": 7,
+      "cta_page": 8,
+      "_ready": true,
+      "_nota": "molde comparativo ya brandeado Andrés (su foto, @andres_bilbao0)"
+    },
+    "single_tip": {
+      "design_id": "",
+      "slot_pages": []
+    },
+    "principle": {
+      "design_id": "",
+      "page": null
+    },
+    "process": {
+      "design_id": "",
+      "page": null
+    },
+    "insight": {
+      "design_id": "",
+      "page": null
+    },
+    "cta": {
+      "design_id": "",
+      "page": null
+    }
+  },
+  "status": "ready",
+  "_status_help": "draft = plantillas incompletas, NO procesar (evita el problema del piloto: piel equivocada). ready = todos los templates que se van a usar tienen design_id → el orquestador lo incluye en la cola."
+}

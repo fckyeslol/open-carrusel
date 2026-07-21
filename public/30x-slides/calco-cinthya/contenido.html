@@ -1,0 +1,69 @@
+<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1080px;height:1350px;overflow:hidden}
+.s{width:1080px;height:1350px;position:relative;overflow:hidden;background:#F4F3EE;color:#2A2320;font-family:'Inter',sans-serif;padding:40px 58px 30px}
+.paper{position:absolute;inset:0;opacity:.5;mix-blend-mode:multiply}
+.wrap{position:relative;z-index:2}
+.title{text-align:center;font-family:'Instrument Serif',serif;font-size:84px;line-height:.98;letter-spacing:-1px;margin-bottom:4px}
+.lbl{position:relative;display:block;width:max-content;margin:0 auto 5px;font-family:'Instrument Serif',serif;font-size:42px;padding:2px 40px}
+.lbl svg{position:absolute;left:50%;top:54%;transform:translate(-50%,-50%);z-index:0}
+.lbl span{position:relative;z-index:1}
+.card{border-radius:26px;padding:22px 30px 52px;position:relative;margin-bottom:10px}
+.card .txt{font-size:28px;line-height:1.3;font-weight:500}
+.plus{position:absolute;left:28px;bottom:12px;font-size:38px;color:#9a8f88;font-weight:300;line-height:1}
+.tools{position:absolute;right:26px;bottom:14px;display:flex;align-items:center;gap:18px}
+.send{width:52px;height:52px;border-radius:50%;background:#2A2320;display:flex;align-items:center;justify-content:center}
+.dot{height:2px;border-top:2px dotted #b8aca4;margin:9px 0}
+/* excelente */
+.exc{padding:22px 30px 24px}
+.sec{margin-bottom:9px}
+.sec b{display:block;font-size:24px;font-weight:800;margin-bottom:1px}
+.sec p{font-size:24px;line-height:1.26;font-weight:500}
+.sec ol{margin:1px 0 0 6px;padding-left:26px;font-size:23px;line-height:1.3;font-weight:500}
+.swipe{position:absolute;right:44px;bottom:26px;z-index:3}
+</style></head><body>
+<div class="s">
+<svg class="paper" width="1080" height="1350"><filter id="pap"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/><feComponentTransfer><feFuncA type="linear" slope="0.09"/></feComponentTransfer></filter><rect width="1080" height="1350" filter="url(#pap)"/></svg>
+<svg width="0" height="0"><defs><filter id="brush"><feTurbulence type="fractalNoise" baseFrequency="0.016 0.14" numOctaves="2" seed="5" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="30" xChannelSelector="R" yChannelSelector="G"/></filter></defs></svg>
+<div class="wrap">
+  <div class="title">&ldquo;Claridad Instantánea&rdquo;</div>
+
+  <div class="lbl"><svg width="440" height="90"><rect x="16" y="24" width="408" height="46" rx="8" fill="#F68F6E" filter="url(#brush)"/></svg><span>Prompt Malo</span></div>
+  <div class="card" style="background:#FBF3E6;border:1.5px solid #efe1c8">
+    <div class="txt">Explícame [tema] de forma sencilla.</div>
+    <div class="plus">+</div>
+    <div class="tools">
+      <svg width="26" height="34" viewBox="0 0 24 32" fill="none" stroke="#6f635c" stroke-width="2"><rect x="8" y="2" width="8" height="16" rx="4"/><path d="M4 14a8 8 0 0 0 16 0M12 22v6M8 30h8"/></svg>
+      <div class="send"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F6F5F0" stroke-width="2.5"><path d="M12 20V5M6 11l6-6 6 6"/></svg></div>
+    </div>
+  </div>
+
+  <div class="dot"></div>
+
+  <div class="lbl"><svg width="470" height="90"><rect x="16" y="24" width="438" height="46" rx="8" fill="#E5ACBF" filter="url(#brush)"/></svg><span>Prompt Bueno</span></div>
+  <div class="card" style="background:#F6EEF1;border:1.5px solid #ecd7de">
+    <div class="txt">Explícame [tema] en lenguaje simple, con ejemplos claros y dime cuáles son las ideas más importantes que debo entender primero.</div>
+    <div class="plus">+</div>
+    <div class="tools">
+      <svg width="26" height="34" viewBox="0 0 24 32" fill="none" stroke="#6f635c" stroke-width="2"><rect x="8" y="2" width="8" height="16" rx="4"/><path d="M4 14a8 8 0 0 0 16 0M12 22v6M8 30h8"/></svg>
+      <div class="send"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F6F5F0" stroke-width="2.5"><path d="M12 20V5M6 11l6-6 6 6"/></svg></div>
+    </div>
+  </div>
+
+  <div class="dot"></div>
+
+  <div class="lbl"><svg width="510" height="90"><rect x="16" y="24" width="478" height="46" rx="8" fill="#C77E97" filter="url(#brush)"/></svg><span style="color:#F6F5F0">Prompt Excelente</span></div>
+  <div class="card exc" style="background:#F0EAEF;border:1.5px solid #e0cdd8">
+    <div class="sec"><b>Contexto</b><p>Quiero entender profundamente [tema] para poder explicarlo, aplicarlo y tomar mejores decisiones sin confundirme.</p></div>
+    <div class="sec"><b>Rol</b><p>Eres un maestro experto en simplificar ideas complejas y convertirlas en explicaciones claras, útiles y accionables.</p></div>
+    <div class="sec"><b>Instrucción</b><p>Explícame [tema] desde cero. Primero dame la idea central en una frase. Después divide el tema en partes simples, usa analogías fáciles de recordar, ejemplos reales y errores comunes que debo evitar.</p></div>
+    <div class="sec"><b>Formato</b><p>Preséntalo en secciones claras:</p>
+      <ol><li>Idea central</li><li>Explicación simple</li><li>Analogía</li><li>Ejemplo real</li><li>Errores comunes</li><li>Cómo aplicarlo hoy.</li></ol>
+    </div>
+  </div>
+</div>
+<svg class="swipe" width="90" height="70" viewBox="0 0 90 70" fill="none" stroke="#2A2320" stroke-width="4" stroke-linecap="round"><path d="M8 20c30-6 55 2 66 20"/><path d="M60 24l16 16-22 6"/></svg>
+</div>
+</body></html>

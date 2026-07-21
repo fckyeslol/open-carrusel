@@ -1,0 +1,140 @@
+{
+  "avatar": {
+    "slug": "daniel-bilbao",
+    "name": "Daniel Bilbao",
+    "prewave_avatar_id": "<uuid opcional>",
+    "prewave_program_match": [
+      "Daniel Bilbao"
+    ]
+  },
+  "brand": {
+    "handle": "",
+    "_handle_TODO": "El manual cita '@Truora' (empresa), no su handle personal de IG. Confirmar la cuenta donde publican sus carruseles.",
+    "tagline": "Enfocado en desarrollar el ecosistema tech en Latinoamérica.",
+    "cta_default": "Síguenos y guarda",
+    "voice": "caleño (voz confirmada desde Prewave — ver voice_dna)"
+  },
+  "voice_dna": {
+    "_fuente_voz": "Sección Avatares de Prewave (tabla avatars), consultada en prod el 2026-07-17. Es la FUENTE DE VERDAD del tono; el manual ADN solo aporta la identidad VISUAL.",
+    "tono": [
+      "honesto radical",
+      "autodeprecativo",
+      "anti-hype",
+      "provocador con datos",
+      "conversacional"
+    ],
+    "tono_descripcion": "Honestidad radical: establece credibilidad desde sus fracasos, no sus logros; humor autodeprecativo. Anti-hype, sin grandilocuencia. Habla como conversación, no como monólogo — verifica todo el tiempo con el oyente. Convicción fuerte al opinar y refutación directa de lo que cree falso.",
+    "estilo_comunicacion": "Abre sin preámbulo: la primera frase ya es el punto (una afirmación controversial o una confesión que lo hace vulnerable y lo ancla). Ancla en experiencia concreta —nombres, números, resultados— antes de generalizar. Anticipa la objeción más obvia y la responde él mismo. Cierra con la implicación práctica (¿y qué hacemos con esto?), con postura clara; nunca con moraleja ni pregunta reflexiva al lector.",
+    "acento": "caleño",
+    "firma_cierre_prewave": "Soy Daniel Bilbao, CEO de Truora y fundador de Lab10, {{Sígueme para más contenido como este}}",
+    "temas_centrales": [
+      "reclutamiento y talento",
+      "liderazgo práctico",
+      "management en startups",
+      "IA en el trabajo",
+      "carrera profesional",
+      "mediocridad vs excelencia",
+      "founders y fundraising",
+      "ecosistema tech LATAM",
+      "Emprendimiento VC Backed",
+      "Venture Capital"
+    ],
+    "frases_muestra": [
+      "¿A qué estamos jugando?",
+      "Así de simple.",
+      "Yo genuinamente creo que…",
+      "Seamos honestos aquí.",
+      "¿Sí o no?",
+      "¿Me siguen hasta ahí?",
+      "Eso es una excusa.",
+      "first principles"
+    ],
+    "do": [
+      "mantener cifras/datos EXACTOS del referente",
+      "respetar el tono y el estilo de comunicación de arriba (voz cargada en Prewave)",
+      "firmar como 'Daniel Bilbao.'"
+    ],
+    "dont": [
+      "NO inventar cifras, fuentes ni datos que no estén en el referente",
+      "NO usar la marca/voz de otro mentor",
+      "NO usar la tipografía ni la paleta de otro avatar"
+    ]
+  },
+  "visual_identity": {
+    "_fuente": "Manual '8 marcas · 1 ADN' — ADN 3 DANIEL BILBAO (pág. 16-20).",
+    "_nota_critica": "La API de Canva NO cambia la familia tipográfica ni puede crear texto. Esta identidad es la especificación para construir/validar el molde del avatar, no algo que el agente aplique por texto en cada carrusel.",
+    "titulo_rol": "CEO @Truora · Ecosistema Tech LatAm",
+    "firma": "Daniel Bilbao.",
+    "tipografia": {
+      "familia": "Arimo",
+      "licencia": "https://fonts.google.com/specimen/Arimo",
+      "nota": "Sans metrically-compatible con Arial; buena legibilidad en pantalla."
+    },
+    "paleta": [
+      {
+        "hex": "#F6F5F0",
+        "nombre": "30% White",
+        "rol": "complementario base 30x (fondo claro)"
+      },
+      {
+        "hex": "#0C1030",
+        "nombre": "Azul Noche",
+        "rol": "oscuro / textos"
+      },
+      {
+        "hex": "#C0C7D0",
+        "nombre": "Acero",
+        "rol": "complementario"
+      },
+      {
+        "hex": "#3A34E0",
+        "nombre": "Azul",
+        "rol": "principal (acento)"
+      }
+    ],
+    "_paleta_nota": "ADN 3, pág. 19 (hex confirmados con su etiqueta). El manual no rotula los roles PRINCIPAL/COMPLEMENTARIO en esta página; los roles de arriba son la lectura visual razonable — confirmar al construir el lienzo.",
+    "fondos": [
+      "FONDO 1 - FOTO MENTOR",
+      "FONDO 2 - IMAGEN",
+      "FONDO 3 - PLANO DEGRADÉ",
+      "FONDO 4 - TEXTURA"
+    ],
+    "gradiente": true
+  },
+  "templates": {
+    "_nota": "design_id de la plantilla 30x del avatar por tipo de lámina. Vacío = pendiente. slot_pages = páginas repetibles de ese tipo dentro del molde. Ver layouts-library.md para qué es cada tipo.",
+    "cover": {
+      "design_id": "",
+      "page": 1
+    },
+    "data": {
+      "design_id": "",
+      "slot_pages": []
+    },
+    "comparative": {
+      "design_id": "",
+      "slot_pages": []
+    },
+    "single_tip": {
+      "design_id": "",
+      "slot_pages": []
+    },
+    "principle": {
+      "design_id": "",
+      "page": null
+    },
+    "process": {
+      "design_id": "",
+      "page": null
+    },
+    "insight": {
+      "design_id": "",
+      "page": null
+    },
+    "cta": {
+      "design_id": "",
+      "page": null
+    }
+  },
+  "status": "ready"
+}

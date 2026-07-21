@@ -1,0 +1,49 @@
+<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800;900&family=Instrument+Serif&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1080px;height:1350px;overflow:hidden}
+.s{width:1080px;height:1350px;position:relative;overflow:hidden;background:#F4F3EE;font-family:'Instrument Serif',serif;color:#2A2320}
+/* papel arrugado */
+.paper{position:absolute;inset:0;opacity:.55;mix-blend-mode:multiply}
+.stack{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:40px 40px}
+.group{text-align:center;width:100%}
+.swashwrap{position:relative;display:inline-block;margin-bottom:-18px}
+.swash{position:absolute;left:50%;top:52%;transform:translate(-50%,-50%);z-index:0}
+.word{position:relative;z-index:1;font-weight:800;font-size:78px;line-height:1;padding:0 30px;color:#2A2320}
+.big{font-weight:900;font-size:172px;line-height:.92;color:#241E1B;letter-spacing:-2px}
+.divider{display:flex;align-items:center;justify-content:center;gap:0;width:100%;margin:6px 0}
+.dline{flex:1;border-top:3px dotted #2A2320;opacity:.6}
+.vs{border:2px solid #2A2320;font-size:30px;font-style:italic;padding:4px 16px;margin:0 14px;font-family:'Instrument Serif',serif}
+</style></head><body>
+<div class="s">
+<svg class="paper" width="1080" height="1350"><filter id="pap"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/><feComponentTransfer><feFuncA type="linear" slope="0.10"/></feComponentTransfer></filter><rect width="1080" height="1350" filter="url(#pap)"/></svg>
+<svg width="0" height="0"><defs><filter id="brush"><feTurbulence type="fractalNoise" baseFrequency="0.014 0.13" numOctaves="2" seed="7" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="40" xChannelSelector="R" yChannelSelector="G"/></filter></defs></svg>
+
+<div class="stack">
+  <div class="group">
+    <div class="swashwrap">
+      <svg class="swash" width="620" height="150"><rect x="30" y="35" width="560" height="80" rx="10" fill="#F68F6E" filter="url(#brush)"/></svg>
+      <span class="word">Malos</span>
+    </div>
+    <div class="big">Prompts</div>
+  </div>
+  <div class="divider"><span class="dline"></span><span class="vs">vs</span><span class="dline"></span></div>
+  <div class="group">
+    <div class="swashwrap">
+      <svg class="swash" width="680" height="150"><rect x="30" y="35" width="620" height="80" rx="10" fill="#E5ACBF" filter="url(#brush)"/></svg>
+      <span class="word">Buenos</span>
+    </div>
+    <div class="big">Prompts</div>
+  </div>
+  <div class="divider"><span class="dline"></span><span class="vs">vs</span><span class="dline"></span></div>
+  <div class="group">
+    <div class="swashwrap">
+      <svg class="swash" width="780" height="150"><rect x="30" y="35" width="720" height="80" rx="10" fill="#C77E97" filter="url(#brush)"/></svg>
+      <span class="word" style="color:#F6F5F0">Excelentes</span>
+    </div>
+    <div class="big">Prompts</div>
+  </div>
+</div>
+</div>
+</body></html>

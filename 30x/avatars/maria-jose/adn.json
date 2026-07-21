@@ -1,0 +1,137 @@
+{
+  "avatar": {
+    "slug": "maria-jose",
+    "name": "Maria Jose Echeverri",
+    "prewave_avatar_id": "<uuid opcional>",
+    "prewave_program_match": [
+      "Maria Jose Echeverri"
+    ]
+  },
+  "brand": {
+    "handle": "",
+    "_handle_TODO": "El manual no incluye el handle de IG de María José. Confirmar la cuenta donde publican sus carruseles.",
+    "tagline": "",
+    "cta_default": "Síguenos y guarda",
+    "voice": "neutro (voz confirmada desde Prewave — ver voice_dna)"
+  },
+  "voice_dna": {
+    "_fuente_voz": "Sección Avatares de Prewave (tabla avatars), consultada en prod el 2026-07-17. Es la FUENTE DE VERDAD del tono; el manual ADN solo aporta la identidad VISUAL.",
+    "tono": [
+      "Cercana. Inteligente. Curiosa. Estratégica. Líder. Humilde. Optimista. Constructora de ecosistemas. Buena escuchando. Generosa compartiendo conocimiento. Muy orientada a conectar personas.  Nunca transmite superioridad. Nunca transmite ego. Nunca transmite victimismo."
+    ],
+    "tono_descripcion": "Cálida y directa, como una amiga que ya pasó por ahí. Español colombiano bogotano, frases cortas, colombianismos orgánicos (chévere, o sea, berraquera). Honesta sin arco de redención, humor situacional, primera persona desde la experiencia propia. Cero relleno tipo IA, cero CTAs robóticos, cero contrastes binarios.",
+    "estilo_comunicacion": "Storytelling + datos. Natural y conversacional. Inteligente pero fácil de entender. Reflexiva, sin ser filosófica. Segura, sin sonar arrogante.",
+    "acento": "neutro",
+    "firma_cierre_prewave": "",
+    "temas_centrales": [
+      "Networking (sin transaccionar",
+      "construyendo amistades reales)",
+      "Ecosistema tech LATAM y Colombia",
+      "Liderazgo y construcción de equipos",
+      "Mujeres en tecnología",
+      "Propósito profesional: ¿qué harías gratis todos los días?",
+      "Normalizando el fracaso (Big 4",
+      "errores",
+      "momentos difíciles)",
+      "Behind the scenes de CTW y AI Summit",
+      "Levantamiento de capital y fondos de inversión en LATAM"
+    ],
+    "frases_muestra": [
+      "Construir una empresa también es construir a la persona que la lidera.",
+      "Muchas oportunidades no llegan porque seas el mejor, llegan porque alguien decidió hablar de ti.",
+      "Las empresas crecen cuando las conversaciones correctas empiezan a pasar.",
+      "Emprender no es tener todas las respuestas. Es aprender a tomar mejores decisiones.",
+      "Una buena idea cambia un negocio. Una buena relación puede cambiar una industria.",
+      "El networking no se trata de conocer más personas. Se trata de construir mejores relaciones.",
+      "No todas las oportunidades empiezan con un correo. Muchas empiezan con una conversación.",
+      "Construir una empresa también implica aprender a construir confianza."
+    ],
+    "do": [
+      "mantener cifras/datos EXACTOS del referente",
+      "respetar el tono y el estilo de comunicación de arriba (voz cargada en Prewave)",
+      "firmar como 'María José Echeverri.'"
+    ],
+    "dont": [
+      "NO inventar cifras, fuentes ni datos que no estén en el referente",
+      "NO usar la marca/voz de otro mentor",
+      "NO usar la tipografía ni la paleta de otro avatar"
+    ]
+  },
+  "visual_identity": {
+    "_fuente": "Manual '8 marcas · 1 ADN' — ADN 6 MARÍA JOSÉ E. (pág. 31-36).",
+    "_nota_critica": "La API de Canva NO cambia la familia tipográfica ni puede crear texto. Esta identidad es la especificación para construir/validar el molde del avatar, no algo que el agente aplique por texto en cada carrusel.",
+    "titulo_rol": "Founder ColombiaTech Week",
+    "firma": "María José Echeverri.",
+    "tipografia": {
+      "familia": "Poppins",
+      "licencia": "https://fonts.google.com/specimen/Poppins",
+      "nota": "Sans geométrica; formas puras basadas en círculos."
+    },
+    "paleta": [
+      {
+        "hex": "#F6F5F0",
+        "nombre": "30% White",
+        "rol": "complementario base 30x (fondo claro)"
+      },
+      {
+        "hex": "#5A4633",
+        "nombre": "Café Oscuro",
+        "rol": "oscuro / textos"
+      },
+      {
+        "hex": "#F0EF9F",
+        "nombre": "Amarillo Pastel",
+        "rol": "principal (acento)"
+      },
+      {
+        "hex": "#D9CBB2",
+        "nombre": "Crema",
+        "rol": "complementario"
+      }
+    ],
+    "_paleta_nota": "ADN 6, pág. 35 (hex confirmados con su etiqueta).",
+    "fondos": [
+      "FONDO 1 - IMAGEN",
+      "FONDO 2 - PLANO",
+      "FONDO 3 - FOTO MENTOR",
+      "FONDO 4 - IMAGEN"
+    ],
+    "gradiente": true
+  },
+  "templates": {
+    "_nota": "design_id de la plantilla 30x del avatar por tipo de lámina. Vacío = pendiente. slot_pages = páginas repetibles de ese tipo dentro del molde. Ver layouts-library.md para qué es cada tipo.",
+    "cover": {
+      "design_id": "",
+      "page": 1
+    },
+    "data": {
+      "design_id": "",
+      "slot_pages": []
+    },
+    "comparative": {
+      "design_id": "",
+      "slot_pages": []
+    },
+    "single_tip": {
+      "design_id": "",
+      "slot_pages": []
+    },
+    "principle": {
+      "design_id": "",
+      "page": null
+    },
+    "process": {
+      "design_id": "",
+      "page": null
+    },
+    "insight": {
+      "design_id": "",
+      "page": null
+    },
+    "cta": {
+      "design_id": "",
+      "page": null
+    }
+  },
+  "status": "ready"
+}

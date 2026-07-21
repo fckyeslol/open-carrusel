@@ -1,0 +1,135 @@
+{
+  "avatar": {
+    "slug": "guillermo",
+    "name": "Guillermo Jaramillo",
+    "prewave_avatar_id": "",
+    "prewave_program_match": [
+      "Guillermo Jaramillo",
+      "Guillermo",
+      "Cuenta Guillermo"
+    ]
+  },
+  "brand": {
+    "handle": "",
+    "_handle_TODO": "Falta el handle de IG de Guillermo — el manual de ADN no lo incluye (usa firma, no handle).",
+    "tagline": "",
+    "cta_default": "Síguenos y guarda",
+    "voice": "neutro (voz confirmada desde Prewave — ver voice_dna)"
+  },
+  "voice_dna": {
+    "_fuente_voz": "Sección Avatares de Prewave (tabla avatars), consultada en prod el 2026-07-17. Es la FUENTE DE VERDAD del tono; el manual ADN solo aporta la identidad VISUAL.",
+    "tono": [
+      "Mentor cálido con experiencia operativa real",
+      "Pragmático: descubre el problema en los primeros 5 minutos",
+      "Conector compulsivo — connecting the dots entre founders",
+      "problemas y soluciones",
+      "Storyteller — enseña con casos reales",
+      "no con teoría",
+      "Cercano",
+      "llama a la gente por su nombre y construye confianza rápido",
+      "Defiende la capacidad de desaprender por encima de cualquier diploma",
+      "Optimista práctico — el camino existe",
+      "hay que recorrerlo",
+      "Mezcla español con jerga business (Rapid Assessment",
+      "spinoff",
+      "trusted advisor) sin pretensión"
+    ],
+    "tono_descripcion": "Cálido, reflexivo, con autoridad ganada en la cancha. Habla como el mentor que ya hizo lo que vos estás intentando — pero sin imponer. Energía calmada, frases que dejan respirar al otro. Cuenta historias para enseñar en vez de dictar lecciones. Latinoamericano neutro con anclaje colombiano y guiños en inglés del mundo consultoría y startup.",
+    "estilo_comunicacion": "Estructura caso → insight → acción. Primero te cuenta una historia real (el ERP de museos en París que se volvió empresa de mercadeo, el constructor con los lobbies vacíos que encontró su match en el inmersivo, la inmobiliaria conectada con la plataforma de IA en Texas). De esa historia saca el principio. Y cierra con qué hacer mañana. Guía con preguntas en vez de imponer la respuesta.",
+    "acento": "neutro",
+    "firma_cierre_prewave": "Soy Guillermo Jaramillo, he sido presidente de KPMG, miembro de la junta directiva de Nequi y head of mentoring en 30X.",
+    "temas_centrales": [
+      "Mentoría y business coaching",
+      "Metodología Growth Mesh y Rapid Assessment",
+      "Inteligencia artificial aplicada a negocios tradicionales",
+      "Transformación digital de empresas establecidas",
+      "Capacidad de desaprender y mindset emprendedor",
+      "Pivot",
+      "spinoff rápido y aprendizaje desde el fracaso",
+      "Ecosistema de venture capital y diferencia entre ángel inversionista y ángel coach",
+      "Conexión entre founders",
+      "problemas y soluciones (matchmaking de negocios)",
+      "Casos de éxito y de quiebra latinoamericanos (Merqueo",
+      "Cívico",
+      "Frubana",
+      "Rappi)",
+      "Internacionalización de negocios latinoamericanos",
+      "Futuro de los medios de comunicación frente a la IA",
+      "Liderazgo y gestión de equipos en compañías en crecimiento"
+    ],
+    "frases_muestra": [
+      "\"El mentor es un ángel de la guarda — no hay con qué pagarlo.\"",
+      "\"Cuando el empresario dice 'eso yo no lo había pensado', ese es el momento donde cambia toda la conversación.\"",
+      "\"Nosotros los coaches no solucionamos el problema, te mostramos el camino y te acompañamos en él.\"",
+      "\"La capacidad de desaprender vale más que cualquier diploma.\"",
+      "\"Los founders mayores de 50 tienen una tasa de éxito del 80% — porque ya cometieron los errores.\"",
+      "\"Rapid Assessment: dos o tres tips en los primeros 5 minutos. Si pegás uno, ya cambió la conversación.\"",
+      "\"Equivocarnos rápido, hacer spinoff y cambiar — eso también es parte del trabajo del mentor.\"",
+      "\"Connecting the dots: a veces tu solución está sentada al lado tuyo en el inmersivo.\"",
+      "\"Las revistas y medios del futuro no venden noticias — venden curaduría de la verdad y datasets a los engines de IA.\"",
+      "\"Lo primero que un coach descubre es que el mentoreado dice 'tú no sabes de mi negocio'. Ahí empieza el trabajo de verdad.\""
+    ],
+    "do": [
+      "mantener cifras/datos EXACTOS del referente",
+      "respetar el tono y el estilo de comunicación de arriba (voz cargada en Prewave)",
+      "firmar como '30X / GUILLERMO JARAMILLO'"
+    ],
+    "dont": [
+      "NO inventar cifras, fuentes ni datos que no estén en el referente",
+      "NO usar la marca/voz de otro mentor",
+      "NO usar la tipografía ni la paleta de otro avatar"
+    ]
+  },
+  "visual_identity": {
+    "_fuente": "Manual '8 marcas · 1 ADN' — ADN 2 GUILLERMO JARAMILLO. Canva design DAHPd_cI5B0, en la cuenta de Canva de 30x (link con token: pedirlo internamente, NO va en este repo).",
+    "_nota_critica": "La API de Canva NO cambia la familia tipográfica ni puede crear texto. Por eso esta identidad se hornea UNA vez en el lienzo de ADN (ver canvas), y el agente esculpe sobre él. Esta spec es la fuente de verdad del lienzo, no algo que se aplique por texto en cada carrusel.",
+    "titulo_rol": "Transformador digital — Former CEO / KPMG Colombia",
+    "firma": "30X / GUILLERMO JARAMILLO",
+    "tipografia": {
+      "familia": "Open Sans",
+      "licencia": "https://fonts.google.com/specimen/Open+Sans",
+      "nota": "Sans humanista, neutral y legible; optimizada para print, web y mobile."
+    },
+    "paleta": [
+      {
+        "hex": "#F6F5F0",
+        "nombre": "30% White",
+        "rol": "base/fondo claro"
+      },
+      {
+        "hex": "#242424",
+        "nombre": "Gris Oscuro",
+        "rol": "complementario / textos"
+      },
+      {
+        "hex": "#C9C9C7",
+        "nombre": "Gris Claro",
+        "rol": "complementario"
+      },
+      {
+        "hex": "#FFD400",
+        "nombre": "Amarillo",
+        "rol": "principal (acento)"
+      }
+    ],
+    "_paleta_nota": "Confirmado en el manual (ADN 2, pág. 14): base #F6F5F0, Gris Oscuro #242424 y Gris Claro #C9C9C7 como complementarios/textos, y Amarillo #FFD400 como acento principal (el rol que el verde lima cumple en la marca 30x). CORRECCIÓN: el json tenía #000000 'Negro'; el manual dice #242424 'Gris Oscuro'.",
+    "fondos": [
+      "FONDO 1 - IMAGEN",
+      "FONDO 2 - PLANO",
+      "FONDO 3 - FOTO MENTOR",
+      "FONDO 4 - DEGRADÉ"
+    ],
+    "gradiente": true,
+    "frase_manifiesto": "DEJA DE TENER MIEDO A SALIR MAL, EMOCIONARTE POR LO QUE PUEDA SALIR BIEN."
+  },
+  "canvas": {
+    "_nota": "Lienzo de ADN: NO es una plantilla de layout. Es materia prima tipográfica — un diseño con Open Sans y el fondo de Guillermo ya horneados, más una reserva de bloques de texto vacíos que el agente esculpe. Existe solo porque la API de Canva no puede crear texto ni cambiar la familia tipográfica. La estructura SIEMPRE viene del referente. Ver AGENT.md → Paso 4.",
+    "design_id": "DAHPfMCDNo4",
+    "pages": 12,
+    "blocks_per_page": 8,
+    "_pendiente": "AJUSTE MANUAL UNICO: poner el fondo #F6F5F0 en las 12 paginas. El import de HTML no trae background-color. Hasta entonces los carruseles salen con fondo blanco.",
+    "edit_url": "https://www.canva.com/d/ZrHUWoc5SdxI5Ma"
+  },
+  "status": "ready",
+  "_status_nota": "ready: ADN completo + lienzo creado (12 paginas x 8 bloques, Open Sans)."
+}

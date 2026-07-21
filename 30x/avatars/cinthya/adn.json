@@ -1,0 +1,104 @@
+{
+  "avatar": {
+    "slug": "cinthya",
+    "name": "Cinthya Sánchez",
+    "prewave_avatar_id": "",
+    "prewave_program_match": [
+      "Cinthya Sánchez",
+      "Cinthya Sanchez",
+      "Cinthya",
+      "Cuenta Cinthya"
+    ]
+  },
+  "brand": {
+    "handle": "",
+    "_handle_TODO": "Falta el handle de IG de Cinthya — el manual de ADN no lo incluye (usa firma, no handle).",
+    "tagline": "",
+    "cta_default": "Síguenos y guarda",
+    "voice": "neutro (voz confirmada desde Prewave — ver voice_dna)"
+  },
+  "voice_dna": {
+    "_fuente_voz": "Sección Avatares de Prewave (tabla avatars), consultada en prod el 2026-07-17. Es la FUENTE DE VERDAD del tono; el manual ADN solo aporta la identidad VISUAL.",
+    "tono": [
+      "Visionaria",
+      "auténtica",
+      "apasionada"
+    ],
+    "tono_descripcion": "Técnico pero accesible, con autoridad ganada desde la práctica. Habla desde las heridas de guerra, no desde el PowerPoint. Directo, sin condescendencia, con criterio propio frente al ruido del mercado.",
+    "estilo_comunicacion": "Estructura storytelling + datos + tutorial. Primero el caso real —con la herida propia: lo que aplicó y lo que le costó—, después el dato o criterio técnico que lo explica, y cierra mostrando cómo hacerlo. Habla desde la práctica, no desde el PowerPoint. Directo, sin condescendencia, con criterio propio frente al ruido del mercado.",
+    "acento": "neutro",
+    "firma_cierre_prewave": "Soy Cinthya Sánchez, CIO, Ex-Microsoft y profesora de Inteligencia Artificial, {{Sígueme para más contenido como este}}",
+    "temas_centrales": [
+      "Selección y evaluación de herramientas de IA para entornos corporativos",
+      "Seguridad",
+      "gobierno de datos y cumplimiento regulatorio en IA",
+      "Productividad ejecutiva con IA aplicada",
+      "Prompting efectivo y control de alucinaciones",
+      "Business cases y ROI de IA en organizaciones",
+      "Estrategia de adopción y change management",
+      "Agentes de IA para flujos de trabajo ejecutivos"
+    ],
+    "frases_muestra": [],
+    "do": [
+      "mantener cifras/datos EXACTOS del referente",
+      "respetar el tono y el estilo de comunicación de arriba (voz cargada en Prewave)",
+      "firmar como '/ Cinthya Sánchez.'"
+    ],
+    "dont": [
+      "NO inventar cifras, fuentes ni datos que no estén en el referente",
+      "NO usar la marca/voz de otro mentor",
+      "NO usar la tipografía ni la paleta de otro avatar"
+    ]
+  },
+  "visual_identity": {
+    "_fuente": "Manual '8 marcas · 1 ADN' — ADN 1 CINTHYA SÁNCHEZ. Canva design DAHPd_cI5B0, en la cuenta de Canva de 30x (link con token: pedirlo internamente, NO va en este repo).",
+    "_nota_critica": "La API de Canva NO cambia la familia tipográfica ni puede crear texto. Por eso esta identidad se hornea UNA vez en el lienzo de ADN (ver canvas), y el agente esculpe sobre él. Esta spec es la fuente de verdad del lienzo, no algo que se aplique por texto en cada carrusel.",
+    "titulo_rol": "CIO · Ex-Microsoft · Sensei de IA · Board member",
+    "firma": "/ Cinthya Sánchez.",
+    "tipografia": {
+      "familia": "Instrument Serif",
+      "licencia": "https://fonts.google.com/specimen/Instrument+Serif",
+      "nota": "Display serif condensada; pensada para tamaños grandes."
+    },
+    "paleta": [
+      {
+        "hex": "#F6F5F0",
+        "nombre": "30% White",
+        "rol": "complementario base 30x (fondo claro)"
+      },
+      {
+        "hex": "#F68F6E",
+        "nombre": "Coral",
+        "rol": "principal 1"
+      },
+      {
+        "hex": "#E5ACBF",
+        "nombre": "Blush",
+        "rol": "principal 2"
+      },
+      {
+        "hex": "#2A2320",
+        "nombre": "Tierra",
+        "rol": "complementario / detalles / textos"
+      }
+    ],
+    "_paleta_nota": "Roles confirmados en el manual (ADN 1, pág. 9). OJO: el swatch CORAL del PDF está mal etiquetado como 'HEX F6F5F0' (bug de copy-paste del manual); el color real, muestreado del bloque, es #F68F6E. Blush #E5ACBF y Tierra #2A2320 sí coinciden con su etiqueta.",
+    "fondos": [
+      "FONDO 1 - IMAGEN",
+      "FONDO 2 - PLANO",
+      "FONDO 3 - FOTO MENTOR",
+      "FONDO 4 - DEGRADÉ"
+    ],
+    "gradiente": true
+  },
+  "canvas": {
+    "_nota": "Lienzo de ADN: NO es una plantilla de layout. Es materia prima tipográfica — un diseño con Instrument Serif y el fondo de Cinthya ya horneados, más una reserva de bloques de texto vacíos que el agente esculpe. Existe solo porque la API de Canva no puede crear texto ni cambiar la familia tipográfica. La estructura SIEMPRE viene del referente. Ver AGENT.md → Paso 4.",
+    "design_id": "DAHPfLL_IRY",
+    "pages": 12,
+    "blocks_per_page": 8,
+    "_pendiente": "AJUSTE MANUAL UNICO: poner el fondo #F6F5F0 en las 12 paginas. El import de HTML no trae background-color. Hasta entonces los carruseles salen con fondo blanco.",
+    "edit_url": "https://www.canva.com/d/rHAGrX2GJ0vsJY8"
+  },
+  "status": "ready",
+  "_status_nota": "ready: ADN completo + lienzo creado (12 paginas x 8 bloques, Instrument Serif). Esculpido validado end-to-end 2026-07-15."
+}

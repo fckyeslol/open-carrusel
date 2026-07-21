@@ -1,0 +1,137 @@
+{
+  "avatar": {
+    "slug": "alejandra-deik",
+    "name": "Alejandra Deik",
+    "prewave_avatar_id": "<uuid opcional>",
+    "prewave_program_match": [
+      "Alejandra Deik"
+    ]
+  },
+  "brand": {
+    "handle": "",
+    "_handle_TODO": "El manual no incluye el handle de IG de Alejandra. Confirmar la cuenta donde publican sus carruseles.",
+    "tagline": "",
+    "cta_default": "Síguenos y guarda",
+    "voice": "neutro (voz confirmada desde Prewave — ver voice_dna)"
+  },
+  "voice_dna": {
+    "_fuente_voz": "Sección Avatares de Prewave (tabla avatars), consultada en prod el 2026-07-17. Es la FUENTE DE VERDAD del tono; el manual ADN solo aporta la identidad VISUAL.",
+    "tono": [
+      "Rigurosa",
+      "Analítica sin ser fría",
+      "Resiliente — lo dice quien ya vivió el cierre de una startup",
+      "Honesta sobre el fracaso propio",
+      "Cercana a través de historias reales y no de consejos genéricos",
+      "Mamá que no separa la disciplina del negocio de la disciplina en casa",
+      "Calmada bajo presión",
+      "Formada en ingeniería y rigor cuantitativo",
+      "no en discurso motivacional"
+    ],
+    "tono_descripcion": "Analítica, directa, rigurosa, cercana. Habla como la líder de operaciones que ya vivió el cierre de una startup y no lo esconde — no la que presume certezas, la que muestra el trabajo. Español latinoamericano ejecutivo, energía calmada y precisa, afirmaciones sostenidas en datos antes que en opinión. El rigor se siente, pero nunca es frío. No pide permiso para mostrar lo que no funcionó.",
+    "estilo_comunicacion": "Estructura caso → dato → lección aplicable. Primero cuenta qué pasó (una decisión, una métrica, una crisis), luego muestra el dato que lo sostiene, y cierra con algo aplicable mañana. Storytelling con sustento técnico, nunca anécdota suelta. Usa preguntas retóricas para exponer la falla de la intuición, y cierra siempre dejando claro qué se hace distinto la próxima vez.",
+    "acento": "neutro",
+    "firma_cierre_prewave": "",
+    "temas_centrales": [
+      "Pricing y optimización de márgenes",
+      "Gestión de inventarios y reducción de costos",
+      "Automatización de operaciones con IA (clasificación de reclamos",
+      "devoluciones)",
+      "Procurement y negociación con proveedores a gran escala",
+      "Liderazgo de equipos grandes y distribuidos",
+      "Gestión de crisis y turnaround en startups",
+      "Liderazgo de equipos de contenido y media",
+      "Disciplina operativa aplicada a la maternidad"
+    ],
+    "frases_muestra": [
+      "\"No escondo que soy mamá.\" \"La intuición no basta en ningún lado.\" \"Mejoramos el margen de 21% a 26% con pricing. Nadie lo hizo con una corazonada.\" \"Automaticé el 30% de los reclamos de clientes. El otro 70% seguía necesitando criterio humano.\" \"Subimos de 3 a 5 posts al día. El crecimiento no se movió. Esto fue lo que los datos nos obligaron a admitir.\" \"Nadie te prepara para decidir con el 60% de la información. Ni en un turnaround, ni a las 3am.\" \"El rigor no es frialdad. Es cuidado con lo que importa.\" \"Cerramos Frubana en 2025. Eso también es parte de lo que enseño.\""
+    ],
+    "do": [
+      "mantener cifras/datos EXACTOS del referente",
+      "respetar el tono y el estilo de comunicación de arriba (voz cargada en Prewave)",
+      "firmar como 'Alejandra Deik.'"
+    ],
+    "dont": [
+      "NO inventar cifras, fuentes ni datos que no estén en el referente",
+      "NO usar la marca/voz de otro mentor",
+      "NO usar la tipografía ni la paleta de otro avatar"
+    ]
+  },
+  "visual_identity": {
+    "_fuente": "Manual '8 marcas · 1 ADN' — ADN 7 ALEJANDRA DEIK (pág. 37-41).",
+    "_nota_critica": "La API de Canva NO cambia la familia tipográfica ni puede crear texto. Esta identidad es la especificación para construir/validar el molde del avatar, no algo que el agente aplique por texto en cada carrusel.",
+    "_estado_manual": "En el índice del manual Alejandra figura como 'Completar' — su sección es la menos desarrollada. Los datos de abajo son los que sí están en el ADN; validar con ella si amplían la identidad.",
+    "titulo_rol": "Ex Manager B2B Frubana",
+    "firma": "Alejandra Deik.",
+    "tipografia": {
+      "familia": "Playfair Display",
+      "licencia": "https://fonts.google.com/specimen/Playfair+Display",
+      "nota": "Serif transicional de alto contraste y hairlines finas."
+    },
+    "paleta": [
+      {
+        "hex": "#F6F5F0",
+        "nombre": "30% White",
+        "rol": "complementario base 30x (fondo claro)"
+      },
+      {
+        "hex": "#1B1233",
+        "nombre": "Morado Oscuro",
+        "rol": "oscuro / textos (el manual pide 'más visuales morado oscuro')"
+      },
+      {
+        "hex": "#0B2D72",
+        "nombre": "Azul",
+        "rol": "complementario"
+      },
+      {
+        "hex": "#15868E",
+        "nombre": "Cian",
+        "rol": "principal (acento)"
+      }
+    ],
+    "_paleta_nota": "ADN 7, pág. 40 (hex confirmados con su etiqueta).",
+    "fondos": [
+      "FONDO 1 - IMAGEN",
+      "FONDO 2 - DEGRADÉ",
+      "FONDO 3 - PLANO",
+      "FONDO 4 - FOTO MENTOR"
+    ],
+    "gradiente": true
+  },
+  "templates": {
+    "_nota": "design_id de la plantilla 30x del avatar por tipo de lámina. Vacío = pendiente. slot_pages = páginas repetibles de ese tipo dentro del molde. Ver layouts-library.md para qué es cada tipo.",
+    "cover": {
+      "design_id": "",
+      "page": 1
+    },
+    "data": {
+      "design_id": "",
+      "slot_pages": []
+    },
+    "comparative": {
+      "design_id": "",
+      "slot_pages": []
+    },
+    "single_tip": {
+      "design_id": "",
+      "slot_pages": []
+    },
+    "principle": {
+      "design_id": "",
+      "page": null
+    },
+    "process": {
+      "design_id": "",
+      "page": null
+    },
+    "insight": {
+      "design_id": "",
+      "page": null
+    },
+    "cta": {
+      "design_id": "",
+      "page": null
+    }
+  },
+  "status": "ready"
+}
