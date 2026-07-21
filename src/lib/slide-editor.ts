@@ -50,28 +50,32 @@ export const EDITOR_RUNTIME = String.raw`
   }
   function pick(el){ clearSel(); sel=el; el.classList.add('oc-sel'); report(); }
 
+  function root(){ return document.body.firstElementChild; }
   document.addEventListener('click', function(e){
     e.preventDefault(); e.stopPropagation();
     var t=e.target;
-    if(t===document.body||t===document.documentElement){ clearSel(); report(); return; }
+    // el contenedor raíz (la lámina entera) no se selecciona: mover eso movería todo
+    if(t===document.body||t===document.documentElement||t===root()){ clearSel(); report(); return; }
     pick(t);
   }, true);
 
-  // arrastrar el seleccionado
+  // ── arrastrar el seleccionado con transform (NO rompe el layout ni reacomoda
+  //    a los hermanos; movimiento libre y sin saltos) ────────────────────────────
+  var baseTf=new WeakMap(), delta=new WeakMap();
   document.addEventListener('mousedown', function(e){
     if(!sel) return;
     if(e.target!==sel && !sel.contains(e.target)) return;
     if(sel.getAttribute('contenteditable')==='true') return;
-    var r=sel.getBoundingClientRect();
-    drag={sx:e.clientX, sy:e.clientY, ox:r.left+window.scrollX, oy:r.top+window.scrollY};
+    if(!baseTf.has(sel)) baseTf.set(sel, sel.style.transform||'');
+    var d=delta.get(sel)||[0,0];
+    drag={sx:e.clientX, sy:e.clientY, dx:d[0], dy:d[1], base:baseTf.get(sel)};
     e.preventDefault();
   }, true);
   window.addEventListener('mousemove', function(e){
     if(!drag||!sel) return;
-    sel.style.position='absolute';
-    sel.style.margin='0';
-    sel.style.left=(drag.ox+(e.clientX-drag.sx))+'px';
-    sel.style.top =(drag.oy+(e.clientY-drag.sy))+'px';
+    var nx=drag.dx+(e.clientX-drag.sx), ny=drag.dy+(e.clientY-drag.sy);
+    delta.set(sel,[nx,ny]);
+    sel.style.transform=(drag.base?drag.base+' ':'')+'translate('+nx+'px,'+ny+'px)';
   });
   window.addEventListener('mouseup', function(){ if(drag){ drag=null; report(); serialize(); } });
 
