@@ -13,6 +13,9 @@ import {
   AlignCenter,
   AlignRight,
   Trash2,
+  Group,
+  Ungroup,
+  CornerLeftUp,
 } from "lucide-react";
 
 const FONTS = [
@@ -41,6 +44,8 @@ interface Selection {
   italic?: boolean;
   align?: string;
   letterSpacing?: string;
+  count?: number;
+  grouped?: boolean;
 }
 
 interface VisualEditorProps {
@@ -175,13 +180,38 @@ export function VisualEditor({ html, aspectRatio, onChange }: VisualEditorProps)
 
         {!hasSel && (
           <p className="text-xs text-muted-foreground leading-relaxed">
-            Clic en un elemento para editarlo. Doble clic para cambiar el texto. Arrastrá para
-            mover.
+            Clic en un elemento para editarlo. <b>Shift+clic</b> para seleccionar varios.
+            Doble clic cambia el texto. Arrastrá para mover; las <b>esquinas</b> redimensionan.
           </p>
         )}
 
         {hasSel && (
           <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {(sel.count || 1) > 1 ? `${sel.count} seleccionados` : "1 seleccionado"}
+                {sel.grouped ? " · grupo" : ""}
+              </span>
+              <div className="flex-1" />
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => send({ oc: "parent" })}
+                title="Seleccionar el contenedor (texto + su decorativo)"
+              >
+                <CornerLeftUp className="h-4 w-4" /> Nivel
+              </Button>
+              {(sel.count || 1) > 1 && !sel.grouped && (
+                <Button size="sm" variant="outline" onClick={() => send({ oc: "group" })}>
+                  <Group className="h-4 w-4" /> Agrupar
+                </Button>
+              )}
+              {sel.grouped && (
+                <Button size="sm" variant="outline" onClick={() => send({ oc: "ungroup" })}>
+                  <Ungroup className="h-4 w-4" /> Desagrupar
+                </Button>
+              )}
+            </div>
             {sel.isText && (
               <>
                 <label className="block">
