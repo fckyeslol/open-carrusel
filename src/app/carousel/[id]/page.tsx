@@ -35,14 +35,12 @@ export default function CarouselEditorPage({ params }: PageProps) {
   const [editMode, setEditMode] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Guarda el HTML editado (debounced) sin recargar el editor.
+  // Guarda el HTML editado (debounced). CLAVE para la fluidez: NO tocamos el
+  // estado de React mientras se edita — hacerlo re-renderizaba los 7 iframes de
+  // la tira en cada micro-cambio y era la principal fuente de jank. La tira se
+  // refresca al salir del modo edición.
   const handleSlideHtmlChange = useCallback(
     (slideId: string, newHtml: string) => {
-      setCarousel((prev) =>
-        prev
-          ? { ...prev, slides: prev.slides.map((s) => (s.id === slideId ? { ...s, html: newHtml } : s)) }
-          : prev
-      );
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => {
         fetch(`/api/carousels/${id}/slides/${slideId}`, {
@@ -50,7 +48,7 @@ export default function CarouselEditorPage({ params }: PageProps) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ html: newHtml }),
         }).catch(() => {});
-      }, 500);
+      }, 600);
     },
     [id]
   );
@@ -107,6 +105,11 @@ export default function CarouselEditorPage({ params }: PageProps) {
       // ignore network errors
     }
   }, [id]);
+
+  // Al salir del modo edición, refrescamos el carrusel (actualiza la tira).
+  useEffect(() => {
+    if (!editMode) fetchCarousel();
+  }, [editMode, fetchCarousel]);
 
   // Initial data load
   useEffect(() => {

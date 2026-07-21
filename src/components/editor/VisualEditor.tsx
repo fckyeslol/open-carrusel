@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { wrapEditableSlide } from "@/lib/slide-editor";
+import { wrapEditableSlide, EDITOR_FONTS } from "@/lib/slide-editor";
 import { DIMENSIONS, type AspectRatio } from "@/types/carousel";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,23 +15,11 @@ import {
   Trash2,
   Group,
   Ungroup,
-  CornerLeftUp,
+  Undo2,
+  Copy as CopyIcon,
 } from "lucide-react";
 
-const FONTS = [
-  "Inter",
-  "Instrument Serif",
-  "Playfair Display",
-  "Open Sans",
-  "Arimo",
-  "Poppins",
-  "Nunito Sans",
-  "Bricolage Grotesque",
-  "Montserrat",
-  "Lora",
-  "Oswald",
-  "Bebas Neue",
-];
+const FONTS = EDITOR_FONTS;
 
 interface Selection {
   none?: boolean;
@@ -59,6 +47,9 @@ export function VisualEditor({ html, aspectRatio, onChange }: VisualEditorProps)
   const wrapRef = useRef<HTMLDivElement>(null);
   const [sel, setSel] = useState<Selection>({ none: true });
   const [scale, setScale] = useState(0);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const { width: W, height: H } = DIMENSIONS[aspectRatio];
 
   // Capturamos el HTML inicial UNA vez: durante la edición el iframe es la fuente
@@ -103,15 +94,21 @@ export function VisualEditor({ html, aspectRatio, onChange }: VisualEditorProps)
 
   const onUpload = useCallback(
     async (file: File) => {
-      const fd = new FormData();
-      fd.append("file", file);
+      setUploading(true);
+      setUploadError(null);
       try {
+        const fd = new FormData();
+        fd.append("file", file);
         const res = await fetch("/api/upload", { method: "POST", body: fd });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
         const url = data.url || data.path;
-        if (url) send({ oc: "addImage", url });
-      } catch {
-        /* ignore */
+        if (!url) throw new Error("El servidor no devolvió la URL");
+        send({ oc: "addImage", url });
+      } catch (e) {
+        setUploadError((e as Error).message);
+      } finally {
+        setUploading(false);
       }
     },
     [send]
@@ -165,18 +162,37 @@ export function VisualEditor({ html, aspectRatio, onChange }: VisualEditorProps)
           <Button size="sm" variant="outline" className="flex-1" onClick={() => send({ oc: "addText" })}>
             <Type className="h-4 w-4" /> Texto
           </Button>
-          <label className="flex-1">
-            <Button size="sm" variant="outline" className="w-full pointer-events-none">
-              <ImageIcon className="h-4 w-4" /> Imagen
-            </Button>
-            <input
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => e.target.files?.[0] && onUpload(e.target.files[0])}
-            />
-          </label>
+          {/* el input se dispara por ref: un <button> dentro de <label> NO activa el file input */}
+          <Button
+            size="sm"
+            variant="outline"
+            className="flex-1"
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+          >
+            <ImageIcon className="h-4 w-4" /> {uploading ? "Subiendo…" : "Imagen"}
+          </Button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) onUpload(f);
+              e.target.value = "";
+            }}
+          />
         </div>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" className="flex-1" onClick={() => send({ oc: "undo" })}>
+            <Undo2 className="h-4 w-4" /> Deshacer
+          </Button>
+          <Button size="sm" variant="outline" className="flex-1" onClick={() => send({ oc: "duplicate" })} disabled={!hasSel}>
+            <CopyIcon className="h-4 w-4" /> Duplicar
+          </Button>
+        </div>
+        {uploadError && <p className="text-xs text-red-600">{uploadError}</p>}
 
         {!hasSel && (
           <p className="text-xs text-muted-foreground leading-relaxed">
@@ -193,24 +209,29 @@ export function VisualEditor({ html, aspectRatio, onChange }: VisualEditorProps)
                 {sel.grouped ? " · grupo" : ""}
               </span>
               <div className="flex-1" />
+            </div>
+            <div className="flex flex-wrap gap-1">
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => send({ oc: "parent" })}
-                title="Seleccionar el contenedor (texto + su decorativo)"
+                onClick={() => send({ oc: "group" })}
+                disabled={(sel.count || 1) < 2}
+                title="Shift+clic para sumar elementos, después Agrupar"
               >
-                <CornerLeftUp className="h-4 w-4" /> Nivel
+                <Group className="h-4 w-4" /> Agrupar
               </Button>
-              {(sel.count || 1) > 1 && !sel.grouped && (
-                <Button size="sm" variant="outline" onClick={() => send({ oc: "group" })}>
-                  <Group className="h-4 w-4" /> Agrupar
-                </Button>
-              )}
-              {sel.grouped && (
-                <Button size="sm" variant="outline" onClick={() => send({ oc: "ungroup" })}>
-                  <Ungroup className="h-4 w-4" /> Desagrupar
-                </Button>
-              )}
+              <Button size="sm" variant="outline" onClick={() => send({ oc: "ungroup" })} disabled={!sel.grouped}>
+                <Ungroup className="h-4 w-4" /> Desagrupar
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => send({ oc: "unlink" })}
+                disabled={!sel.grouped}
+                title="Saca del grupo lo seleccionado (Alt+clic selecciona un miembro suelto)"
+              >
+                Sacar
+              </Button>
             </div>
             {sel.isText && (
               <>
