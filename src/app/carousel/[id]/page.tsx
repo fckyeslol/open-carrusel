@@ -33,6 +33,7 @@ export default function CarouselEditorPage({ params }: PageProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [showSafeZones, setShowSafeZones] = useState(false);
   const [editMode, setEditMode] = useState(false);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error" | "stale">("idle");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Guarda el HTML editado (debounced). CLAVE para la fluidez: NO tocamos el
@@ -42,12 +43,21 @@ export default function CarouselEditorPage({ params }: PageProps) {
   const handleSlideHtmlChange = useCallback(
     (slideId: string, newHtml: string) => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
-      saveTimer.current = setTimeout(() => {
-        fetch(`/api/carousels/${id}/slides/${slideId}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ html: newHtml }),
-        }).catch(() => {});
+      setSaveState("saving");
+      saveTimer.current = setTimeout(async () => {
+        try {
+          const res = await fetch(`/api/carousels/${id}/slides/${slideId}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ html: newHtml }),
+          });
+          // 404 = la lámina ya no existe (el carrusel cambió por fuera). Antes esto
+          // fallaba en silencio y se perdía todo lo editado.
+          if (!res.ok) throw new Error(res.status === 404 ? "stale" : `HTTP ${res.status}`);
+          setSaveState("saved");
+        } catch (e) {
+          setSaveState((e as Error).message === "stale" ? "stale" : "error");
+        }
       }, 600);
     },
     [id]
@@ -308,6 +318,26 @@ export default function CarouselEditorPage({ params }: PageProps) {
             >
               {editMode ? "Editando ✓" : "Editar"}
             </Button>
+            {editMode && saveState !== "idle" && (
+              <span
+                className={`text-xs ${
+                  saveState === "saved"
+                    ? "text-muted-foreground"
+                    : saveState === "saving"
+                      ? "text-muted-foreground"
+                      : "text-red-600 font-medium"
+                }`}
+              >
+                {saveState === "saving" && "Guardando…"}
+                {saveState === "saved" && "Guardado ✓"}
+                {saveState === "error" && "⚠ No se pudo guardar"}
+                {saveState === "stale" && (
+                  <button className="underline" onClick={() => window.location.reload()}>
+                    ⚠ La lámina cambió — recargar
+                  </button>
+                )}
+              </span>
+            )}
             <div className="flex-1" />
             <Button
               variant="ghost"

@@ -194,7 +194,7 @@ export const EDITOR_RUNTIME = String.raw`
     if(!hit) return;
     if(sels[0].getAttribute('contenteditable')==='true') return;
     snap();
-    sels.forEach(function(el){ if(!baseTf.has(el)) baseTf.set(el, el.style.transform||''); });
+    sels.forEach(makeMovable);
     // rects cacheados: durante el arrastre NO se vuelve a medir (cero reflows)
     drag={sx:x, sy:y,
       start:sels.map(function(el){ return (delta.get(el)||[0,0]).slice(); }),
@@ -203,10 +203,31 @@ export const EDITOR_RUNTIME = String.raw`
     showHandles(false);
     e.preventDefault();
   }, true);
+  // Los elementos inline (p.ej. un <span> de texto) IGNORAN transform. Cambiarles
+  // el display los hace saltar. Para esos usamos position:relative + left/top, que
+  // sí funciona en inline y tampoco altera el flujo del documento.
+  var mode=new WeakMap(), baseOff=new WeakMap();
+  function makeMovable(el){
+    if(mode.has(el)) return;
+    var cs=getComputedStyle(el);
+    if(cs.display==='inline'){
+      mode.set(el,'offset');
+      if(cs.position==='static') el.style.position='relative';
+      baseOff.set(el,[parseFloat(el.style.left)||0, parseFloat(el.style.top)||0]);
+    } else {
+      mode.set(el,'transform');
+      if(!baseTf.has(el)) baseTf.set(el, el.style.transform||'');
+    }
+  }
   function applyT(el,nx,ny){
     delta.set(el,[nx,ny]);
-    var b=baseTf.get(el)||'';
-    el.style.transform=(b?b+' ':'')+'translate('+nx+'px,'+ny+'px)';
+    if(mode.get(el)==='offset'){
+      var o=baseOff.get(el)||[0,0];
+      el.style.left=(o[0]+nx)+'px'; el.style.top=(o[1]+ny)+'px';
+    } else {
+      var b=baseTf.get(el)||'';
+      el.style.transform=(b?b+' ':'')+'translate('+nx+'px,'+ny+'px)';
+    }
   }
 
   // mousemove throttleado con requestAnimationFrame → 60fps, sin trabas
@@ -284,7 +305,8 @@ export const EDITOR_RUNTIME = String.raw`
       if(e.key==='ArrowLeft')dx=-s; if(e.key==='ArrowRight')dx=s;
       if(e.key==='ArrowUp')dy=-s; if(e.key==='ArrowDown')dy=s;
       snap();
-      sels.forEach(function(el){ if(!baseTf.has(el)) baseTf.set(el, el.style.transform||'');
+      sels.forEach(function(el){
+        makeMovable(el);
         var d=delta.get(el)||[0,0]; applyT(el,d[0]+dx,d[1]+dy); });
       paint(); serialize();
     }
