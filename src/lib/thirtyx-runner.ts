@@ -207,17 +207,18 @@ async function processAssignment(jobId: string): Promise<void> {
     //    Fase 7: subir los PNG al endpoint de worker (sube a GCS + siembra las N
     //    láminas en el brief para publicación). Best-effort: si el endpoint no está
     //    (404) o el job no tiene brief (422), no pasa nada acá.
-    //    Además, dejamos "Ver 30x" (result_url del job) apuntando al EDITOR LOCAL:
-    //    muestra TODAS las láminas (y editables). El result_url que setea el endpoint
-    //    es solo la 1ra imagen, por eso lo pisamos con el link del editor.
+    //    "Ver 30x" (result_url del job) lo setea el endpoint a una GALERÍA pública
+    //    con TODAS las láminas (accesible desde cualquier lado). Solo si el endpoint
+    //    no está (404) o el job no tiene brief (422) caemos al editor LOCAL (todas
+    //    las láminas también, pero solo en la máquina de la diseñadora).
     const editorUrl = `http://localhost:${process.env.PORT || "3000"}/carousel/${carousel.id}`;
     await writeback(async () => {
       try {
         await uploadCarousel(jobId, files);
+        // OK: el endpoint dejó result_url apuntando a la galería pública. No pisar.
       } catch {
-        // endpoint no desplegado o job sin brief → seguimos igual con el link local
+        await completeJob(jobId, editorUrl);
       }
-      await completeJob(jobId, editorUrl);
     });
   } catch (e) {
     const msg = (e as Error).message || "Error desconocido en la generación";

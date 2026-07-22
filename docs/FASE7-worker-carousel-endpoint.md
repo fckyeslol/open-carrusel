@@ -96,15 +96,56 @@ agentJobsWorkerRouter.post("/:id/carousel", async (c) => {
     })
     .where(eq(curatedBriefs.id, job.briefId));
 
+  // Galería pública (para "Ver 30x": muestra TODAS las láminas desde cualquier
+  // lado, sin app ni login). Es un HTML self-contained con las N imágenes de GCS,
+  // subido al mismo bucket público. Si falla, el result_url cae a la 1ra imagen.
+  let resultUrl: string | null = urls[0] ?? null;
+  try {
+    const gallery = await storeUpload(new TextEncoder().encode(buildCarouselGallery(urls)), {
+      fileName: "carrusel-30x.html",
+      contentType: "text/html; charset=utf-8",
+    });
+    resultUrl = gallery.url;
+  } catch (e) {
+    console.error("[agent-jobs/carousel] gallery failed:", e);
+  }
+
   const [updated] = await db
     .update(agentJobs)
-    .set({ status: "done", resultUrl: urls[0] ?? null, updatedAt: now })
+    .set({ status: "done", resultUrl, updatedAt: now })
     .where(eq(agentJobs.id, id))
     .returning();
 
-  return c.json({ ok: true, urls, job: serializeAgentJob(updated) });
+  return c.json({ ok: true, urls, resultUrl, job: serializeAgentJob(updated) });
 });
 ```
+
+### 3. Helper de la galería (a nivel de módulo, arriba del router)
+```ts
+// Página self-contained que apila las N láminas (GCS). Sin input de usuario: las
+// URLs son las que acabamos de subir y el título es fijo → no hay inyección.
+function buildCarouselGallery(urls: readonly string[]): string {
+  const imgs = urls
+    .map((u, i) => `<img src="${u}" alt="Lámina ${i + 1}" loading="lazy">`)
+    .join("\n");
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Carrusel 30x</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; background:#0b0b0c; display:flex; flex-direction:column;
+    align-items:center; gap:16px; padding:24px; font-family:system-ui,sans-serif; }
+  img { width:100%; max-width:520px; height:auto; border-radius:12px;
+    box-shadow:0 8px 30px rgba(0,0,0,.5); }
+  h1 { color:#e5e5e5; font-size:15px; font-weight:600; margin:4px 0 8px; }
+</style></head>
+<body><h1>Carrusel 30x — ${urls.length} láminas</h1>
+${imgs}
+</body></html>`;
+}
+```
+> `storeUpload` con `text/html` funciona: setea el content-type del objeto en GCS
+> (se renderiza inline) y `carrusel-30x.html` le da la extensión `.html`.
 
 ## Notas de contrato (verificadas en el código desplegado)
 - `storeUpload(bytes, {fileName, contentType})` → `{url, key}`; sube a GCS si
