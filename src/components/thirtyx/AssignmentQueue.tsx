@@ -20,9 +20,10 @@ interface Assignment {
   updatedAt: string;
 }
 
-type Tone = "muted" | "active" | "ready" | "done" | "error";
+type Tone = "muted" | "active" | "ready" | "done" | "error" | "warn";
 
 const STATUS: Record<string, { label: string; tone: Tone }> = {
+  needs_reference: { label: "Sin referente", tone: "warn" },
   received: { label: "En cola", tone: "muted" },
   ingesting: { label: "Bajando referente", tone: "active" },
   generating: { label: "Generando", tone: "active" },
@@ -38,6 +39,7 @@ const TONE_CLASS: Record<Tone, string> = {
   ready: "border-amber-500/40 text-amber-600",
   done: "border-emerald-500/40 text-emerald-600",
   error: "border-destructive/40 text-destructive",
+  warn: "border-sky-500/40 text-sky-600",
 };
 
 /** Cada cuánto le pregunta a Prewave por trabajos nuevos (pull con tu usuario). */
@@ -78,6 +80,52 @@ function StatusBadge({ status }: { status: string }) {
       )}
       {info.label}
     </span>
+  );
+}
+
+/**
+ * Campo para pegar un referente de IG a mano en jobs `needs_reference` (producción
+ * manual de Prewave, que llega sin URL). Al enviar, encola el job para generación.
+ */
+function NeedsReferenceForm({ onSubmit }: { onSubmit: (url: string) => Promise<string | null> }) {
+  const [url, setUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (busy || !url.trim()) return;
+    setBusy(true);
+    setErr(null);
+    const error = await onSubmit(url.trim());
+    if (error) {
+      setErr(error);
+      setBusy(false);
+    }
+    // en éxito, el sync repinta la tarjeta y este form se desmonta
+  };
+
+  return (
+    <div className="mt-3">
+      <p className="mb-2 text-xs text-muted-foreground">
+        Producción propia sin referente. Pegá un post o reel de Instagram para generarlo.
+      </p>
+      <div className="flex gap-2">
+        <input
+          type="url"
+          inputMode="url"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          placeholder="instagram.com/p/…"
+          disabled={busy}
+          className="min-w-0 flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 font-mono text-[11px] outline-none focus:border-accent/60 disabled:opacity-60"
+        />
+        <Button size="sm" variant="outline" onClick={submit} disabled={busy || !url.trim()}>
+          {busy ? "Encolando…" : "Generar"}
+        </Button>
+      </div>
+      {err && <p className="mt-2 text-xs text-destructive">{err}</p>}
+    </div>
   );
 }
 
@@ -128,6 +176,27 @@ export function AssignmentQueue() {
         await sync();
       } finally {
         busyRef.current.delete(jobId);
+      }
+    },
+    [sync]
+  );
+
+  // Asigna un referente a mano a un job `needs_reference` y lo encola.
+  // Devuelve un mensaje de error para que el form lo muestre, o null si salió bien.
+  const submitReference = useCallback(
+    async (jobId: string, referenceUrl: string): Promise<string | null> => {
+      try {
+        const res = await fetch(`/api/thirtyx/assignments/${jobId}/reference`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ referenceUrl }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) return data.error || "No se pudo asignar el referente";
+        await sync();
+        return null;
+      } catch {
+        return "Error de red al asignar el referente";
       }
     },
     [sync]
@@ -192,16 +261,28 @@ export function AssignmentQueue() {
                     )}
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <a
-                        href={a.referenceUrl || "#"}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground underline-offset-2 hover:text-accent-strong hover:underline"
-                      >
-                        {(a.referenceUrl || "").replace(/^https?:\/\/(www\.)?/, "")}
-                      </a>
+                      {a.referenceUrl ? (
+                        <a
+                          href={a.referenceUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground underline-offset-2 hover:text-accent-strong hover:underline"
+                        >
+                          {a.referenceUrl.replace(/^https?:\/\/(www\.)?/, "")}
+                        </a>
+                      ) : (
+                        <span className="min-w-0 flex-1 truncate text-[11px] italic text-muted-foreground">
+                          Producción propia
+                        </span>
+                      )}
                       <StatusBadge status={a.status} />
                     </div>
+
+                    {a.status === "needs_reference" && (
+                      <NeedsReferenceForm
+                        onSubmit={(url) => submitReference(a.jobId, url)}
+                      />
+                    )}
 
                     {a.status === "failed" && (
                       <div className="mt-3">

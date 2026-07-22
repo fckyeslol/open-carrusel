@@ -31,20 +31,28 @@ export async function POST() {
     const items = await listDesignQueue();
     pulled = items.length;
     for (const item of items) {
-      const { isNew } = await upsertFromDesignItem(item);
-      if (!isNew) continue;
-      // Prewave a veces manda un brief sin la URL del post (raw_post sin canonical
-      // ni post_url). No lo encolamos: quedaría fallando en cada reintento sin
-      // remedio local. Lo marcamos fallido con un mensaje accionable para que la
-      // diseñadora lo resuelva en Prewave.
-      if (!isInstagramUrl(item.referenceUrl)) {
-        await setStatus(item.jobId, "failed", {
-          error: "Prewave no envió una URL de Instagram para este trabajo. Revisá el brief en Prewave.",
-        });
+      const { assignment, isNew } = await upsertFromDesignItem(item);
+      // Briefs de producción manual (source_type "manual") llegan sin URL de post:
+      // no son referentes de IG para calcar. No los encolamos ni los fallamos: los
+      // dejamos en `needs_reference` para que la diseñadora pegue un referente a
+      // mano. Chequeamos el referente GUARDADO (no el del item) para no pisar una
+      // URL que ella ya haya cargado aunque Prewave siga mandando el brief vacío.
+      if (!isInstagramUrl(assignment.referenceUrl)) {
+        // Sanea también los que quedaron en `failed`/`received` vacíos de versiones
+        // previas; nunca toca los ya generados/entregados a mano.
+        if (
+          assignment.status !== "needs_reference" &&
+          assignment.status !== "done" &&
+          assignment.status !== "delivered"
+        ) {
+          await setStatus(item.jobId, "needs_reference", { error: null });
+        }
         continue;
       }
-      getRunner().enqueue(item.jobId);
-      enqueued++;
+      if (isNew) {
+        getRunner().enqueue(item.jobId);
+        enqueued++;
+      }
     }
   } catch (e) {
     const status = e instanceof PrewaveError ? e.status : 500;

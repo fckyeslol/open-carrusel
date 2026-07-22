@@ -15,6 +15,7 @@ import type { DesignQueueItem } from "./prewave";
 const FILE = "thirtyx-assignments.json";
 
 export type AssignmentStatus =
+  | "needs_reference" // brief sin URL de IG (producción manual): espera que la diseñadora pegue un referente
   | "received" // llegó el webhook, en cola
   | "claiming" // reclamando el job en Prewave (pending → processing)
   | "ingesting" // bajando el referente + creando el carrusel
@@ -141,6 +142,21 @@ export async function setStatus(
             error: patch.error !== undefined ? patch.error : status === "failed" ? a.error : null,
             updatedAt: now(),
           }
+        : a
+    ),
+  }));
+}
+
+/**
+ * Asigna un referente a mano (para briefs de producción manual sin URL) y deja el
+ * job en cola. La UI lo llama cuando la diseñadora pega una URL de IG en un job
+ * `needs_reference`. Idempotente en cuanto al store; el re-encolado lo hace la ruta.
+ */
+export async function setReference(jobId: string, referenceUrl: string): Promise<void> {
+  await updateData<Store>(FILE, EMPTY, (store) => ({
+    assignments: store.assignments.map((a) =>
+      a.jobId === jobId
+        ? { ...a, referenceUrl, status: "received", error: null, updatedAt: now() }
         : a
     ),
   }));
