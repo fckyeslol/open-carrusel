@@ -31,9 +31,20 @@ import {
   listReprocessable,
 } from "./assignments";
 
+/**
+ * Cuántos jobs se generan a la vez. Cada uno levanta Puppeteer + un subproceso
+ * Claude, así que el tope real lo pone la RAM/CPU de la máquina. Default 4;
+ * subilo con THIRTYX_MAX_CONCURRENT si la máquina aguanta. Se limita a
+ * MAX_CONCURRENT_CAP para no quemar la máquina por un valor absurdo en el env.
+ */
+const DEFAULT_MAX_CONCURRENT = 4;
+const MAX_CONCURRENT_CAP = 8;
+
 function maxConcurrent(): number {
-  const n = parseInt(process.env.THIRTYX_MAX_CONCURRENT || "1", 10);
-  return Number.isFinite(n) && n >= 1 ? n : 1;
+  const raw = process.env.THIRTYX_MAX_CONCURRENT;
+  const n = raw ? parseInt(raw, 10) : DEFAULT_MAX_CONCURRENT;
+  if (!Number.isFinite(n) || n < 1) return DEFAULT_MAX_CONCURRENT;
+  return Math.min(n, MAX_CONCURRENT_CAP);
 }
 
 /**

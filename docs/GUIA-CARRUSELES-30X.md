@@ -86,5 +86,5 @@ Prewave  ←  la diseñadora entrega el diseño (flujo normal del tablero)
 |---|---|---|
 | `PREWAVE_TOKEN` | `.env.local` de cada compu | Token JWT de esa diseñadora (30 días). Opcional: si no, lo pega en el panel. |
 | `PREWAVE_API_BASE` | `.env.local` | Base de la API de Prewave (default ya correcto). |
-| `THIRTYX_MAX_CONCURRENT` | `.env.local` | Cuántos genera en paralelo (default `1`). |
+| `THIRTYX_MAX_CONCURRENT` | `.env.local` | Cuántos genera en paralelo (default `4`, tope `8`). |
 | `CLAUDE_CLI_PATH` | `.env.local` | Solo si el Claude CLI no está en el PATH. |

@@ -24,7 +24,7 @@ apretar nada. En el panel `/30x` los ves agrupados por avenger con su estado en 
 - **Conexión:** pegá tu token de Prewave en el panel (botón *Conectar Prewave*). Sin hosting ni
   webhooks: usa el Claude CLI que ya tenés instalado y logueado.
 - La entrada manual por URL (sección 01) sigue disponible.
-- Cuántos genera en paralelo: `THIRTYX_MAX_CONCURRENT` (default `1`).
+- Cuántos genera en paralelo: `THIRTYX_MAX_CONCURRENT` (default `4`, tope `8`).
 
 ## Qué hay dónde
 
