@@ -1,0 +1,24 @@
+{
+  "generadas": "2026-07-21",
+  "procedurales": true,
+  "texturas": [
+    {
+      "slug": "papel-fino",
+      "nombre": "Papel fino",
+      "uso": "Papel de imprenta liso, afiche mate. Grano sutil y parejo.",
+      "archivo": "/textures/papel-fino.png"
+    },
+    {
+      "slug": "carton",
+      "nombre": "Cartón",
+      "uso": "Cartón crudo, papel reciclado, afiche callejero. Grano apretado y marcado.",
+      "archivo": "/textures/carton.png"
+    },
+    {
+      "slug": "papel-rugoso",
+      "nombre": "Papel rugoso",
+      "uso": "Papel artesanal, tela, superficie con fibra direccional.",
+      "archivo": "/textures/papel-rugoso.png"
+    }
+  ]
+}
