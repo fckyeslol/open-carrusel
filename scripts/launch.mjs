@@ -109,6 +109,19 @@ function autoUpdate() {
   }
 }
 
+// Regenera los presets de avatar desde los ADN versionados (30x/avatars/*).
+// data/style-presets.json está gitignored, así que un clon nuevo llega sin
+// avatares y el `git pull` no los trae; esto los reconstruye en cada apertura
+// (idempotente) y propaga cualquier ADN actualizado tras el pull. Nunca es
+// fatal: si algo falla, la app abre con los avatares que ya haya.
+function refreshAvatars() {
+  spawnSync("node", [path.join("scripts", "import-avatars.mjs")], {
+    stdio: "ignore",
+    shell: SHELL,
+    timeout: 30000,
+  });
+}
+
 // Open the browser on /30x after a short delay, detached, so it happens while
 // the dev server is booting in the foreground.
 function openBrowserSoon() {
@@ -141,6 +154,7 @@ function main() {
   log("");
 
   autoUpdate();
+  refreshAvatars();
   log("");
 
   log(`🚀 Abriendo el programa... (${URL})`);

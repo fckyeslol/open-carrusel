@@ -13,15 +13,18 @@
  */
 import { readFile, writeFile, readdir, mkdir } from "fs/promises";
 import { existsSync } from "fs";
+import { pathToFileURL } from "url";
 import path from "path";
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")), "..");
 const DATA_DIR = path.join(ROOT, "data");
 const SLIDES_DIR = path.join(ROOT, "public", "30x-slides");
 
-// Ruta por defecto del repo del pipeline (ajustable por arg).
-const DEFAULT_AVATARS_DIR = "C:\\Users\\mateo\\30x-carousel-pipeline\\avatars";
-const avatarsDir = process.argv[2] || DEFAULT_AVATARS_DIR;
+// Fuente por defecto: los ADN de los avatares viven versionados en el repo
+// (30x/avatars/<slug>/adn.json). Así cualquier diseñadora que clona el repo
+// tiene los avatares sin depender del pipeline privado de Mateo. Se puede
+// sobrescribir pasando otra ruta como primer argumento del CLI.
+const DEFAULT_AVATARS_DIR = path.join(ROOT, "30x", "avatars");
 
 const ASPECT = "4:5";
 
@@ -142,11 +145,21 @@ function buildKeywords(adn) {
   return [...kw].filter(Boolean);
 }
 
-async function main() {
+/**
+ * Genera/actualiza los presets de avatar en data/style-presets.json a partir de
+ * los ADN de `avatarsDir`. Idempotente (upsert por `avatar-<slug>`). Devuelve un
+ * resumen `{ imported, kept, skipped }`. `quiet` silencia el log por avatar para
+ * cuando la llaman setup.mjs / launch.mjs.
+ */
+export async function importAvatars({ avatarsDir = DEFAULT_AVATARS_DIR, quiet = false } = {}) {
+  const say = (msg) => {
+    if (!quiet) console.log(msg);
+  };
   if (!existsSync(avatarsDir)) {
-    console.error(`ERROR: no existe el directorio de avatares: ${avatarsDir}`);
-    console.error("Pasá la ruta como argumento: node scripts/import-avatars.mjs <dir>");
-    process.exit(1);
+    throw new Error(
+      `no existe el directorio de avatares: ${avatarsDir}\n` +
+        "Pasá la ruta como argumento: node scripts/import-avatars.mjs <dir>"
+    );
   }
   await mkdir(DATA_DIR, { recursive: true });
 
@@ -205,7 +218,7 @@ async function main() {
       avatarSlug: slug,
       avatarStatus: adn.status || "draft",
     });
-    console.log(
+    say(
       `  ✓ ${slug.padEnd(16)} ${family.padEnd(20)} bg ${colors.background} · text ${colors.primary} · accent ${colors.accent}` +
         (exampleSlideHtml ? "  [+formato]" : "  [sin formato aún]")
     );
@@ -228,14 +241,23 @@ async function main() {
   const { rename } = await import("fs/promises");
   await rename(tmp, outFile);
 
-  console.log(`\nOK → ${path.relative(ROOT, outFile)}: ${presets.length} avatares importados, ${kept.length} presets no-avatar conservados.`);
+  say(
+    `\nOK → ${path.relative(ROOT, outFile)}: ${presets.length} avatares importados, ${kept.length} presets no-avatar conservados.`
+  );
   if (skipped.length) {
-    console.log(`\nSaltados (${skipped.length}):`);
-    for (const s of skipped) console.log(`  - ${s}`);
+    say(`\nSaltados (${skipped.length}):`);
+    for (const s of skipped) say(`  - ${s}`);
   }
+
+  return { imported: presets.length, kept: kept.length, skipped };
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+// CLI: `node scripts/import-avatars.mjs [dir-avatares]`. Al importarse como
+// módulo (setup.mjs / launch.mjs) este bloque no corre.
+const invokedDirectly = import.meta.url === pathToFileURL(process.argv[1] || "").href;
+if (invokedDirectly) {
+  importAvatars({ avatarsDir: process.argv[2] || DEFAULT_AVATARS_DIR }).catch((e) => {
+    console.error(e?.message ?? e);
+    process.exit(1);
+  });
+}

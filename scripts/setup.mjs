@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { importAvatars } from "./import-avatars.mjs";
 
 const ROOT = process.cwd();
 // Built-in spawn only — setup.mjs must run on a bare clone BEFORE `npm install`,
@@ -194,6 +195,18 @@ async function main() {
 
   log("📁 Creating data directories...");
   seedDataFiles();
+  log("");
+
+  // Genera los presets de avatar desde los ADN versionados (30x/avatars/*).
+  // Sin esto el selector "Elegí un avatar" queda vacío en un clon nuevo, porque
+  // data/style-presets.json está gitignored y no viaja con el repo.
+  log("🎭 Preparando avatares de 30x...");
+  try {
+    const r = await importAvatars({ quiet: true });
+    log(`  ✅ ${r.imported} avatar(es) listos`);
+  } catch (err) {
+    log(`  ⚠️  No se pudieron preparar los avatares: ${err?.message ?? err}`);
+  }
   log("");
 
   log("🔍 Looking for Claude CLI...");
