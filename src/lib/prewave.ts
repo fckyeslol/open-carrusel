@@ -1,21 +1,18 @@
 /**
- * Cliente de la cola de trabajos de Prewave (`agent_jobs`) — la INGESTA ACTUAL.
+ * Cliente de Prewave para el modelo LOCAL por diseñadora.
  *
- * No se toca el backend de Prewave: se reusan los mismos endpoints que drenaba el
- * worker de Canva (ver 30x-carousel-pipeline/scripts/queue_client.py y
- * api/src/routers/agent-jobs.ts):
+ * La app corre en la máquina de cada diseñadora y jala SU bandeja de diseño con
+ * SU token (scope por JWT), vía el endpoint de Prewave:
  *
- *   GET   /agent-jobs?status=pending   → SUS jobs (scope por JWT) o toda la cola (API key)
- *   PATCH /agent-jobs/:id  {status: processing|done|failed, resultUrl?, error?}
+ *   GET /production/design-queue  → los carruseles asignados a ella que necesitan
+ *                                   diseño (ver listDesignQueue()).
  *
- * Auth (dos modos, el backend acepta cualquiera):
- *   - JWT de la diseñadora  → header Authorization: Bearer <token>  (scope: SUS jobs)
- *   - Pipeline API key (ops) → header X-API-Key <key>               (scope: toda la cola)
+ * Auth: Authorization: Bearer <token>  (el JWT de 30 días de su sesión de Prewave).
  *
- * Config por env o por data/prewave.json (que la UI puede escribir):
+ * Config por env o por data/prewave.json (que el panel /30x puede escribir):
  *   PREWAVE_API_BASE  (default https://api.prewave.oracle30x.co/api/v1)
  *   PREWAVE_TOKEN     (JWT de la diseñadora)
- *   PREWAVE_API_KEY   (solo ops)
+ *   PREWAVE_API_KEY   (opcional, solo ops)
  */
 import { readDataSafe, writeData } from "./data";
 
@@ -27,24 +24,6 @@ export interface PrewaveConfig {
   token: string | null; // JWT de la diseñadora
   apiKey: string | null; // pipeline API key (ops)
   updatedAt: string;
-}
-
-export interface PrewaveJob {
-  id: string;
-  kind: string;
-  status: string;
-  reference_url: string | null;
-  brief_id: string | null;
-  design_request_id: string | null;
-  avatar_id: string | null;
-  avatar_slug: string | null;
-  avatar_name: string | null;
-  content_format: string | null;
-  avatar_hint: string | null;
-  result_url: string | null;
-  error: string | null;
-  created_at: string;
-  updated_at: string;
 }
 
 const EMPTY_CONFIG: PrewaveConfig = {
@@ -85,8 +64,8 @@ export function isConfigured(cfg: PrewaveConfig): boolean {
 
 function authHeaders(cfg: PrewaveConfig): Record<string, string> {
   const h: Record<string, string> = { "Content-Type": "application/json" };
-  // X-API-Key tiene precedencia en el backend; preferimos el JWT de la diseñadora
-  // cuando existe (scope acotado a lo suyo), y caemos a la API key si no.
+  // La bandeja de diseño scopea por el JWT de la diseñadora (Bearer). Si no hay
+  // token pero sí una API key de ops, se manda como fallback (no scopea por persona).
   if (cfg.token) h["Authorization"] = `Bearer ${cfg.token}`;
   else if (cfg.apiKey) h["X-API-Key"] = cfg.apiKey;
   return h;
@@ -128,22 +107,10 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-/** Lista los jobs de la cola. Con JWT devuelve SOLO los de la diseñadora. */
-export async function listJobs(
-  status = "pending",
-  kind = "carousel_30x"
-): Promise<PrewaveJob[]> {
-  const qs = new URLSearchParams({ status });
-  if (kind) qs.set("kind", kind);
-  const data = await req<{ items: PrewaveJob[] }>(`/agent-jobs?${qs.toString()}`);
-  return data.items || [];
-}
-
 /**
- * Un item de la BANDEJA DE DISEÑO de la diseñadora: un carrusel en `por_disenar`
- * de un avatar del que ella es la diseñadora. Es la fuente del modelo local (pull
- * con SU token). Lo devuelve GET /production/design-queue, ya normalizado desde el
- * `toApiBrief` de Prewave.
+ * Un item de la BANDEJA DE DISEÑO de la diseñadora: un carrusel asignado a ella
+ * que necesita diseño. Es la fuente del modelo local (pull con SU token). Lo
+ * devuelve GET /production/design-queue, normalizado desde el `toApiBrief` de Prewave.
  */
 export interface DesignQueueItem {
   jobId: string; // curated_brief.id
@@ -176,38 +143,10 @@ function mapDesignItem(b: ApiBriefLite): DesignQueueItem {
 }
 
 /**
- * Trae la bandeja de diseño de la diseñadora (scope por SU token JWT). Solo trae
- * SUS carruseles en `por_disenar` — es el reemplazo por-persona de `listJobs`, que
- * pega a la cola compartida `/agent-jobs`.
+ * Trae la bandeja de diseño de la diseñadora (scope por SU token JWT): solo SUS
+ * carruseles asignados que necesitan diseño.
  */
 export async function listDesignQueue(): Promise<DesignQueueItem[]> {
   const data = await req<{ items: ApiBriefLite[] }>(`/production/design-queue`);
   return (data.items || []).map(mapDesignItem);
-}
-
-/** Reclama un job (pending → processing). Sube el contador de intentos en el backend. */
-export async function claimJob(id: string): Promise<PrewaveJob> {
-  const data = await req<{ ok: boolean; job: PrewaveJob }>(`/agent-jobs/${id}`, {
-    method: "PATCH",
-    body: JSON.stringify({ status: "processing" }),
-  });
-  return data.job;
-}
-
-/** Cierra un job OK con el link/assets del carrusel final. */
-export async function completeJob(id: string, resultUrl: string): Promise<PrewaveJob> {
-  const data = await req<{ ok: boolean; job: PrewaveJob }>(`/agent-jobs/${id}`, {
-    method: "PATCH",
-    body: JSON.stringify({ status: "done", resultUrl }),
-  });
-  return data.job;
-}
-
-/** Marca un job como fallido. */
-export async function failJob(id: string, error: string): Promise<PrewaveJob> {
-  const data = await req<{ ok: boolean; job: PrewaveJob }>(`/agent-jobs/${id}`, {
-    method: "PATCH",
-    body: JSON.stringify({ status: "failed", error: error.slice(0, 1000) }),
-  });
-  return data.job;
 }
