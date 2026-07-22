@@ -16,6 +16,7 @@ const FILE = "thirtyx-assignments.json";
 
 export type AssignmentStatus =
   | "received" // llegó el webhook, en cola
+  | "blocked" // no se puede generar acá (avatar sin preset local / sin resolver): NO se reclama ni se toca Prewave
   | "claiming" // reclamando el job en Prewave (pending → processing)
   | "ingesting" // bajando el referente + creando el carrusel
   | "generating" // Claude generando las láminas

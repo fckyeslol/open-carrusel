@@ -24,6 +24,7 @@ type Tone = "muted" | "active" | "ready" | "done" | "error";
 
 const STATUS: Record<string, { label: string; tone: Tone }> = {
   received: { label: "En cola", tone: "muted" },
+  blocked: { label: "Sin avatar local", tone: "muted" },
   ingesting: { label: "Bajando referente", tone: "active" },
   generating: { label: "Generando", tone: "active" },
   rendering: { label: "Renderizando", tone: "active" },
@@ -207,6 +208,17 @@ export function AssignmentQueue() {
                       <div className="mt-3">
                         {a.error && (
                           <p className="mb-2 line-clamp-3 text-xs text-destructive">{a.error}</p>
+                        )}
+                        <Button size="sm" variant="outline" onClick={() => retry(a.jobId)}>
+                          Reintentar
+                        </Button>
+                      </div>
+                    )}
+
+                    {a.status === "blocked" && (
+                      <div className="mt-3">
+                        {a.error && (
+                          <p className="mb-2 line-clamp-3 text-xs text-muted-foreground">{a.error}</p>
                         )}
                         <Button size="sm" variant="outline" onClick={() => retry(a.jobId)}>
                           Reintentar

@@ -1,14 +1,20 @@
 /**
- * Runner headless de generación local. Cada diseñadora corre esto en su máquina:
- * la app jala sus trabajos de Prewave (pull, ver /api/thirtyx/sync) y este runner
- * los genera SOLOS, sin intervención y **sin tocar Prewave**.
+ * Runner headless de generación local: el WORKER que drena la cola `agent_jobs` de
+ * Prewave. Cada diseñadora corre esto en su máquina; la app jala sus jobs (pull, ver
+ * /api/thirtyx/sync) y este runner los genera SOLOS.
  *
- *   ingest (baja el referente + crea el carrusel) → generar (mismo subproceso
- *   Claude que /api/chat, vía spawnClaude) → render a PNG → status "done" (listo
- *   para QA).
+ *   pre-flight (¿hay preset local del avatar?) → claim (PATCH processing) → ingest
+ *   (baja el referente + crea el carrusel) → generar (mismo subproceso Claude que
+ *   /api/chat, vía spawnClaude) → render a PNG → done + writeback (PATCH done).
  *
- * La generación no reclama ni cierra nada en producción: eso pasa solo cuando la
- * diseñadora hace QA y aprieta "Entregar" (POST /api/thirtyx/jobs/[id]/complete).
+ * Toca Prewave en dos puntos, ambos best-effort (no pisan el estado local, que manda
+ * para la UI): claim al empezar y writeback (done/failed) al terminar. Los jobs que
+ * este install NO puede hacer (avatar sin preset local, o sin avatar resuelto) quedan
+ * `blocked` SIN reclamarse ni marcarse failed, para no ensuciar el board.
+ *
+ * ⚠️ Pendiente (Fase 7 del plan): subir los PNG a GCS y adjuntarlos al brief para el
+ * flujo de aprobación/publicación. Hoy el `resultUrl` del writeback apunta al editor
+ * local (worker local-first); el contrato de assets falta confirmarlo en Prewave.
  *
  * Es un singleton en `globalThis` (sobrevive al HMR de dev) con un límite de
  * concurrencia (cada job levanta Puppeteer + un subproceso Claude).
@@ -20,7 +26,7 @@ import { spawnClaude } from "./generate-headless";
 import { buildSystemPrompt } from "./chat-system-prompt";
 import { getBrand } from "./brand";
 import { getCarousel } from "./carousels";
-import { getPreset } from "./style-presets";
+import { getPreset, getPresetByAvatarSlug } from "./style-presets";
 import { exportAllSlides } from "./export-slides";
 import { isInstagramUrl } from "./instagram-url";
 import { claimJob, completeJob, failJob } from "./prewave";
@@ -131,6 +137,17 @@ async function processAssignment(jobId: string): Promise<void> {
   if (!a) return;
   if (a.status === "done" || a.status === "delivered") return; // ya generado / entregado
 
+  // PRE-FLIGHT (antes de reclamar y sin tocar Prewave): ¿podemos generar ESTE job
+  // en esta máquina? Si el avatar no tiene un preset local `ready` (falta su ADN, o
+  // el job vino sin avatar resuelto), lo dejamos `blocked` — NO lo reclamamos ni lo
+  // marcamos failed en Prewave, así no ensuciamos el board por un install incompleto:
+  // sigue `pending` para otra diseñadora que sí tenga ese avatar.
+  const blockReason = await preflightBlockReason(a.avatarSlug);
+  if (blockReason) {
+    await setStatus(jobId, "blocked", { error: blockReason });
+    return;
+  }
+
   try {
     await incrementAttempts(jobId);
 
@@ -211,6 +228,26 @@ async function writeback(fn: () => Promise<void>): Promise<void> {
   } catch {
     // best-effort: el estado local ya refleja la realidad; Prewave se reconcilia luego
   }
+}
+
+/**
+ * ¿Por qué NO se puede generar este job en esta máquina? Devuelve el motivo (para
+ * dejarlo `blocked`) o null si se puede. Se corre ANTES de reclamar, así los jobs
+ * que este install no puede hacer (avatar sin ADN local, o job de origen Diseño sin
+ * avatar resuelto) no se reclaman ni se marcan failed en Prewave: quedan pending.
+ */
+async function preflightBlockReason(avatarSlug: string): Promise<string | null> {
+  if (!avatarSlug) {
+    return "El job no trae avatar (origen Diseño sin resolver). Asigná el avatar en Prewave o generalo pegando la URL a mano.";
+  }
+  const preset = await getPresetByAvatarSlug(avatarSlug);
+  if (!preset) {
+    return `No hay un preset local para el avatar "${avatarSlug}". Importá su ADN (node scripts/import-avatars.mjs) en esta máquina.`;
+  }
+  if (preset.avatarStatus && preset.avatarStatus !== "ready") {
+    return `El avatar "${avatarSlug}" no está listo (status=${preset.avatarStatus}): falta completar su ADN o sus formatos.`;
+  }
+  return null;
 }
 
 function createRunner(): Runner {
