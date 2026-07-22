@@ -13,6 +13,7 @@ import { VisualEditor } from "@/components/editor/VisualEditor";
 import { SlideFilmstrip } from "@/components/editor/SlideFilmstrip";
 import { AspectRatioSelector } from "@/components/editor/AspectRatioSelector";
 import { ExportButton } from "@/components/editor/ExportButton";
+import { ExportPptxButton } from "@/components/editor/ExportPptxButton";
 import { CaptionPanel } from "@/components/editor/CaptionPanel";
 import { FullscreenPreview } from "@/components/editor/FullscreenPreview";
 import { SaveState } from "@/components/editor/SaveState";
@@ -394,6 +395,11 @@ export default function CarouselEditorPage({ params }: PageProps) {
             </Button>
             <ExportButton
               carouselId={carousel.id}
+              slideCount={carousel.slides.length}
+            />
+            <ExportPptxButton
+              carouselId={carousel.id}
+              carouselName={carousel.name}
               slideCount={carousel.slides.length}
             />
           </div>

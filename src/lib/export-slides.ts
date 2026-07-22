@@ -35,7 +35,7 @@ function findChrome(): string | undefined {
   return candidates.find((p) => p && existsSync(p));
 }
 
-async function getBrowser(): Promise<Browser> {
+export async function getBrowser(): Promise<Browser> {
   if (browser && exportCount >= MAX_EXPORTS_BEFORE_RESTART) {
     await browser.close().catch(() => {});
     browser = null;
@@ -108,6 +108,25 @@ async function inlineImages(html: string): Promise<string> {
 }
 
 /**
+ * Build the self-contained HTML for a slide, ready to render in Puppeteer.
+ *
+ * Es el paso compartido por TODOS los exports (PNG, PPTX, …): inlina las imágenes
+ * y el CSS de fuentes en base64 y envuelve con `wrapSlideHtml`, de modo que la
+ * página no depende de ninguna URL externa ni base URL al hacer `setContent`.
+ */
+export async function prepareRenderableHtml(
+  slideHtml: string,
+  aspectRatio: AspectRatio
+): Promise<string> {
+  const fontFamilies = extractFontFamilies(slideHtml);
+  const inlinedFontCss = await getInlinedFontCSS(fontFamilies);
+  const inlinedHtml = await inlineImages(slideHtml);
+  return wrapSlideHtml(inlinedHtml, aspectRatio, {
+    inlineFontCss: inlinedFontCss,
+  });
+}
+
+/**
  * Export a single slide to PNG buffer.
  */
 export async function exportSlide(
@@ -116,17 +135,7 @@ export async function exportSlide(
 ): Promise<Buffer> {
   const { width, height } = DIMENSIONS[aspectRatio];
 
-  // Get inlined font CSS
-  const fontFamilies = extractFontFamilies(slide.html);
-  const inlinedFontCss = await getInlinedFontCSS(fontFamilies);
-
-  // Inline images
-  const inlinedHtml = await inlineImages(slide.html);
-
-  // Build self-contained HTML
-  const fullHtml = wrapSlideHtml(inlinedHtml, aspectRatio, {
-    inlineFontCss: inlinedFontCss,
-  });
+  const fullHtml = await prepareRenderableHtml(slide.html, aspectRatio);
 
   const br = await getBrowser();
   const page = await br.newPage();
