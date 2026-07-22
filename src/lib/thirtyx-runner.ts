@@ -204,16 +204,20 @@ async function processAssignment(jobId: string): Promise<void> {
     //    de verdad de la UI; el writeback es best-effort para no perder el resultado
     //    si Prewave está caído.
     await setStatus(jobId, "done", { resultUrl: `/exports/${carousel.id}/` });
-    //    Fase 7: subir los PNG al endpoint de worker (sube a GCS + siembra la media
-    //    del brief + cierra el job). Si el endpoint no está desplegado (404) o el job
-    //    no tiene brief (422), cae al completeJob con un link local. Así esto se
-    //    auto-activa cuando el endpoint /agent-jobs/:id/carousel esté en producción.
+    //    Fase 7: subir los PNG al endpoint de worker (sube a GCS + siembra las N
+    //    láminas en el brief para publicación). Best-effort: si el endpoint no está
+    //    (404) o el job no tiene brief (422), no pasa nada acá.
+    //    Además, dejamos "Ver 30x" (result_url del job) apuntando al EDITOR LOCAL:
+    //    muestra TODAS las láminas (y editables). El result_url que setea el endpoint
+    //    es solo la 1ra imagen, por eso lo pisamos con el link del editor.
+    const editorUrl = `http://localhost:${process.env.PORT || "3000"}/carousel/${carousel.id}`;
     await writeback(async () => {
       try {
         await uploadCarousel(jobId, files);
       } catch {
-        await completeJob(jobId, `${localBase()}/carousel/${carousel.id}`);
+        // endpoint no desplegado o job sin brief → seguimos igual con el link local
       }
+      await completeJob(jobId, editorUrl);
     });
   } catch (e) {
     const msg = (e as Error).message || "Error desconocido en la generación";
