@@ -15,7 +15,7 @@
  */
 import path from "path";
 import { mkdir, writeFile } from "fs/promises";
-import { ingestReference, buildGenerationMessage } from "./thirtyx";
+import { ingestReference, buildGenerationMessage, buildContinuationMessage } from "./thirtyx";
 import { spawnClaude } from "./generate-headless";
 import { buildSystemPrompt } from "./chat-system-prompt";
 import { getBrand } from "./brand";
@@ -33,6 +33,72 @@ import {
 function maxConcurrent(): number {
   const n = parseInt(process.env.THIRTYX_MAX_CONCURRENT || "1", 10);
   return Number.isFinite(n) && n >= 1 ? n : 1;
+}
+
+/**
+ * Tope duro de pasadas de generación por job. Cada pasada es un turno de Claude
+ * (buildGenerationMessage la 1ra, buildContinuationMessage las siguientes). Existe
+ * para que un agente que nunca completa no queme presupuesto en un loop infinito.
+ */
+const MAX_GENERATION_PASSES = 8;
+
+/**
+ * Corre la generación hasta que el carrusel tenga las `referenceCount` láminas.
+ *
+ * El agente headless a veces genera una lámina (o unas pocas) y CIERRA su turno
+ * antes de completar el carrusel. En vez de renderizar lo que haya, reanudamos la
+ * MISMA sesión de Claude (--resume) con un mensaje de continuación hasta llegar al
+ * conteo del referente. Reanudar conserva el contexto caro (las imágenes de
+ * referencia ya leídas con visión, las láminas ya creadas), así que la pasada
+ * siguiente solo escribe lo que falta.
+ *
+ * Corta antes del tope si dos pasadas seguidas no agregan ni una lámina (el agente
+ * está trabado): mejor fallar con un mensaje claro que girar en falso.
+ */
+async function generateAllSlides(
+  carouselId: string,
+  referenceCount: number,
+  systemPrompt: string
+): Promise<number> {
+  let sessionId: string | undefined;
+  let stalls = 0;
+
+  for (let pass = 0; pass < MAX_GENERATION_PASSES; pass++) {
+    const before = (await getCarousel(carouselId))?.slides.length ?? 0;
+    if (before >= referenceCount) return before;
+
+    const message =
+      pass === 0
+        ? buildGenerationMessage(referenceCount)
+        : buildContinuationMessage(before, referenceCount);
+
+    const gen = await spawnClaude({
+      message,
+      systemPrompt,
+      sessionId,
+      cwd: process.cwd(),
+    });
+    if (gen.exitCode && gen.exitCode !== 0) {
+      throw new Error(
+        `Claude terminó con código ${gen.exitCode}. ${gen.stderr.slice(-400) || ""}`.trim()
+      );
+    }
+    // La sesión permite reanudar la conversación en la próxima pasada.
+    if (gen.sessionId) sessionId = gen.sessionId;
+
+    const after = (await getCarousel(carouselId))?.slides.length ?? 0;
+    if (after >= referenceCount) return after;
+
+    // Sin progreso: no reanudes eternamente si el agente no avanza.
+    if (after <= before) {
+      stalls += 1;
+      if (stalls >= 2) break;
+    } else {
+      stalls = 0;
+    }
+  }
+
+  return (await getCarousel(carouselId))?.slides.length ?? 0;
 }
 
 /** Base loopback donde el curl de Claude escribe las láminas (mismo server local). */
@@ -72,27 +138,25 @@ async function processAssignment(jobId: string): Promise<void> {
     await setStatus(jobId, "generating", { carouselId: carousel.id });
 
     // 2. Generación headless: mismo subproceso Claude que el chat, sin navegador.
+    //    Se generan TODAS las láminas — el loop reanuda a Claude si corta antes de
+    //    completar el conteo del referente, para que el QA nunca vea un carrusel a medias.
     const brand = await getBrand();
     const freshCarousel = await getCarousel(carousel.id);
     const stylePreset = await getPreset(preset.id);
     const systemPrompt = buildSystemPrompt(brand, freshCarousel, stylePreset, localBase());
 
-    const gen = await spawnClaude({
-      message: buildGenerationMessage(referenceCount),
-      systemPrompt,
-      cwd: process.cwd(),
-    });
-    if (gen.exitCode && gen.exitCode !== 0) {
-      throw new Error(
-        `Claude terminó con código ${gen.exitCode}. ${gen.stderr.slice(-400) || ""}`.trim()
-      );
-    }
+    const produced = await generateAllSlides(carousel.id, referenceCount, systemPrompt);
 
-    // 3. Render a PNG (verifica que la generación produjo láminas).
+    // 3. Render a PNG (verifica que la generación produjo TODAS las láminas).
     await setStatus(jobId, "rendering");
     const finalCarousel = await getCarousel(carousel.id);
     if (!finalCarousel || finalCarousel.slides.length === 0) {
       throw new Error("La generación no produjo láminas");
+    }
+    if (produced < referenceCount) {
+      throw new Error(
+        `La generación quedó incompleta: ${produced} de ${referenceCount} láminas. Reintentá el job.`
+      );
     }
     const files = await exportAllSlides(finalCarousel.slides, finalCarousel.aspectRatio);
     const outDir = path.resolve(process.cwd(), "public", "exports", carousel.id);

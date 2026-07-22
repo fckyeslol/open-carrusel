@@ -198,6 +198,28 @@ export function buildGenerationMessage(referenceCount: number): string {
     "5. FIDELIDAD ESTRICTA de contenido: cada cifra, dato, prompt y fuente del referente sobrevive EXACTO. No inventes.",
     "6. VERIFICÁ CADA LÁMINA antes de pasar a la siguiente: corré slide-check, leé el PNG con Read y corregí. Mirá especialmente las derivas del ADN (~): al calcar es fácil quedarse con los colores del referente en vez de aplicar la paleta del avatar, y eso no se ve escribiendo el HTML.",
     "",
+    `CONTRATO DE COMPLETITUD (no negociable): el trabajo NO está terminado hasta que existan las ${referenceCount} láminas. Después de verificar una lámina, seguí INMEDIATAMENTE con la siguiente — no cierres tu turno, no resumas, no pidas permiso ni confirmación entre láminas. Recién cuando el carrusel tenga las ${referenceCount} láminas generás el caption y terminás.`,
+    "",
     "Aplicá los cambios creando las láminas ahora. No pidas permiso.",
+  ].join("\n");
+}
+
+/**
+ * Mensaje para REANUDAR una generación que se cortó antes de completar todas las
+ * láminas. El runner lo dispara sobre la misma sesión de Claude (--resume) cuando
+ * detecta que faltan láminas: el agente conserva el contexto (las imágenes que ya
+ * leyó, las láminas que ya creó) y solo tiene que seguir desde donde quedó.
+ */
+export function buildContinuationMessage(existing: number, total: number): string {
+  const missing = total - existing;
+  return [
+    `El carrusel quedó INCOMPLETO: hay ${existing} de ${total} láminas. Faltan ${missing}.`,
+    "",
+    `Continuá AHORA generando las láminas ${existing + 1} a ${total} del referente, en orden, sin rehacer las que ya existen.`,
+    "1. Leé el carrusel (GET) para ver qué láminas ya están y con qué orden.",
+    "2. Reproducí el layout de la lámina equivalente del referente para cada una que falte, con la identidad del avatar y fidelidad estricta al contenido.",
+    "3. Verificá cada lámina con slide-check + Read del PNG antes de seguir con la próxima.",
+    "",
+    `No cierres tu turno hasta que existan las ${total} láminas. No pidas permiso.`,
   ].join("\n");
 }
