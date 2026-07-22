@@ -2,6 +2,23 @@ import type { AspectRatio } from "@/types/carousel";
 import { DIMENSIONS } from "@/types/carousel";
 
 /**
+ * Todos los grosores (font-weight) que pedimos a Google Fonts.
+ *
+ * La forma de lista explícita con `;` del endpoint css2 es TOLERANTE: al pedir
+ * `wght@100;200;…;900` Google responde 200 y sirve solo los pesos que la fuente
+ * realmente tiene (una fuente de un solo peso como Bebas Neue devuelve solo 400),
+ * descartando el resto sin error. Por eso es seguro pedir el rango completo para
+ * cualquier familia. (La forma de RANGO `wght@100..900` sí es estricta y da 400
+ * en fuentes no-variables — no la usamos.)
+ */
+export const FONT_WEIGHTS = [100, 200, 300, 400, 500, 600, 700, 800, 900] as const;
+
+/** Fragmento `family=<nombre>:wght@…` (solo romanas) para el endpoint css2. */
+export function googleFontFamilyParam(family: string): string {
+  return `family=${encodeURIComponent(family)}:wght@${FONT_WEIGHTS.join(";")}`;
+}
+
+/**
  * Extract Google Font family names from slide HTML.
  * Looks for font-family declarations in inline styles and <style> tags.
  */
@@ -69,13 +86,8 @@ export function wrapSlideHtml(
     // For export: use inlined base64 @font-face CSS
     fontBlock = `<style>${options.inlineFontCss}</style>`;
   } else if (fontFamilies.length > 0) {
-    // For preview: use Google Fonts CDN link
-    const params = fontFamilies
-      .map(
-        (f) =>
-          `family=${encodeURIComponent(f)}:wght@300;400;500;600;700;800`
-      )
-      .join("&");
+    // For preview: use Google Fonts CDN link (rango completo de grosores)
+    const params = fontFamilies.map(googleFontFamilyParam).join("&");
     fontBlock = `<link href="https://fonts.googleapis.com/css2?${params}&display=swap" rel="stylesheet">`;
   }
 

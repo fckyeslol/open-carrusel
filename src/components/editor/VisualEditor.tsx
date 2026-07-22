@@ -32,6 +32,19 @@ import {
 
 const FONTS = EDITOR_FONTS;
 
+/** Grosores estándar de Google Fonts, con nombre en español. */
+const WEIGHTS = [
+  { value: "100", label: "Fino" },
+  { value: "200", label: "Extrafino" },
+  { value: "300", label: "Ligero" },
+  { value: "400", label: "Regular" },
+  { value: "500", label: "Medio" },
+  { value: "600", label: "Semibold" },
+  { value: "700", label: "Negrita" },
+  { value: "800", label: "Extranegrita" },
+  { value: "900", label: "Black" },
+] as const;
+
 interface Selection {
   none?: boolean;
   isText?: boolean;
@@ -432,6 +445,26 @@ export function VisualEditor({ html, aspectRatio, onChange }: VisualEditorProps)
                     />
                   </label>
                 </div>
+                {/* Grosor manual: la fuente sirve solo los pesos que tiene; los que
+                    no existen, el navegador los aproxima al más cercano. */}
+                <label className="block">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Grosor</span>
+                  <select
+                    className="mt-1 w-full h-9 rounded-md border border-border bg-background px-2 text-sm"
+                    value={String(Number(sel.fontWeight) || 400)}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setSel({ ...sel, fontWeight: v });
+                      applyProp("fontWeight", v);
+                    }}
+                  >
+                    {WEIGHTS.map((w) => (
+                      <option key={w.value} value={w.value}>
+                        {w.value} · {w.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <div className="flex gap-1">
                   <Button size="icon" variant={Number(sel.fontWeight) >= 600 ? "accent" : "outline"} onClick={() => applyProp("bold", Number(sel.fontWeight) < 600)}>
                     <Bold className="h-4 w-4" />

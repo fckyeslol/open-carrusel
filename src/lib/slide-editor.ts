@@ -1,6 +1,16 @@
 import type { AspectRatio } from "@/types/carousel";
 import { DIMENSIONS } from "@/types/carousel";
-import { extractFontFamilies } from "./slide-html";
+import { extractFontFamilies, FONT_WEIGHTS } from "./slide-html";
+
+/**
+ * Fragmento `ital,wght@…` con TODOS los grosores (romanas + itálicas) para el
+ * editor. La lista explícita es tolerante: Google sirve solo lo que cada fuente
+ * tiene, así que el selector de grosor manual (100–900) rinde sin importar la
+ * familia. Compartido entre el runtime del iframe y `wrapEditableSlide`.
+ */
+export const GF_ITAL_WGHT = `ital,wght@${FONT_WEIGHTS.map((w) => `0,${w}`).join(
+  ";"
+)};${FONT_WEIGHTS.map((w) => `1,${w}`).join(";")}`;
 
 /** Fuentes disponibles en el editor: las 8 de los avengers + extras usuales. */
 export const EDITOR_FONTS = [
@@ -371,7 +381,7 @@ export const EDITOR_RUNTIME = String.raw`
     var id='ocf-'+fam.replace(/[^a-z0-9]/gi,'');
     if(document.getElementById(id)) return;
     var l=document.createElement('link'); l.id=id; l.rel='stylesheet'; l.setAttribute('data-oc-ui','1');
-    l.href='https://fonts.googleapis.com/css2?family='+fam.replace(/ /g,'+')+':ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400&display=swap';
+    l.href='https://fonts.googleapis.com/css2?family='+fam.replace(/ /g,'+')+':${GF_ITAL_WGHT}&display=swap';
     document.head.appendChild(l);
   }
   // ── posicionamiento absoluto: al manipular con precisión (panel numérico o
@@ -448,7 +458,8 @@ export const EDITOR_RUNTIME = String.raw`
       else if(p==='fontSize'){ el.style.fontSize=v+'px'; }
       else if(p==='color'){ el.style.color=v; }
       else if(p==='bg'){ el.style.background=v; }
-      else if(p==='bold'){ el.style.fontWeight=v?'800':'400'; }
+      else if(p==='bold'){ el.style.fontWeight=v?'700':'400'; }
+      else if(p==='fontWeight'){ el.style.fontWeight=String(v); }
       else if(p==='italic'){ el.style.fontStyle=v?'italic':'normal'; }
       else if(p==='align'){ el.style.textAlign=v; }
       else if(p==='opacity'){ el.style.opacity=(v/100); }
@@ -556,7 +567,7 @@ export function wrapEditableSlide(slideHtml: string, aspectRatio: AspectRatio): 
   const fams = extractFontFamilies(slideHtml);
   const fontLink = fams.length
     ? `<link href="https://fonts.googleapis.com/css2?${fams
-        .map((f) => `family=${encodeURIComponent(f)}:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400`)
+        .map((f) => `family=${encodeURIComponent(f)}:${GF_ITAL_WGHT}`)
         .join("&")}&display=swap" rel="stylesheet">`
     : "";
   return `<!DOCTYPE html><html><head><meta charset="utf-8">${fontLink}

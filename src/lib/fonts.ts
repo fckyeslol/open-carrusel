@@ -1,5 +1,6 @@
 import { readFile, writeFile, mkdir } from "fs/promises";
 import path from "path";
+import { FONT_WEIGHTS } from "./slide-html";
 
 const FONT_CACHE_DIR = path.resolve(process.cwd(), "data", ".font-cache");
 
@@ -73,8 +74,10 @@ async function cacheFont(family: string, css: string): Promise<void> {
 }
 
 async function fetchAndInlineFont(family: string): Promise<string | null> {
-  // Fetch CSS from Google Fonts (with woff2-capable user agent)
-  const url = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(family)}:wght@300;400;500;600;700;800&display=block`;
+  // Fetch CSS from Google Fonts (with woff2-capable user agent).
+  // Pedimos el rango completo de grosores: la lista explícita es tolerante, así
+  // que Google solo inlinea los pesos que la fuente tiene (ver FONT_WEIGHTS).
+  const url = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(family)}:wght@${FONT_WEIGHTS.join(";")}&display=block`;
   const response = await fetch(url, {
     headers: {
       // User agent that tells Google to serve woff2 format
