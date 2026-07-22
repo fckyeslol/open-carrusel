@@ -12,7 +12,7 @@
 import { writeFile } from "fs/promises";
 import { existsSync } from "fs";
 import path from "path";
-import puppeteer, { type Browser } from "puppeteer";
+import puppeteer, { type Browser, type Page } from "puppeteer";
 import { normalizeInstagramUrl } from "./instagram-url";
 
 function findChrome(): string | undefined {
@@ -90,41 +90,96 @@ function collectImageUrls(node: unknown, out: string[], seen: Set<object>): void
   }
 }
 
-async function extractImageUrls(browser: Browser, postUrl: string): Promise<string[]> {
-  const page = await browser.newPage();
+/**
+ * Navega al post y lee las URLs reales. Deja la página ABIERTA a propósito: el
+ * caller la reutiliza para bajar las imágenes desde el mismo origen instagram.com
+ * (con Referer/cookies), que es lo que evita el 403 del CDN. El caller cierra.
+ */
+async function extractImageUrls(page: Page, postUrl: string): Promise<string[]> {
+  await page.setUserAgent(
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+  );
+  await page.goto(postUrl, { waitUntil: "networkidle2", timeout: 30000 });
+
+  // Textos crudos de todos los <script type="application/json">.
+  const jsonBlobs: string[] = await page.$$eval('script[type="application/json"]', (nodes) =>
+    nodes.map((n) => n.textContent || "").filter((t) => t.includes("image_versions2") || t.includes("carousel_media") || t.includes("display_url"))
+  );
+
+  const urls: string[] = [];
+  const seen = new Set<object>();
+  for (const blob of jsonBlobs) {
+    try {
+      collectImageUrls(JSON.parse(blob), urls, seen);
+    } catch {
+      // blob no-JSON o parcial: ignorar
+    }
+  }
+
+  if (urls.length === 0) {
+    // Fallback DOM: og:image (al menos la portada).
+    const og = await page
+      .$eval('meta[property="og:image"]', (el) => el.getAttribute("content") || "")
+      .catch(() => "");
+    if (og) urls.push(og);
+  }
+
+  // Dedup preservando orden.
+  return [...new Set(urls)];
+}
+
+/**
+ * Baja una imagen del CDN de Instagram y devuelve sus bytes, o null si falla.
+ *
+ * Estrategia: primero el fetch corre DENTRO de la página (origen instagram.com),
+ * así lleva Referer + cookies de sesión y el CDN (fbcdn.net) no responde 403 —
+ * que es el motivo por el que el fetch pelado de Node fallaba. Si eso no da un
+ * buffer usable, se intenta un fetch de Node con Referer como último recurso.
+ */
+async function downloadImageBytes(page: Page, src: string): Promise<Buffer | null> {
+  // 1) Fetch en contexto de navegador (mismo origen que el post).
   try {
-    await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
-    );
-    await page.goto(postUrl, { waitUntil: "networkidle2", timeout: 30000 });
-
-    // Textos crudos de todos los <script type="application/json">.
-    const jsonBlobs: string[] = await page.$$eval('script[type="application/json"]', (nodes) =>
-      nodes.map((n) => n.textContent || "").filter((t) => t.includes("image_versions2") || t.includes("carousel_media") || t.includes("display_url"))
-    );
-
-    const urls: string[] = [];
-    const seen = new Set<object>();
-    for (const blob of jsonBlobs) {
+    const dataUrl: string | null = await page.evaluate(async (url) => {
       try {
-        collectImageUrls(JSON.parse(blob), urls, seen);
+        const resp = await fetch(url, { credentials: "include", referrerPolicy: "no-referrer-when-downgrade" });
+        if (!resp.ok) return null;
+        const blob = await resp.blob();
+        return await new Promise<string | null>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(typeof reader.result === "string" ? reader.result : null);
+          reader.onerror = () => resolve(null);
+          reader.readAsDataURL(blob);
+        });
       } catch {
-        // blob no-JSON o parcial: ignorar
+        return null;
+      }
+    }, src);
+    if (dataUrl) {
+      const comma = dataUrl.indexOf(",");
+      if (comma !== -1) {
+        const buf = Buffer.from(dataUrl.slice(comma + 1), "base64");
+        if (buf.length > 0) return buf;
       }
     }
+  } catch {
+    // el contexto de la página puede caerse; seguimos con el fallback
+  }
 
-    if (urls.length === 0) {
-      // Fallback DOM: og:image (al menos la portada).
-      const og = await page
-        .$eval('meta[property="og:image"]', (el) => el.getAttribute("content") || "")
-        .catch(() => "");
-      if (og) urls.push(og);
-    }
-
-    // Dedup preservando orden.
-    return [...new Set(urls)];
-  } finally {
-    await page.close().catch(() => {});
+  // 2) Fallback: fetch de Node con Referer de instagram.com.
+  try {
+    const res = await fetch(src, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+        Referer: "https://www.instagram.com/",
+        Accept: "image/avif,image/webp,image/png,image/jpeg,*/*",
+      },
+    });
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    return buf.length > 0 ? buf : null;
+  } catch {
+    return null;
   }
 }
 
@@ -150,9 +205,10 @@ export async function downloadInstagramReference(
   });
   hooks.onBrowserReady?.();
 
+  const page = await browser.newPage();
   try {
     hooks.onExtractStart?.();
-    const imageUrls = await extractImageUrls(browser, postUrl);
+    const imageUrls = await extractImageUrls(page, postUrl);
     if (imageUrls.length === 0) {
       throw new Error(
         "No se pudieron extraer imágenes del post (¿privado, borrado, o Instagram pide login?). Probá subir capturas del referente a mano."
@@ -162,20 +218,8 @@ export async function downloadInstagramReference(
 
     const slides: DownloadedSlide[] = [];
     for (let i = 0; i < imageUrls.length; i++) {
-      const src = imageUrls[i];
-      let buffer: Buffer;
-      try {
-        const res = await fetch(src, {
-          headers: {
-            "User-Agent":
-              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-          },
-        });
-        if (!res.ok) continue;
-        buffer = Buffer.from(await res.arrayBuffer());
-      } catch {
-        continue;
-      }
+      const buffer = await downloadImageBytes(page, imageUrls[i]);
+      if (!buffer) continue;
       // Verificar magic JPEG/PNG antes de guardar.
       const isJpeg = buffer[0] === 0xff && buffer[1] === 0xd8;
       const isPng = buffer[0] === 0x89 && buffer[1] === 0x50;
@@ -197,6 +241,7 @@ export async function downloadInstagramReference(
     }
     return slides;
   } finally {
+    await page.close().catch(() => {});
     await browser.close().catch(() => {});
   }
 }
