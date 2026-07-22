@@ -5,6 +5,7 @@ import { buildSystemPrompt } from "@/lib/chat-system-prompt";
 import { getBrand } from "@/lib/brand";
 import { getCarousel } from "@/lib/carousels";
 import { getPreset } from "@/lib/style-presets";
+import { isHiggsfieldConfigured } from "@/lib/higgsfield";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -52,7 +53,13 @@ export async function POST(request: NextRequest) {
   const stylePreset = effectivePresetId ? await getPreset(effectivePresetId) : null;
   const host = request.headers.get("host") || "localhost:3000";
   const baseUrl = `http://${host}`;
-  const systemPrompt = buildSystemPrompt(brand, carousel, stylePreset, baseUrl);
+  const systemPrompt = buildSystemPrompt(
+    brand,
+    carousel,
+    stylePreset,
+    baseUrl,
+    isHiggsfieldConfigured()
+  );
 
   const abortController = new AbortController();
   const encoder = new TextEncoder();

@@ -169,6 +169,7 @@ export const EDITOR_RUNTIME = String.raw`
     post({oc:'sel', count:sels.length,
       grouped: !!(el.getAttribute && el.getAttribute('data-oc-g')),
       tag:el.tagName.toLowerCase(), isText:isText,
+      isImage: el.tagName==='IMG',
       text: isText ? el.textContent : '',
       fontFamily:(cs.fontFamily||'').split(',')[0].replace(/['"]/g,'').trim(),
       fontSize:Math.round(parseFloat(cs.fontSize)||0),
@@ -520,11 +521,25 @@ export const EDITOR_RUNTIME = String.raw`
   }
   function addImage(url){
     snap();
-    var img=document.createElement('img'); img.src=url;
-    img.style.cssText='position:absolute;left:120px;top:120px;width:360px;height:auto;z-index:5';
+    var img=document.createElement('img');
+    // Placeholder visible: sin esto, mientras la imagen carga su alto es 'auto'=0px
+    // y "no aparece". El recuadro punteado con min-alto la hace visible y seleccionable
+    // al instante; al cargar (onload) se limpia el placeholder. onerror la deja marcada
+    // en rojo en vez de desaparecer en silencio.
+    img.style.cssText='position:absolute;left:'+Math.round((W-360)/2)+'px;top:'+Math.round((H-360)/2)+'px;width:360px;height:auto;min-height:180px;z-index:5;background:#eceaf0;outline:2px dashed #ff3b7f;outline-offset:-2px';
+    img.onload=function(){ img.style.minHeight=''; img.style.background=''; img.style.outline=''; img.style.outlineOffset=''; paint(); syncOne(); serialize(); };
+    img.onerror=function(){ img.style.outline='3px solid #e11d48'; };
+    img.src=url;
     rootEl().appendChild(img);
-    img.onload=function(){ paint(); serialize(); };
     sels=[img]; paint(); report(); serialize();
+  }
+  // Reemplaza la fuente de la imagen seleccionada (para regenerar con IA).
+  function setImgSrc(url){
+    if(!sels.length) return; var el=sels[0];
+    if(el.tagName!=='IMG') return;
+    snap();
+    el.onload=function(){ paint(); syncOne(); serialize(); };
+    el.src=url; report(); serialize();
   }
   function setBg(val){ snap(); (rootEl()||document.body).style.background=val; serialize(); }
 
@@ -552,6 +567,7 @@ export const EDITOR_RUNTIME = String.raw`
     else if(m.oc==='duplicate') duplicate();
     else if(m.oc==='addText') addText();
     else if(m.oc==='addImage') addImage(m.url);
+    else if(m.oc==='setImgSrc') setImgSrc(m.url);
     else if(m.oc==='setBg') setBg(m.value);
     else if(m.oc==='deselect') clearSel();
     else if(m.oc==='serialize') serialize();

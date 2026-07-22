@@ -19,10 +19,12 @@ export function ReferenceImages({
   const [uploading, setUploading] = useState(false);
   const [previewImg, setPreviewImg] = useState<ReferenceImage | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const handleUpload = useCallback(
     async (file: File) => {
       setUploading(true);
+      setError(null);
       try {
         const formData = new FormData();
         formData.append("file", file);
@@ -30,18 +32,25 @@ export function ReferenceImages({
           method: "POST",
           body: formData,
         });
-        if (!uploadRes.ok) return;
-        const uploadData = await uploadRes.json();
+        const uploadData = await uploadRes.json().catch(() => ({}));
+        // Antes un error se tragaba en silencio → "elijo y no pasa nada".
+        if (!uploadRes.ok) {
+          throw new Error(uploadData?.error || `Error ${uploadRes.status} al subir`);
+        }
 
-        await fetch(`/api/carousels/${carouselId}/references`, {
+        const refRes = await fetch(`/api/carousels/${carouselId}/references`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ url: uploadData.url, name: file.name }),
         });
+        if (!refRes.ok) {
+          const d = await refRes.json().catch(() => ({}));
+          throw new Error(d?.error || `Error ${refRes.status} al registrar la imagen`);
+        }
 
         onImagesChange();
-      } catch {
-        // ignore
+      } catch (e) {
+        setError((e as Error).message);
       } finally {
         setUploading(false);
       }
@@ -76,9 +85,14 @@ export function ReferenceImages({
     input.type = "file";
     input.accept = "image/png,image/jpeg,image/webp";
     input.multiple = true;
+    // Agregarlo al DOM: un <input> desprendido puede no disparar 'change' de forma
+    // confiable en algunos navegadores. Se remueve apenas termina.
+    input.style.display = "none";
+    document.body.appendChild(input);
     input.onchange = (e) => {
       const files = Array.from((e.target as HTMLInputElement).files ?? []);
       files.forEach(handleUpload);
+      input.remove();
     };
     input.click();
   }, [handleUpload]);
@@ -115,6 +129,10 @@ export function ReferenceImages({
           {uploading ? "Subiendo..." : "Subir"}
         </Button>
       </div>
+
+      {error && (
+        <p className="px-4 pb-2 text-[11px] text-red-600 break-words">{error}</p>
+      )}
 
       {/* Drop zone or grid */}
       {images.length === 0 ? (

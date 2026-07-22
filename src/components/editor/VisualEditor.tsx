@@ -28,6 +28,8 @@ import {
   AlignEndHorizontal,
   AlignHorizontalDistributeCenter,
   AlignVerticalDistributeCenter,
+  Sparkles,
+  RefreshCw,
 } from "lucide-react";
 
 const FONTS = EDITOR_FONTS;
@@ -48,6 +50,8 @@ const WEIGHTS = [
 interface Selection {
   none?: boolean;
   isText?: boolean;
+  isImage?: boolean;
+  tag?: string;
   text?: string;
   fontFamily?: string;
   fontSize?: number;
@@ -81,6 +85,12 @@ export function VisualEditor({ html, aspectRatio, onChange }: VisualEditorProps)
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  // Generación de imágenes con IA (Higgsfield). aiTarget define si la próxima
+  // imagen generada se INSERTA nueva o REEMPLAZA la imagen seleccionada.
+  const [aiTarget, setAiTarget] = useState<null | "insert" | "regen">(null);
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
   const { width: W, height: H } = DIMENSIONS[aspectRatio];
 
   // Capturamos el HTML inicial UNA vez: durante la edición el iframe es la fuente
@@ -135,7 +145,9 @@ export function VisualEditor({ html, aspectRatio, onChange }: VisualEditorProps)
         if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
         const url = data.url || data.path;
         if (!url) throw new Error("El servidor no devolvió la URL");
-        send({ oc: "addImage", url });
+        // URL absoluta: el iframe es `srcdoc` (about:srcdoc) y una ruta relativa
+        // puede no resolver según el contexto. Absoluta carga siempre.
+        send({ oc: "addImage", url: new URL(url, window.location.origin).href });
       } catch (e) {
         setUploadError((e as Error).message);
       } finally {
@@ -144,6 +156,42 @@ export function VisualEditor({ html, aspectRatio, onChange }: VisualEditorProps)
     },
     [send]
   );
+
+  // Genera una imagen con IA y devuelve su URL absoluta (o null si falló).
+  const generateImage = useCallback(
+    async (prompt: string): Promise<string | null> => {
+      setAiBusy(true);
+      setAiError(null);
+      try {
+        const res = await fetch("/api/generate-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt, aspectRatio }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
+        if (!data.url) throw new Error("El servidor no devolvió la URL");
+        return new URL(data.url, window.location.origin).href;
+      } catch (e) {
+        setAiError((e as Error).message);
+        return null;
+      } finally {
+        setAiBusy(false);
+      }
+    },
+    [aspectRatio]
+  );
+
+  const runAi = useCallback(async () => {
+    const p = aiPrompt.trim();
+    if (!p) return;
+    const abs = await generateImage(p);
+    if (!abs) return;
+    if (aiTarget === "regen") send({ oc: "setImgSrc", url: abs });
+    else send({ oc: "addImage", url: abs });
+    setAiTarget(null);
+    setAiPrompt("");
+  }, [aiPrompt, aiTarget, generateImage, send]);
 
   const hasSel = !sel.none;
 
@@ -215,6 +263,55 @@ export function VisualEditor({ html, aspectRatio, onChange }: VisualEditorProps)
             }}
           />
         </div>
+        {/* Generar imagen nueva con IA */}
+        <Button
+          size="sm"
+          variant="outline"
+          className="w-full"
+          onClick={() => {
+            setAiError(null);
+            setAiTarget((t) => (t === "insert" ? null : "insert"));
+          }}
+        >
+          <Sparkles className="h-4 w-4" /> Generar imagen con IA
+        </Button>
+        {aiTarget && (
+          <div className="rounded-md border border-border bg-background p-2 space-y-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              {aiTarget === "regen" ? "Regenerar imagen con IA" : "Nueva imagen con IA"}
+            </span>
+            <textarea
+              className="w-full rounded-md border border-border bg-background p-2 text-sm resize-none"
+              rows={3}
+              placeholder="Describí la imagen (podés escribir en inglés). Ej: soft editorial studio background, warm tones, no text"
+              value={aiPrompt}
+              onChange={(e) => setAiPrompt(e.target.value)}
+              disabled={aiBusy}
+            />
+            <div className="flex gap-2">
+              <Button size="sm" variant="accent" className="flex-1" onClick={runAi} disabled={aiBusy || !aiPrompt.trim()}>
+                <Sparkles className="h-4 w-4" /> {aiBusy ? "Generando… (~1-2 min)" : "Generar"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setAiTarget(null);
+                  setAiPrompt("");
+                }}
+                disabled={aiBusy}
+              >
+                Cancelar
+              </Button>
+            </div>
+            {aiBusy && (
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                Higgsfield tarda ~1-2 min por imagen. No cierres el editor.
+              </p>
+            )}
+            {aiError && <p className="text-xs text-red-600">{aiError}</p>}
+          </div>
+        )}
         <div className="flex gap-2">
           <Button size="sm" variant="outline" className="flex-1" onClick={() => send({ oc: "undo" })}>
             <Undo2 className="h-4 w-4" /> Deshacer
@@ -287,6 +384,22 @@ export function VisualEditor({ html, aspectRatio, onChange }: VisualEditorProps)
                 <SendToBack className="h-4 w-4" /> Atrás
               </Button>
             </div>
+
+            {/* Imagen seleccionada: regenerar con IA */}
+            {sel.isImage && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  setAiError(null);
+                  setAiPrompt("");
+                  setAiTarget((t) => (t === "regen" ? null : "regen"));
+                }}
+              >
+                <RefreshCw className="h-4 w-4" /> Regenerar con IA
+              </Button>
+            )}
 
             {/* Alinear (1 sel → al lienzo · 2+ → entre sí) y distribuir (3+) */}
             <div>

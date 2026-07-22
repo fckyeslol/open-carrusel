@@ -37,7 +37,8 @@ export function buildSystemPrompt(
   brand: BrandConfig,
   carousel?: Carousel | null,
   stylePreset?: StylePreset | null,
-  baseUrl = "${baseUrl}"
+  baseUrl = "${baseUrl}",
+  imageGenEnabled = false
 ): string {
   // Si hay un preset de avatar activo, SU identidad manda sobre el brand global.
   if (stylePreset?.brand?.name) {
@@ -89,6 +90,27 @@ ${(carousel.referenceImages?.length ?? 0) > 0 ? `\n## Imágenes del REFERENTE (u
     ? `## ADN del avatar (reglas de diseño y voz — obligatorias)
 ${stylePreset.designRules}
 ${stylePreset.exampleSlideHtml ? `\n## Formato de ejemplo del avatar (imitá ESTE nivel y ESTA identidad, adaptando el contenido)\n\`\`\`html\n${stylePreset.exampleSlideHtml.substring(0, 3500)}\n\`\`\`` : ""}`
+    : "";
+
+  const aspectRatio = carousel?.aspectRatio || "4:5";
+  const imageGenSection = imageGenEnabled
+    ? `
+### Generar una imagen con IA (Higgsfield) — solo si hace falta una FOTO/FONDO que no existe
+Úsalo cuando el referente pide una imagen fotográfica o un fondo atmosférico y NO hay una
+imagen adecuada en \`/uploads\` ni un fondo servible. NO lo uses para el layout, ni para
+texto, ni para reproducir tipografía/paleta (eso es HTML). La imagen generada NO debe traer
+texto encima: el texto siempre lo pones tú en el HTML de la lámina.
+- El prompt describe SOLO la escena visual (podés escribirlo en inglés, que rinde mejor en el
+  modelo); nada de palabras que deban aparecer escritas en la imagen.
+- Sale ya recortada a ${dimensions.width}x${dimensions.height}px (formato ${aspectRatio}).
+- La respuesta trae \`url\` (ej. \`/uploads/generated/xxx.jpg\`): referenciala tal cual en el HTML.
+
+python3 -c "
+import json, urllib.request
+data = json.dumps({'prompt': 'DESCRIPCION VISUAL EN INGLES', 'aspectRatio': '${aspectRatio}'}).encode('utf-8')
+req = urllib.request.Request('${baseUrl}/api/generate-image', data=data, method='POST', headers={'Content-Type': 'application/json'})
+with urllib.request.urlopen(req) as r: print(r.read().decode('utf-8'))
+"`
     : "";
 
   return `Sos el motor de diseño de carruseles de 30X. Trabajás sin pedir permiso: creás las láminas directamente.
@@ -182,6 +204,7 @@ python3 -c "
 import urllib.request
 with urllib.request.urlopen('${baseUrl}/api/carousels/${carouselId}') as r: print(r.read().decode('utf-8'))
 "
+${imageGenSection}
 
 ### Guardar caption + hashtags:
 python3 -c "
