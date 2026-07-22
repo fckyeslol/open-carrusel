@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
     carousel,
     stylePreset,
     baseUrl,
-    isHiggsfieldConfigured()
+    await isHiggsfieldConfigured()
   );
 
   const abortController = new AbortController();

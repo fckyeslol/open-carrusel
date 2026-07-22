@@ -23,6 +23,7 @@ import {
   strength as clampStrength,
 } from "@higgsfield/client";
 import type { AspectRatio } from "@/types/carousel";
+import { readDataSafe, writeData } from "./data";
 
 /** Endpoint text→image del modelo Soul v2 (el recomendado para fotos/fondos). */
 const SOUL_ENDPOINT = "/v1/text2image/soul";
@@ -88,30 +89,79 @@ export class HiggsfieldError extends Error {
   }
 }
 
-/** true si hay credenciales de Higgsfield en el entorno. */
-export function isHiggsfieldConfigured(): boolean {
-  return Boolean(
-    (process.env.HF_API_KEY && process.env.HF_API_SECRET) ||
-      process.env.HF_CREDENTIALS ||
-      process.env.HF_KEY
-  );
+/**
+ * Config persistida en `data/higgsfield.json` (gitignored) + override por entorno.
+ * Así cada diseñadora pega SUS claves una vez desde el panel /30x y quedan
+ * guardadas localmente; en headless/CI mandan las variables de entorno.
+ */
+const CONFIG_FILE = "higgsfield.json";
+
+export interface HiggsfieldConfig {
+  apiKey: string | null;
+  apiSecret: string | null;
+  updatedAt: string;
+}
+
+const EMPTY_CONFIG: HiggsfieldConfig = { apiKey: null, apiSecret: null, updatedAt: "" };
+
+export async function getHiggsfieldConfig(): Promise<HiggsfieldConfig> {
+  const stored = await readDataSafe<HiggsfieldConfig>(CONFIG_FILE, EMPTY_CONFIG);
+  let envKey = process.env.HF_API_KEY || null;
+  let envSecret = process.env.HF_API_SECRET || null;
+  // Formato combinado "KEY_ID:KEY_SECRET" (HF_CREDENTIALS / HF_KEY) del SDK.
+  const combined = process.env.HF_CREDENTIALS || process.env.HF_KEY;
+  if ((!envKey || !envSecret) && combined && combined.includes(":")) {
+    const [k, s] = combined.split(":");
+    envKey = envKey || k;
+    envSecret = envSecret || s;
+  }
+  return {
+    apiKey: envKey || stored.apiKey || null,
+    apiSecret: envSecret || stored.apiSecret || null,
+    updatedAt: stored.updatedAt,
+  };
+}
+
+export async function setHiggsfieldConfig(
+  updates: Partial<Pick<HiggsfieldConfig, "apiKey" | "apiSecret">>
+): Promise<HiggsfieldConfig> {
+  const current = await readDataSafe<HiggsfieldConfig>(CONFIG_FILE, EMPTY_CONFIG);
+  const next: HiggsfieldConfig = {
+    apiKey: updates.apiKey !== undefined ? updates.apiKey : current.apiKey,
+    apiSecret: updates.apiSecret !== undefined ? updates.apiSecret : current.apiSecret,
+    updatedAt: new Date().toISOString(),
+  };
+  await writeData(CONFIG_FILE, next);
+  return next;
+}
+
+export function isConfigured(cfg: HiggsfieldConfig): boolean {
+  return Boolean(cfg.apiKey && cfg.apiSecret);
+}
+
+/** true si hay credenciales de Higgsfield (por entorno o guardadas en el panel). */
+export async function isHiggsfieldConfigured(): Promise<boolean> {
+  return isConfigured(await getHiggsfieldConfig());
 }
 
 let cachedClient: HiggsfieldClient | null = null;
+let cachedKey = "";
 
-function getClient(): HiggsfieldClient {
-  if (!isHiggsfieldConfigured()) {
+async function getClient(): Promise<HiggsfieldClient> {
+  const cfg = await getHiggsfieldConfig();
+  if (!isConfigured(cfg)) {
     throw new HiggsfieldError(
-      "Higgsfield no está configurado: falta HF_API_KEY / HF_API_SECRET en el entorno.",
+      "Higgsfield no está configurado: cargá tus claves en el panel /30x o definí HF_API_KEY / HF_API_SECRET.",
       503
     );
   }
-  if (!cachedClient) {
-    // El SDK lee las credenciales del entorno si no se pasan explícitas.
+  const key = `${cfg.apiKey}:${cfg.apiSecret}`;
+  if (!cachedClient || cachedKey !== key) {
     cachedClient = new HiggsfieldClient({
-      apiKey: process.env.HF_API_KEY,
-      apiSecret: process.env.HF_API_SECRET,
+      apiKey: cfg.apiKey ?? undefined,
+      apiSecret: cfg.apiSecret ?? undefined,
     });
+    cachedKey = key;
   }
   return cachedClient;
 }
@@ -142,7 +192,7 @@ export async function generarImagen(options: GenerateImageOptions): Promise<Gene
     throw new HiggsfieldError("El prompt de la imagen no puede estar vacío.", 400);
   }
 
-  const client = getClient();
+  const client = await getClient();
   const ratio = options.aspectRatio ?? "4:5";
   const effectiveSeed = makeSeed(options.seed ?? null);
 

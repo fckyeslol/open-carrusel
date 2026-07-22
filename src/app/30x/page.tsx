@@ -28,6 +28,12 @@ interface PrewaveStatus {
   hasApiKey: boolean;
 }
 
+interface HiggsfieldStatus {
+  configured: boolean;
+  hasApiKey: boolean;
+  hasApiSecret: boolean;
+}
+
 /** "30X — Andrés Bilbao" → "Andrés Bilbao": el prefijo se repite en todos. */
 function shortAvatarName(name: string): string {
   return name.replace(/^30X\s*[—–-]\s*/i, "").trim() || name;
@@ -37,6 +43,7 @@ export default function ThirtyXPage() {
   const router = useRouter();
   const [avatars, setAvatars] = useState<AvatarInfo[]>([]);
   const [prewave, setPrewave] = useState<PrewaveStatus | null>(null);
+  const [higgsfield, setHiggsfield] = useState<HiggsfieldStatus | null>(null);
 
   // manual entry
   const [url, setUrl] = useState("");
@@ -48,6 +55,8 @@ export default function ThirtyXPage() {
   const [apiBase, setApiBase] = useState("");
   const [token, setToken] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [hfKey, setHfKey] = useState("");
+  const [hfSecret, setHfSecret] = useState("");
   const [savingConfig, setSavingConfig] = useState(false);
 
   const goToCarousel = useCallback(
@@ -70,6 +79,7 @@ export default function ThirtyXPage() {
       const data = await res.json();
       setAvatars(data.avatars || []);
       setPrewave(data.prewave || null);
+      setHiggsfield(data.higgsfield || null);
       setApiBase(data.prewave?.apiBase || "");
       const ready = (data.avatars || []).filter((a: AvatarInfo) => a.status === "ready");
       if (ready.length && !avatarSlug) setAvatarSlug(ready[0].slug || "");
@@ -109,10 +119,17 @@ export default function ThirtyXPage() {
       await fetch("/api/thirtyx/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiBase, token, apiKey }),
+        body: JSON.stringify({
+          apiBase,
+          token,
+          apiKey,
+          higgsfield: { apiKey: hfKey, apiSecret: hfSecret },
+        }),
       });
       setToken("");
       setApiKey("");
+      setHfKey("");
+      setHfSecret("");
       setShowConfig(false);
       await loadConfig();
     } finally {
@@ -207,9 +224,50 @@ export default function ThirtyXPage() {
                 type="password"
                 placeholder={prewave?.hasApiKey ? "•••••• (ya guardada)" : "opcional"}
               />
-              <Button size="sm" onClick={saveConfig} disabled={savingConfig}>
-                {savingConfig ? "Guardando…" : "Guardar"}
-              </Button>
+            </div>
+
+            {/* ── Generación de imágenes (Higgsfield) ─────────────────────── */}
+            <div className="mt-6 border-t border-border pt-5">
+              <div className="flex items-center gap-2">
+                <SectionLabel index="01">Generación de imágenes (Higgsfield)</SectionLabel>
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "h-1.5 w-1.5 rounded-full",
+                    higgsfield?.configured ? "bg-emerald-500" : "bg-muted-foreground/40"
+                  )}
+                />
+              </div>
+              <p className="mt-1 mb-3 text-xs text-muted-foreground">
+                Para generar/regenerar imágenes con IA en el editor. Pedile las claves a Mateo
+                y pegalas acá una sola vez (quedan guardadas en esta compu).
+              </p>
+              <div className="space-y-3">
+                <label className="block text-xs text-muted-foreground" htmlFor="hf-key">
+                  API Key ID
+                </label>
+                <Input
+                  id="hf-key"
+                  value={hfKey}
+                  onChange={(e) => setHfKey(e.target.value)}
+                  type="password"
+                  placeholder={higgsfield?.hasApiKey ? "•••••• (ya guardada)" : "pegá la API Key ID"}
+                />
+                <label className="block text-xs text-muted-foreground" htmlFor="hf-secret">
+                  API Key Secret
+                </label>
+                <Input
+                  id="hf-secret"
+                  value={hfSecret}
+                  onChange={(e) => setHfSecret(e.target.value)}
+                  type="password"
+                  placeholder={higgsfield?.hasApiSecret ? "•••••• (ya guardada)" : "pegá la API Key Secret"}
+                />
+              </div>
+
+            <Button size="sm" className="mt-5" onClick={saveConfig} disabled={savingConfig}>
+              {savingConfig ? "Guardando…" : "Guardar"}
+            </Button>
             </div>
           </section>
         )}

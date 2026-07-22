@@ -50,11 +50,11 @@ interface Body {
 }
 
 export async function POST(request: Request) {
-  if (!isHiggsfieldConfigured()) {
+  if (!(await isHiggsfieldConfigured())) {
     return NextResponse.json(
       {
         error:
-          "Higgsfield no está configurado. Agregá HF_API_KEY y HF_API_SECRET en .env.local (claves de https://cloud.higgsfield.ai/api-keys).",
+          "Higgsfield no está configurado. Cargá tus claves en el panel /30x, o definí HF_API_KEY y HF_API_SECRET (claves de https://cloud.higgsfield.ai/api-keys).",
       },
       { status: 503 }
     );
