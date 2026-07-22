@@ -3,7 +3,21 @@ import path from "path";
 import { Mutex } from "async-mutex";
 
 const DATA_DIR = path.resolve(process.cwd(), "data");
-const mutexes = new Map<string, Mutex>();
+
+/**
+ * El registro de mutexes vive en `globalThis`, NO en el scope del módulo.
+ *
+ * En Next.js el mismo módulo se instancia varias veces (HMR en dev, y grafos de
+ * módulos distintos entre route handlers, server components y el runner singleton).
+ * Un `Map` local a cada instancia daría un mutex distinto por instancia, así que
+ * dos escritores del mismo archivo NO se serializarían y se pisarían. Anclándolo a
+ * `globalThis` hay un solo mutex por archivo en todo el proceso.
+ */
+const g = globalThis as unknown as { __dataMutexes?: Map<string, Mutex> };
+const mutexes = (g.__dataMutexes ??= new Map<string, Mutex>());
+
+/** Contador monotónico para nombres de archivo temporal únicos por proceso. */
+let tmpCounter = 0;
 
 function getMutex(filename: string): Mutex {
   let mutex = mutexes.get(filename);
@@ -12,6 +26,22 @@ function getMutex(filename: string): Mutex {
     mutexes.set(filename, mutex);
   }
   return mutex;
+}
+
+/**
+ * Escritura atómica: escribe en un temporal ÚNICO y luego renombra sobre el destino.
+ *
+ * El temporal lleva pid + contador para que dos escritores concurrentes (aunque
+ * escapen del mutex por instancias duplicadas del módulo) nunca compartan el mismo
+ * `.tmp`. Un nombre fijo provocaba una carrera en Windows: A renombraba tmp→final
+ * (consumiendo el tmp) y el rename de B fallaba con ENOENT. Con tmp único, lo peor
+ * que pasa es un last-write-wins inofensivo sobre el destino.
+ */
+async function atomicWrite(filePath: string, data: unknown): Promise<void> {
+  await ensureDataDir();
+  const tmpPath = `${filePath}.${process.pid}.${tmpCounter++}.tmp`;
+  await writeFile(tmpPath, JSON.stringify(data, null, 2), "utf-8");
+  await rename(tmpPath, filePath);
 }
 
 export async function ensureDataDir(): Promise<void> {
@@ -37,11 +67,7 @@ export async function readData<T>(filename: string): Promise<T> {
 export async function writeData<T>(filename: string, data: T): Promise<void> {
   const mutex = getMutex(filename);
   await mutex.runExclusive(async () => {
-    await ensureDataDir();
-    const filePath = path.join(DATA_DIR, filename);
-    const tmpPath = filePath + ".tmp";
-    await writeFile(tmpPath, JSON.stringify(data, null, 2), "utf-8");
-    await rename(tmpPath, filePath);
+    await atomicWrite(path.join(DATA_DIR, filename), data);
   });
 }
 
@@ -75,11 +101,7 @@ export async function updateData<T>(
       current = fallback;
     }
     const next = mutate(current);
-    await ensureDataDir();
-    const filePath = path.join(DATA_DIR, filename);
-    const tmpPath = filePath + ".tmp";
-    await writeFile(tmpPath, JSON.stringify(next, null, 2), "utf-8");
-    await rename(tmpPath, filePath);
+    await atomicWrite(path.join(DATA_DIR, filename), next);
     return next;
   });
 }

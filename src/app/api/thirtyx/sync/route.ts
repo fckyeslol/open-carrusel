@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { listDesignQueue, getPrewaveConfig, isConfigured, PrewaveError } from "@/lib/prewave";
-import { upsertFromDesignItem, listAssignments } from "@/lib/assignments";
+import { upsertFromDesignItem, setStatus, listAssignments } from "@/lib/assignments";
 import { getRunner } from "@/lib/thirtyx-runner";
+import { isInstagramUrl } from "@/lib/instagram-url";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,10 +32,19 @@ export async function POST() {
     pulled = items.length;
     for (const item of items) {
       const { isNew } = await upsertFromDesignItem(item);
-      if (isNew) {
-        getRunner().enqueue(item.jobId);
-        enqueued++;
+      if (!isNew) continue;
+      // Prewave a veces manda un brief sin la URL del post (raw_post sin canonical
+      // ni post_url). No lo encolamos: quedaría fallando en cada reintento sin
+      // remedio local. Lo marcamos fallido con un mensaje accionable para que la
+      // diseñadora lo resuelva en Prewave.
+      if (!isInstagramUrl(item.referenceUrl)) {
+        await setStatus(item.jobId, "failed", {
+          error: "Prewave no envió una URL de Instagram para este trabajo. Revisá el brief en Prewave.",
+        });
+        continue;
       }
+      getRunner().enqueue(item.jobId);
+      enqueued++;
     }
   } catch (e) {
     const status = e instanceof PrewaveError ? e.status : 500;
