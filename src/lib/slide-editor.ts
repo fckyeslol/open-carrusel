@@ -75,6 +75,27 @@ export const EDITOR_RUNTIME = String.raw`
     var m=c.match(/\d+/g); if(!m) return '#000000';
     return '#'+m.slice(0,3).map(function(n){return ('0'+parseInt(n).toString(16)).slice(-2);}).join('');
   }
+  // ── ¿es un elemento de texto editable? ───────────────────────────────────────
+  // NO basta con children.length===0: un título multilínea lleva <br>, y el texto
+  // con énfasis lleva <span>/<strong>/<em>. Contamos como texto a cualquier elemento
+  // (que no sea imagen) con contenido y cuyos hijos sean SOLO inline de formato.
+  var INLINE_TAGS={BR:1,SPAN:1,STRONG:1,EM:1,B:1,I:1,A:1,U:1,S:1,SMALL:1,SUB:1,
+                   SUP:1,MARK:1,FONT:1,WBR:1,ABBR:1,CODE:1,DEL:1,INS:1};
+  function isTextEl(el){
+    if(!el||el.tagName==='IMG') return false;
+    if((el.textContent||'').trim().length===0) return false;
+    var kids=el.children;
+    for(var i=0;i<kids.length;i++){ if(!INLINE_TAGS[kids[i].tagName]) return false; }
+    return true;
+  }
+  function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  // Lee el texto conservando los saltos de línea (<br> → \n) para el textarea.
+  function readText(el){
+    var clone=el.cloneNode(true);
+    [].slice.call(clone.querySelectorAll('br')).forEach(function(br){
+      br.parentNode.replaceChild(document.createTextNode('\n'), br); });
+    return clone.textContent;
+  }
   function tooBig(el){
     var r=el.getBoundingClientRect();
     return (r.width*r.height) > (W*H*0.80);
@@ -93,8 +114,7 @@ export const EDITOR_RUNTIME = String.raw`
       if(el===document.body||el===document.documentElement||el===rootEl()) continue;
       if(el.closest && el.closest('[data-oc-ui]')) continue;
       if(tooBig(el)) continue;
-      var leafText = el.children.length===0 && (el.textContent||'').trim().length>0;
-      if(leafText || el.tagName==='IMG') return el;
+      if(isTextEl(el) || el.tagName==='IMG') return el;
       if(!first) first=el;
     }
     return first;
@@ -113,7 +133,7 @@ export const EDITOR_RUNTIME = String.raw`
     });
     if(sels.length===1){
       var el0=sels[0];
-      var isTxt = el0.children.length===0 && (el0.textContent||'').trim().length>0;
+      var isTxt = isTextEl(el0);
       var r=el0.getBoundingClientRect();
       var mx=(r.left+r.right)/2, my=(r.top+r.bottom)/2;
       // 4 esquinas + laterales. En texto los laterales (w/e) refluyen el ancho sin
@@ -165,12 +185,12 @@ export const EDITOR_RUNTIME = String.raw`
   function report(){
     if(!sels.length){ post({oc:'sel',none:true}); return; }
     var el=sels[0], cs=getComputedStyle(el), er=el.getBoundingClientRect();
-    var isText = el.children.length===0 && (el.textContent||'').trim().length>0;
+    var isText = isTextEl(el);
     post({oc:'sel', count:sels.length,
       grouped: !!(el.getAttribute && el.getAttribute('data-oc-g')),
       tag:el.tagName.toLowerCase(), isText:isText,
       isImage: el.tagName==='IMG',
-      text: isText ? el.textContent : '',
+      text: isText ? readText(el) : '',
       fontFamily:(cs.fontFamily||'').split(',')[0].replace(/['"]/g,'').trim(),
       fontSize:Math.round(parseFloat(cs.fontSize)||0),
       color:toHex(cs.color), fontWeight:cs.fontWeight,
@@ -294,7 +314,7 @@ export const EDITOR_RUNTIME = String.raw`
     snap();
     rz={el:el, sx:e.clientX, sy:e.clientY, w:r.width, h:r.height, corner:corner,
         fs:parseFloat(cs.fontSize)||0,
-        isText: el.children.length===0 && (el.textContent||'').trim().length>0};
+        isText: isTextEl(el)};
     e.preventDefault(); e.stopPropagation();
   }
   function doResize(x,y){
@@ -326,7 +346,7 @@ export const EDITOR_RUNTIME = String.raw`
 
   document.addEventListener('dblclick', function(e){
     var t=candidateAt(e.clientX,e.clientY);
-    if(t && t.children.length===0){
+    if(t && isTextEl(t)){
       snap();
       t.setAttribute('contenteditable','true'); t.focus();
       var end=function(){ t.setAttribute('contenteditable','false'); t.removeEventListener('blur',end); paint(); report(); serialize(); };
@@ -454,7 +474,7 @@ export const EDITOR_RUNTIME = String.raw`
     var p=m.prop, v=m.value;
     if(p!=='text') snap();
     sels.forEach(function(el){
-      if(p==='text'){ el.textContent=v; }
+      if(p==='text'){ el.innerHTML=String(v).split('\n').map(esc).join('<br>'); }
       else if(p==='fontFamily'){ el.style.fontFamily="'"+v+"'"; ensureFont(v); }
       else if(p==='fontSize'){ el.style.fontSize=v+'px'; }
       else if(p==='color'){ el.style.color=v; }
