@@ -115,11 +115,18 @@ function autoUpdate() {
 // (idempotente) y propaga cualquier ADN actualizado tras el pull. Nunca es
 // fatal: si algo falla, la app abre con los avatares que ya haya.
 function refreshAvatars() {
-  spawnSync("node", [path.join("scripts", "import-avatars.mjs")], {
-    stdio: "ignore",
+  const r = spawnSync("node", [path.join("scripts", "import-avatars.mjs")], {
+    encoding: "utf-8",
     shell: SHELL,
     timeout: 30000,
   });
+  // No es fatal, pero NO lo silenciamos: si el sembrado falla, el selector
+  // "Elegí un avatar" queda vacío y sin este aviso el fallo es invisible.
+  if (r.status !== 0) {
+    log("⚠️  No se pudieron preparar los avatares — avisale a Mateo con esto:");
+    const detail = (r.stderr || r.stdout || r.error?.message || "").trim();
+    if (detail) log("   " + detail.split("\n").slice(-3).join("\n   "));
+  }
 }
 
 // Open the browser on /30x after a short delay, detached, so it happens while

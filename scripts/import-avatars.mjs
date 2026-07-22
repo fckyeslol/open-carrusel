@@ -13,10 +13,15 @@
  */
 import { readFile, writeFile, readdir, mkdir } from "fs/promises";
 import { existsSync } from "fs";
-import { pathToFileURL } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import path from "path";
 
-const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")), "..");
+// fileURLToPath decodifica el file:// URL correctamente. NO usar
+// `new URL(import.meta.url).pathname`: eso deja la ruta codificada en URL, así
+// que un usuario de Windows/Mac con espacio o tilde en el nombre (C:\Users\Maria
+// Jose, /Users/andré) queda con "Maria%20Jose" → existsSync falla → el sembrado
+// de avatares revienta en silencio y el selector "Elegí un avatar" queda vacío.
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DATA_DIR = path.join(ROOT, "data");
 const SLIDES_DIR = path.join(ROOT, "public", "30x-slides");
 
