@@ -27,6 +27,7 @@
 # app data (user-generated)
 /data/
 /public/uploads/
+/public/exports/
 
 # debug
 npm-debug.log*
@@ -36,6 +37,10 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+
+# Playwright MCP session logs (ephemeral)
+.playwright-mcp/
 
 # vercel
 .vercel
@@ -60,3 +65,6 @@ render-*.png
 
 # Brand kit (520MB de assets, vive en la carpeta pero no en git)
 30x/brand-kit/
+
+# PNGs de revision de calidad (artefactos de trabajo del agente)
+/.quality/

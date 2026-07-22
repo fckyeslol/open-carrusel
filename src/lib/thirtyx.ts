@@ -14,6 +14,11 @@ import { downloadInstagramReference } from "./instagram";
 import { generateId, now } from "./utils";
 import type { Carousel } from "@/types/carousel";
 import type { StylePreset } from "@/types/style-preset";
+import type {
+  IngestEvent,
+  IngestProgressReporter,
+  IngestStageId,
+} from "@/types/ingest-progress";
 
 const UPLOAD_DIR = path.resolve(process.cwd(), "public", "uploads");
 
@@ -23,6 +28,49 @@ export interface IngestParams {
   name?: string;
   prewaveJobId?: string;
   source: "manual" | "queue";
+  /** Opcional: reporta el avance etapa por etapa (la UI lo consume vía SSE). */
+  onProgress?: IngestProgressReporter;
+}
+
+/** Error de ingesta que recuerda EN QUÉ etapa reventó y cómo salir del paso. */
+export class IngestError extends Error {
+  constructor(
+    message: string,
+    readonly stage: IngestStageId,
+    readonly recovery?: string
+  ) {
+    super(message);
+    this.name = "IngestError";
+  }
+}
+
+/** Qué puede hacer la usuaria cuando se cae cada etapa. */
+const RECOVERY_BY_STAGE: Partial<Record<IngestStageId, string>> = {
+  browser:
+    "No se pudo abrir Chrome. Instalá Google Chrome o definí PUPPETEER_EXECUTABLE_PATH.",
+  extract:
+    "Verificá que el post sea público y que la URL abra en el navegador. Si Instagram pide login, subí capturas del referente a mano.",
+  download:
+    "Instagram devolvió las imágenes pero no se pudieron guardar. Probá de nuevo o subí capturas a mano.",
+};
+
+/** Traduce cualquier fallo de la ingesta al evento que la UI sabe pintar. */
+export function toIngestErrorEvent(
+  error: unknown
+): Extract<IngestEvent, { type: "error" }> {
+  if (error instanceof IngestError) {
+    return {
+      type: "error",
+      stage: error.stage,
+      message: error.message,
+      recovery: error.recovery,
+    };
+  }
+  return {
+    type: "error",
+    stage: null,
+    message: (error as Error)?.message || "Falló la ingesta del referente",
+  };
 }
 
 export interface IngestResult {
@@ -36,20 +84,40 @@ export interface IngestResult {
  * referente y las adjunta. NO genera todavía — eso lo dispara el chat (Claude local).
  */
 export async function ingestReference(params: IngestParams): Promise<IngestResult> {
-  const { referenceUrl, avatarSlug, prewaveJobId, source } = params;
+  const { referenceUrl, avatarSlug, prewaveJobId, source, onProgress } = params;
 
+  // Se recuerda la última etapa arrancada para poder atribuirle un fallo con
+  // precisión: si Chrome no abre, el error es de "browser", no de "download".
+  let currentStage: IngestStageId = "preset";
+
+  const begin = (id: IngestStageId, detail?: string) => {
+    currentStage = id;
+    onProgress?.({ type: "stage", id, status: "active", detail });
+  };
+  const finish = (id: IngestStageId, detail?: string) =>
+    onProgress?.({ type: "stage", id, status: "done", detail });
+
+  // 1. Preset del avatar ------------------------------------------------------
+  begin("preset");
   const preset = await getPresetByAvatarSlug(avatarSlug);
   if (!preset) {
-    throw new Error(
-      `No hay un preset para el avatar "${avatarSlug}". Corré: node scripts/import-avatars.mjs`
+    throw new IngestError(
+      `No hay un preset para el avatar "${avatarSlug}".`,
+      "preset",
+      "Corré `node scripts/import-avatars.mjs` para importar los avatares."
     );
   }
   if (preset.avatarStatus && preset.avatarStatus !== "ready") {
-    throw new Error(
-      `El avatar "${avatarSlug}" no está listo (status=${preset.avatarStatus}): falta completar su ADN o sus formatos.`
+    throw new IngestError(
+      `El avatar "${avatarSlug}" no está listo (status=${preset.avatarStatus}).`,
+      "preset",
+      "Falta completar su ADN o sus formatos antes de poder generar con él."
     );
   }
+  finish("preset", preset.name);
 
+  // 2. Carrusel vacío ---------------------------------------------------------
+  begin("carousel");
   const name =
     params.name?.trim() ||
     `${preset.name} — ${new Date().toISOString().slice(0, 10)}`;
@@ -62,10 +130,40 @@ export async function ingestReference(params: IngestParams): Promise<IngestResul
     referenceUrl,
     tags: ["30x", `avatar:${avatarSlug}`],
   });
+  finish("carousel", preset.aspectRatio);
 
+  // 3-5. Navegador + lectura del post + descarga de láminas -------------------
   await mkdir(UPLOAD_DIR, { recursive: true });
-  const slides = await downloadInstagramReference(referenceUrl, UPLOAD_DIR, generateId);
+  begin("browser");
 
+  let slides;
+  try {
+    slides = await downloadInstagramReference(referenceUrl, UPLOAD_DIR, generateId, {
+      onBrowserReady: () => finish("browser"),
+      onExtractStart: () => begin("extract"),
+      onExtracted: (count) => {
+        finish("extract", `${count} ${count === 1 ? "lámina" : "láminas"}`);
+        begin("download", `0 de ${count}`);
+      },
+      onSlideDownloaded: (current, total) =>
+        onProgress?.({
+          type: "stage",
+          id: "download",
+          status: "active",
+          detail: `${current} de ${total}`,
+          progress: { current, total },
+        }),
+    });
+  } catch (e) {
+    // El mensaje de instagram.ts ya explica la causa probable; acá se le adjunta
+    // la etapa REAL en la que se cortó. Atribuirlo siempre a "download" dejaría
+    // "browser" o "extract" pulsando como activas para siempre.
+    throw new IngestError((e as Error).message, currentStage, RECOVERY_BY_STAGE[currentStage]);
+  }
+  finish("download", `${slides.length} ${slides.length === 1 ? "lámina" : "láminas"}`);
+
+  // 6. Adjuntar al carrusel ---------------------------------------------------
+  begin("attach");
   for (const s of slides) {
     await addReferenceImage(carousel.id, {
       id: generateId(),
@@ -75,6 +173,7 @@ export async function ingestReference(params: IngestParams): Promise<IngestResul
       addedAt: now(),
     });
   }
+  finish("attach");
 
   return { carousel, preset, referenceCount: slides.length };
 }
@@ -97,6 +196,7 @@ export function buildGenerationMessage(referenceCount: number): string {
     "3. Reproducí ESE layout en HTML, cada bloque donde está en el referente, llenando el lienzo como lo llena el referente. NO improvises una estructura propia ni la fuerces dentro de un formato de ejemplo.",
     "4. Aplicá SOLO la identidad del avatar: su tipografía en titulares, su paleta en fondos/texto/acento, su logo 30X, su firma. Los formatos de ejemplo (public/30x-slides/<avatar>/) son solo la muestra de esos VALORES de identidad — copiá de ahí la fuente/hex/logo/tratamiento, NUNCA el layout.",
     "5. FIDELIDAD ESTRICTA de contenido: cada cifra, dato, prompt y fuente del referente sobrevive EXACTO. No inventes.",
+    "6. VERIFICÁ CADA LÁMINA antes de pasar a la siguiente: corré slide-check, leé el PNG con Read y corregí. Mirá especialmente las derivas del ADN (~): al calcar es fácil quedarse con los colores del referente en vez de aplicar la paleta del avatar, y eso no se ve escribiendo el HTML.",
     "",
     "Aplicá los cambios creando las láminas ahora. No pidas permiso.",
   ].join("\n");

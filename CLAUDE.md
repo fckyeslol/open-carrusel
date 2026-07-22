@@ -14,6 +14,12 @@ AI-powered Instagram carousel builder. Next.js 16 + React 19 + TypeScript + Tail
 
 - `src/lib/chat-system-prompt.ts` — Dynamic system prompt (injects brand config + carousel context)
 - `src/lib/slide-html.ts` — `wrapSlideHtml()` wraps slide body HTML into full documents
+- `src/lib/quality/` — Slide quality engine. Vendored impeccable detector (`engine/`, Apache-2.0,
+  do not edit) plus the 30x adaptation layer: `slide-profile.mjs` (which rules apply to a slide),
+  `design-system.mjs` (avatar ADN → design system, so drift is measured against the avatar's real
+  palette instead of generic taste), `slide-rules.mjs` (30x-specific failure modes)
+- `scripts/slide-check.mjs` — Renders a slide to PNG and lists its defects. Closes the generation
+  loop: the agent renders, reads the PNG, fixes, and re-checks before moving on
 - `src/lib/data.ts` — JSON storage with proper async-mutex and atomic writes
 - `src/lib/carousels.ts` — Carousel and slide CRUD with version history
 - `src/lib/claude-path.ts` — Portable Claude CLI discovery
@@ -29,6 +35,7 @@ All at localhost:3000:
 - `PUT/DELETE /api/carousels/[id]/slides/[slideId]` — Update/delete slide
 - `PUT /api/carousels/[id]/slides` — Reorder slides (body: { slideIds: [...] })
 - `POST /api/carousels/[id]/slides/[slideId]/undo` — Undo slide change
+- `POST /api/carousels/[id]/slides/[slideId]/review` — Render slide to PNG + run the quality detector
 - `POST /api/carousels/[id]/export` — Export all slides to PNG ZIP
 - `GET/PUT /api/brand` — Brand configuration
 - `GET/POST /api/templates` — Templates

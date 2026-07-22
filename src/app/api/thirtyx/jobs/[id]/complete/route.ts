@@ -4,6 +4,7 @@ import path from "path";
 import { getCarousel } from "@/lib/carousels";
 import { exportAllSlides } from "@/lib/export-slides";
 import { completeJob, failJob, PrewaveError } from "@/lib/prewave";
+import { setStatus } from "@/lib/assignments";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -65,6 +66,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (body.deliver) {
     try {
       await completeJob(jobId, localResultUrl);
+      // Reflejar la entrega en la cola local (si el job vive ahí).
+      await setStatus(jobId, "delivered", { resultUrl: localResultUrl });
     } catch (e) {
       const status = e instanceof PrewaveError ? e.status : 500;
       return NextResponse.json(

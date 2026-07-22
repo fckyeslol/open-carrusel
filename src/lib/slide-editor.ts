@@ -102,11 +102,20 @@ export const EDITOR_RUNTIME = String.raw`
       ui.appendChild(b); boxes.push(b);
     });
     if(sels.length===1){
-      var r=sels[0].getBoundingClientRect();
-      [['nw',r.left,r.top],['ne',r.right,r.top],['sw',r.left,r.bottom],['se',r.right,r.bottom]]
-      .forEach(function(c){
+      var el0=sels[0];
+      var isTxt = el0.children.length===0 && (el0.textContent||'').trim().length>0;
+      var r=el0.getBoundingClientRect();
+      var mx=(r.left+r.right)/2, my=(r.top+r.bottom)/2;
+      // 4 esquinas + laterales. En texto los laterales (w/e) refluyen el ancho sin
+      // tocar la fuente; las esquinas escalan la tipografía. En no-texto los laterales
+      // dan ancho/alto libres. Por eso el texto NO muestra n/s (su alto es automático).
+      var hs=[['nw',r.left,r.top,'nwse'],['ne',r.right,r.top,'nesw'],
+              ['sw',r.left,r.bottom,'nesw'],['se',r.right,r.bottom,'nwse'],
+              ['w',r.left,my,'ew'],['e',r.right,my,'ew']];
+      if(!isTxt){ hs.push(['n',mx,r.top,'ns']); hs.push(['s',mx,r.bottom,'ns']); }
+      hs.forEach(function(c){
         var h=document.createElement('div'); h.className='oc-h';
-        h.style.cssText+=';left:0;top:0;transform:translate('+(c[1]-7)+'px,'+(c[2]-7)+'px)';
+        h.style.cssText+=';left:0;top:0;cursor:'+c[3]+'-resize;transform:translate('+(c[1]-7)+'px,'+(c[2]-7)+'px)';
         h.addEventListener('mousedown', function(ev){ startResize(ev,c[0]); });
         ui.appendChild(h); handles.push({el:h,c:c[0]});
       });
@@ -125,8 +134,10 @@ export const EDITOR_RUNTIME = String.raw`
     var r=sels[0].getBoundingClientRect();
     boxes[0].style.width=r.width+'px'; boxes[0].style.height=r.height+'px';
     boxes[0].style.transform='translate('+r.left+'px,'+r.top+'px)';
-    var pos={nw:[r.left,r.top],ne:[r.right,r.top],sw:[r.left,r.bottom],se:[r.right,r.bottom]};
-    handles.forEach(function(h){ var p=pos[h.c];
+    var mx=(r.left+r.right)/2, my=(r.top+r.bottom)/2;
+    var pos={nw:[r.left,r.top],ne:[r.right,r.top],sw:[r.left,r.bottom],se:[r.right,r.bottom],
+             n:[mx,r.top],s:[mx,r.bottom],w:[r.left,my],e:[r.right,my]};
+    handles.forEach(function(h){ var p=pos[h.c]; if(!p) return;
       h.el.style.transform='translate('+(p[0]-7)+'px,'+(p[1]-7)+'px)'; });
   }
   function showHandles(v){ handles.forEach(function(h){ h.el.style.display=v?'block':'none'; }); }
@@ -143,7 +154,7 @@ export const EDITOR_RUNTIME = String.raw`
   }
   function report(){
     if(!sels.length){ post({oc:'sel',none:true}); return; }
-    var el=sels[0], cs=getComputedStyle(el);
+    var el=sels[0], cs=getComputedStyle(el), er=el.getBoundingClientRect();
     var isText = el.children.length===0 && (el.textContent||'').trim().length>0;
     post({oc:'sel', count:sels.length,
       grouped: !!(el.getAttribute && el.getAttribute('data-oc-g')),
@@ -154,6 +165,10 @@ export const EDITOR_RUNTIME = String.raw`
       color:toHex(cs.color), fontWeight:cs.fontWeight,
       italic:cs.fontStyle==='italic', align:cs.textAlign,
       opacity: Math.round((parseFloat(cs.opacity)||1)*100),
+      radius: Math.round(parseFloat(cs.borderTopLeftRadius)||0),
+      letterSpacing: cs.letterSpacing==='normal'?0:Math.round((parseFloat(cs.letterSpacing)||0)*10)/10,
+      lineHeight: cs.lineHeight==='normal'?0:Math.round(((parseFloat(cs.lineHeight)||0)/(parseFloat(cs.fontSize)||1))*100)/100,
+      x:Math.round(er.left), y:Math.round(er.top), w:Math.round(er.width), h:Math.round(er.height),
       canUndo: hist.length>0});
   }
   function clearSel(){ sels=[]; paint(); guides(); report(); }
@@ -236,7 +251,7 @@ export const EDITOR_RUNTIME = String.raw`
     raf=0;
     if(!pend) return;
     var x=pend.x, y=pend.y; pend=null;
-    if(rz){ doResize(x); return; }
+    if(rz){ doResize(x,y); return; }
     if(!drag||!sels.length) return;
     var dx=x-drag.sx, dy=y-drag.sy;
     // snap calculado desde los rects cacheados (sin medir el DOM)
@@ -263,19 +278,38 @@ export const EDITOR_RUNTIME = String.raw`
 
   function startResize(e,corner){
     if(sels.length!==1) return;
+    drag=null;  // un resize nunca coexiste con un arrastre (el mousedown del doc pudo armarlo)
     var el=sels[0], r=el.getBoundingClientRect(), cs=getComputedStyle(el);
     snap();
-    rz={el:el, sx:e.clientX, w:r.width, corner:corner, fs:parseFloat(cs.fontSize)||0,
+    rz={el:el, sx:e.clientX, sy:e.clientY, w:r.width, h:r.height, corner:corner,
+        fs:parseFloat(cs.fontSize)||0,
         isText: el.children.length===0 && (el.textContent||'').trim().length>0};
     e.preventDefault(); e.stopPropagation();
   }
-  function doResize(x){
-    var dx=x-rz.sx;
-    if(rz.corner==='nw'||rz.corner==='sw') dx=-dx;
-    var ratio=Math.max(0.15,(rz.w+dx)/Math.max(1,rz.w));
-    if(rz.isText) rz.el.style.fontSize=Math.max(8,Math.round(rz.fs*ratio))+'px';
-    else { rz.el.style.width=Math.max(20,Math.round(rz.w*ratio))+'px';
-           if(rz.el.tagName==='IMG') rz.el.style.height='auto'; }
+  function doResize(x,y){
+    var dx=x-rz.sx, dy=y-rz.sy, c=rz.corner;
+    var leftSide=(c==='nw'||c==='sw'||c==='w'), topSide=(c==='nw'||c==='ne'||c==='n');
+    var wDelta=leftSide?-dx:dx, hDelta=topSide?-dy:dy;
+    var isCorner=(c.length===2);
+    if(rz.isText){
+      if(isCorner){ // esquina → escalar la tipografía (proporcional, por el eje horizontal)
+        var ratio=Math.max(0.15,(rz.w+wDelta)/Math.max(1,rz.w));
+        rz.el.style.fontSize=Math.max(8,Math.round(rz.fs*ratio))+'px';
+      } else { // lateral w/e → SOLO ancho: el texto refluye, fontSize intacto
+        rz.el.style.width=Math.max(20,Math.round(rz.w+wDelta))+'px';
+      }
+    } else {
+      if(isCorner){ // esquina → escala proporcional
+        var ratio2=Math.max(0.15,(rz.w+wDelta)/Math.max(1,rz.w));
+        rz.el.style.width=Math.max(20,Math.round(rz.w*ratio2))+'px';
+        if(rz.el.tagName==='IMG') rz.el.style.height='auto';
+      } else if(c==='e'||c==='w'){ // lateral → ancho libre
+        rz.el.style.width=Math.max(20,Math.round(rz.w+wDelta))+'px';
+        if(rz.el.tagName==='IMG') rz.el.style.height='auto';
+      } else { // n/s → alto libre
+        rz.el.style.height=Math.max(20,Math.round(rz.h+hDelta))+'px';
+      }
+    }
     syncOne();   // re-mide solo el elemento activo, sin reconstruir el overlay
   }
 
@@ -304,7 +338,9 @@ export const EDITOR_RUNTIME = String.raw`
       var s=e.shiftKey?10:1, dx=0, dy=0;
       if(e.key==='ArrowLeft')dx=-s; if(e.key==='ArrowRight')dx=s;
       if(e.key==='ArrowUp')dy=-s; if(e.key==='ArrowDown')dy=s;
-      snap();
+      // snap solo en la primera pulsación: mantener una flecha apretada dispara
+      // keydown en auto-repeat y llenaría el historial (60) en un segundo.
+      if(!e.repeat) snap();
       sels.forEach(function(el){
         makeMovable(el);
         var d=delta.get(el)||[0,0]; applyT(el,d[0]+dx,d[1]+dy); });
@@ -338,6 +374,70 @@ export const EDITOR_RUNTIME = String.raw`
     l.href='https://fonts.googleapis.com/css2?family='+fam.replace(/ /g,'+')+':ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400&display=swap';
     document.head.appendChild(l);
   }
+  // ── posicionamiento absoluto: al manipular con precisión (panel numérico o
+  //    alinear/distribuir) fijamos left/top/width reales relativos al ancestro
+  //    posicionado, preservando la posición visual. Así hay coordenadas de verdad.
+  //    No tocamos el arrastre (sigue con transform); esto solo corre bajo demanda. ─
+  function promoteAbsolute(el){
+    if(el.getAttribute('data-oc-abs')) return;
+    var er=el.getBoundingClientRect();
+    el.style.position='absolute';
+    var op=el.offsetParent||document.body, opr=op.getBoundingClientRect();
+    el.style.left=Math.round(er.left-opr.left)+'px';
+    el.style.top=Math.round(er.top-opr.top)+'px';
+    el.style.width=Math.round(er.width)+'px';
+    el.style.margin='0'; el.style.transform=''; delta.set(el,[0,0]);
+    el.setAttribute('data-oc-abs','1');
+  }
+  function moveTo(el,x,y){   // x,y en coordenadas de lienzo (origen 0,0)
+    promoteAbsolute(el);
+    var op=el.offsetParent||document.body, opr=op.getBoundingClientRect();
+    if(x!=null) el.style.left=Math.round(x-opr.left)+'px';
+    if(y!=null) el.style.top=Math.round(y-opr.top)+'px';
+  }
+  function align(kind){
+    if(!sels.length) return;
+    snap();
+    var rects=sels.map(function(el){ return el.getBoundingClientRect(); });
+    sels.forEach(promoteAbsolute);
+    // 1 elemento → alinear contra el lienzo; 2+ → contra el bounding de la selección.
+    var minL,minT,maxR,maxB;
+    if(sels.length===1){ minL=0; minT=0; maxR=W; maxB=H; }
+    else { rects.forEach(function(r){
+      minL=(minL==null?r.left:Math.min(minL,r.left));
+      minT=(minT==null?r.top:Math.min(minT,r.top));
+      maxR=(maxR==null?r.right:Math.max(maxR,r.right));
+      maxB=(maxB==null?r.bottom:Math.max(maxB,r.bottom)); }); }
+    var cx=(minL+maxR)/2, cy=(minT+maxB)/2;
+    sels.forEach(function(el,i){ var r=rects[i];
+      if(kind==='left') moveTo(el,minL,null);
+      else if(kind==='hcenter') moveTo(el,cx-r.width/2,null);
+      else if(kind==='right') moveTo(el,maxR-r.width,null);
+      else if(kind==='top') moveTo(el,null,minT);
+      else if(kind==='vcenter') moveTo(el,null,cy-r.height/2);
+      else if(kind==='bottom') moveTo(el,null,maxB-r.height); });
+    paint(); report(); serialize();
+  }
+  function distribute(axis){
+    if(sels.length<3) return;
+    snap();
+    var items=sels.map(function(el){ return {el:el, r:el.getBoundingClientRect()}; });
+    sels.forEach(promoteAbsolute);
+    if(axis==='h'){
+      items.sort(function(a,b){ return a.r.left-b.r.left; });
+      var l0=items[0].r.left, r1=items[items.length-1].r.right, tw=0;
+      items.forEach(function(it){ tw+=it.r.width; });
+      var gap=(r1-l0-tw)/(items.length-1), x=l0;
+      items.forEach(function(it){ moveTo(it.el,x,null); x+=it.r.width+gap; });
+    } else {
+      items.sort(function(a,b){ return a.r.top-b.r.top; });
+      var t0=items[0].r.top, b1=items[items.length-1].r.bottom, th=0;
+      items.forEach(function(it){ th+=it.r.height; });
+      var gapv=(b1-t0-th)/(items.length-1), y=t0;
+      items.forEach(function(it){ moveTo(it.el,null,y); y+=it.r.height+gapv; });
+    }
+    paint(); report(); serialize();
+  }
   function apply(m){
     if(!sels.length) return;
     var p=m.prop, v=m.value;
@@ -355,6 +455,21 @@ export const EDITOR_RUNTIME = String.raw`
       else if(p==='radius'){ el.style.borderRadius=v+'px'; }
       else if(p==='letterSpacing'){ el.style.letterSpacing=v+'px'; }
       else if(p==='lineHeight'){ el.style.lineHeight=v; }
+      else if(p==='textEffect'){
+        // Efectos 100% CSS (render idéntico en preview y export, ambos Chromium).
+        // Reseteamos siempre primero para que cambiar de efecto no acumule capas.
+        var col=getComputedStyle(el).color;
+        el.style.textShadow=''; el.style.webkitTextStroke=''; el.style.webkitTextFillColor='';
+        if(v==='shadow'){ el.style.textShadow='3px 4px 8px rgba(0,0,0,.35)'; }
+        else if(v==='neon'){ el.style.textShadow='0 0 5px '+col+',0 0 15px '+col+',0 0 32px '+col; }
+        else if(v==='outline'){ el.style.webkitTextStroke='2px '+col; }
+        else if(v==='hollow'){ el.style.webkitTextStroke='2px '+col; el.style.webkitTextFillColor='transparent'; }
+        // 'none' deja todo reseteado
+      }
+      else if(p==='x'){ moveTo(el, v, null); }
+      else if(p==='y'){ moveTo(el, null, v); }
+      else if(p==='w'){ promoteAbsolute(el); el.style.width=Math.max(1,v)+'px'; if(el.tagName==='IMG') el.style.height='auto'; }
+      else if(p==='h'){ promoteAbsolute(el); el.style.height=Math.max(1,v)+'px'; }
       else if(p==='front'){ el.parentElement && el.parentElement.appendChild(el); }
       else if(p==='back'){ el.parentElement && el.parentElement.insertBefore(el, el.parentElement.firstChild); }
       else if(p==='remove'){ el.remove(); }
@@ -415,6 +530,8 @@ export const EDITOR_RUNTIME = String.raw`
   window.addEventListener('message', function(e){
     var m=e.data; if(!m||!m.oc) return;
     if(m.oc==='apply') apply(m);
+    else if(m.oc==='align') align(m.kind);
+    else if(m.oc==='distribute') distribute(m.axis);
     else if(m.oc==='group') group();
     else if(m.oc==='ungroup') ungroup();
     else if(m.oc==='unlink') unlink();

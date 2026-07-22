@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { claimJob, failJob, PrewaveError, listJobs } from "@/lib/prewave";
-import { ingestReference, buildGenerationMessage } from "@/lib/thirtyx";
+import { ingestReference, buildGenerationMessage, toIngestErrorEvent } from "@/lib/thirtyx";
 import { isInstagramUrl } from "@/lib/instagram";
+import { sseResponse } from "@/lib/sse";
+import type { IngestEvent } from "@/types/ingest-progress";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -61,24 +63,31 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     );
   }
 
-  try {
-    const result = await ingestReference({
-      referenceUrl,
-      avatarSlug,
-      name: job.avatar_name ? `${job.avatar_name} — job ${id.slice(0, 8)}` : undefined,
-      prewaveJobId: id,
-      source: "queue",
-    });
-    return NextResponse.json({
-      ok: true,
-      carouselId: result.carousel.id,
-      stylePresetId: result.preset.id,
-      referenceCount: result.referenceCount,
-      generationMessage: buildGenerationMessage(result.referenceCount),
-    });
-  } catch (e) {
-    // Si la ingesta falla, devolver el job a failed para no dejarlo colgado en processing.
-    await failJob(id, (e as Error).message).catch(() => {});
-    return NextResponse.json({ error: (e as Error).message }, { status: 422 });
-  }
+  return sseResponse<IngestEvent>(
+    async ({ send }) => {
+      try {
+        const result = await ingestReference({
+          referenceUrl,
+          avatarSlug,
+          name: job.avatar_name ? `${job.avatar_name} — job ${id.slice(0, 8)}` : undefined,
+          prewaveJobId: id,
+          source: "queue",
+          onProgress: send,
+        });
+        send({
+          type: "done",
+          carouselId: result.carousel.id,
+          stylePresetId: result.preset.id,
+          referenceCount: result.referenceCount,
+          generationMessage: buildGenerationMessage(result.referenceCount),
+        });
+      } catch (e) {
+        // Si la ingesta falla, devolver el job a failed para no dejarlo colgado
+        // en processing. Se re-lanza para que sseResponse emita el evento error.
+        await failJob(id, (e as Error).message).catch(() => {});
+        throw e;
+      }
+    },
+    toIngestErrorEvent
+  );
 }

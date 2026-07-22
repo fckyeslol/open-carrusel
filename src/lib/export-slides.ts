@@ -54,30 +54,51 @@ async function getBrowser(): Promise<Browser> {
   return browser;
 }
 
+const MIME_POR_EXT: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".avif": "image/avif",
+  ".gif": "image/gif",
+  ".svg": "image/svg+xml",
+};
+
 /**
- * Inline all image references in slide HTML.
- * Replaces /uploads/xxx.png paths with data: URIs.
+ * Inline all image references in slide HTML as data: URIs.
+ *
+ * Puppeteer renderiza con setContent y SIN base URL, así que cualquier ruta
+ * root-relative (/uploads, /textures, /30x-slides, …) que no se inlinee acá
+ * simplemente no carga en el PNG — falla en silencio y la lámina se exporta sin
+ * esa imagen. (Fue exactamente el bug de las texturas: /textures/carton.png
+ * cargaba en el preview por CDN pero desaparecía en el export.)
+ *
+ * Por eso se matchea cualquier ruta absoluta con extensión de imagen, no solo
+ * /uploads. La extensión acota el match para no agarrar URLs que no son imágenes;
+ * los http(s):// no empiezan con "/" y quedan afuera (las fuentes van por otro lado).
  */
 async function inlineImages(html: string): Promise<string> {
-  const uploadDir = path.resolve(process.cwd(), "public");
-  const imgRegex = /(?:src=["']|url\(["']?)(\/uploads\/[^"'\s)]+)/g;
+  const publicDir = path.resolve(process.cwd(), "public");
+  // Las comillas pueden venir escapadas como entidad: al serializar un
+  // style="background: url('/uploads/x.jpg')" el navegador lo guarda como
+  // url(&quot;/uploads/x.jpg&quot;).
+  const imgRegex =
+    /(?:src=|url\()\s*(?:["']|&quot;|&#0?39;|&apos;)?(\/[^"'\s)&]+\.(?:png|jpe?g|webp|avif|gif|svg))/gi;
   const matches = [...html.matchAll(imgRegex)];
 
   let result = html;
+  const inlinadas = new Set<string>();
   for (const match of matches) {
     const imgPath = match[1];
+    if (inlinadas.has(imgPath)) continue; // una textura se usa en varias láminas
+    inlinadas.add(imgPath);
     try {
-      const fullPath = path.join(uploadDir, imgPath);
+      const fullPath = path.join(publicDir, imgPath);
       const buffer = await readFile(fullPath);
-      const ext = path.extname(imgPath).toLowerCase();
-      const mime =
-        ext === ".png"
-          ? "image/png"
-          : ext === ".jpg" || ext === ".jpeg"
-            ? "image/jpeg"
-            : "image/webp";
+      const mime = MIME_POR_EXT[path.extname(imgPath).toLowerCase()] || "image/png";
       const base64 = buffer.toString("base64");
-      result = result.replace(imgPath, `data:${mime};base64,${base64}`);
+      // replaceAll: el mismo path puede aparecer más de una vez en la lámina.
+      result = result.replaceAll(imgPath, `data:${mime};base64,${base64}`);
     } catch {
       // Keep original path — Puppeteer can fetch from localhost
     }

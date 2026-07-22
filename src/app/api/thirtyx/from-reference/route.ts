@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ingestReference, buildGenerationMessage } from "@/lib/thirtyx";
+import { ingestReference, buildGenerationMessage, toIngestErrorEvent } from "@/lib/thirtyx";
 import { isInstagramUrl } from "@/lib/instagram";
+import { sseResponse } from "@/lib/sse";
+import type { IngestEvent } from "@/types/ingest-progress";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,6 +12,11 @@ export const maxDuration = 120;
  * ENTRADA MANUAL: la diseñadora pega una URL de Instagram + elige avatar.
  * Descarga el referente, crea el carrusel con el preset del avatar y devuelve el
  * id + el mensaje de generación (que la UI dispara contra el chat / Claude local).
+ *
+ * Responde en dos modos:
+ *  - Errores de validación (antes de empezar) → JSON con status 4xx.
+ *  - Ingesta en curso → stream SSE de `IngestEvent`, porque el trabajo tarda
+ *    hasta 2 minutos y la UI necesita mostrar en qué etapa va.
  */
 export async function POST(request: NextRequest) {
   let body: { referenceUrl?: string; avatarSlug?: string; name?: string };
@@ -32,21 +39,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Elegí un avatar" }, { status: 400 });
   }
 
-  try {
-    const result = await ingestReference({
-      referenceUrl,
-      avatarSlug,
-      name: body.name,
-      source: "manual",
-    });
-    return NextResponse.json({
-      ok: true,
-      carouselId: result.carousel.id,
-      stylePresetId: result.preset.id,
-      referenceCount: result.referenceCount,
-      generationMessage: buildGenerationMessage(result.referenceCount),
-    });
-  } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 422 });
-  }
+  return sseResponse<IngestEvent>(
+    async ({ send }) => {
+      const result = await ingestReference({
+        referenceUrl,
+        avatarSlug,
+        name: body.name,
+        source: "manual",
+        onProgress: send,
+      });
+
+      send({
+        type: "done",
+        carouselId: result.carousel.id,
+        stylePresetId: result.preset.id,
+        referenceCount: result.referenceCount,
+        generationMessage: buildGenerationMessage(result.referenceCount),
+      });
+    },
+    toIngestErrorEvent
+  );
 }

@@ -118,6 +118,29 @@ export async function POST(request: Request) {
       });
     }
 
+    // Los fondos van a sangre y pueden ser 4:5 (1080x1350) o 9:16 (1080x1920):
+    // el recorte a 1080x1080 del flujo normal los dejaría cortos de alto, así que
+    // usan su propio pipeline (JPEG, porque son fotos y en PNG pesarían de más).
+    if (formData.get("purpose") === "background") {
+      const bgDir = path.join(UPLOAD_DIR, "backgrounds");
+      await mkdir(bgDir, { recursive: true });
+      const processed = await sharp(Buffer.from(arrayBuffer))
+        .resize(1080, 1920, { fit: "inside", withoutEnlargement: true })
+        .toColorspace("srgb")
+        .jpeg({ quality: 86 })
+        .toBuffer();
+      const { width = 0, height = 0 } = await sharp(processed).metadata();
+      const filename = `${id}.jpg`;
+      await writeFile(path.join(bgDir, filename), processed);
+      return NextResponse.json({
+        id,
+        url: `/uploads/backgrounds/${filename}`,
+        type: "background",
+        width,
+        height,
+      });
+    }
+
     // Process image through Sharp: strip EXIF, enforce sRGB, max 1080px, convert to PNG
     const processed = await sharp(Buffer.from(arrayBuffer))
       .resize(1080, 1080, { fit: "inside", withoutEnlargement: true })

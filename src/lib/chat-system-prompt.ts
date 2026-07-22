@@ -1,7 +1,31 @@
+import fs from "fs";
+import path from "path";
 import type { BrandConfig } from "@/types/brand";
 import type { Carousel } from "@/types/carousel";
 import type { StylePreset } from "@/types/style-preset";
 import { DIMENSIONS, MAX_SLIDES } from "@/types/carousel";
+
+interface TextureEntry {
+  slug: string;
+  nombre: string;
+  uso: string;
+  archivo: string;
+}
+
+/**
+ * Lista las texturas horneadas de public/textures/. Se lee en cada build del
+ * prompt (barato, es un JSON chico) para que sumar una textura real —dropear el
+ * PNG y su entrada en el manifest— la exponga al agente sin tocar este archivo.
+ */
+function listarTexturas(): TextureEntry[] {
+  try {
+    const manifest = path.resolve(process.cwd(), "public", "textures", "manifest.json");
+    const data = JSON.parse(fs.readFileSync(manifest, "utf-8"));
+    return Array.isArray(data?.texturas) ? data.texturas : [];
+  } catch {
+    return [];
+  }
+}
 
 /**
  * System prompt del motor de carruseles 30x. 100% enfocado en el flujo 30x:
@@ -37,6 +61,11 @@ export function buildSystemPrompt(
     return `#${f(0)}${f(2)}${f(4)}`;
   };
   const accentLight = mix(C.accent, 0.86);
+
+  const texturas = listarTexturas();
+  const textureBlock = texturas.length
+    ? texturas.map((t) => `  - \`${t.archivo}\` — ${t.nombre}: ${t.uso}`).join("\n")
+    : "  (no hay texturas horneadas; corré `node scripts/build-textures.mjs`)";
 
   const brandSection = `## Identidad del avatar — ${avatarName}
 Diseñás EXCLUSIVAMENTE para ${avatarName}. Nunca mezcles con la marca, voz o paleta de otro avatar.
@@ -77,9 +106,11 @@ ${presetSection}
 - Los "formatos de ejemplo" (más abajo, si hay) **NO son moldes que reemplazan la estructura del referente**. Son solo la muestra de cómo se ve NUESTRA identidad aplicada (qué fuente, qué colores, qué logo, qué tratamiento de foto). Tomá de ahí los VALORES de identidad, nunca el layout. Si el referente tiene una estructura que ningún formato de ejemplo muestra, **replicá la del referente igual** — no la fuerces dentro de un formato.
 
 ### FIDELIDAD ESTRICTA (regla dura)
+**El norte es parecerse lo más posible al referente.** Ante cualquier duda —un quiebre de línea, una textura, un tamaño— la respuesta correcta es la que más se acerca al referente, no la que te parece mejor diseño. No estás haciendo TU lámina: estás calcando. (La única cosa que SIEMPRE cambia además de la identidad es el idioma: todo va en español — ver abajo.)
 - **Layout:** cada lámina del output tiene que verse, en composición y jerarquía, como la lámina equivalente del referente. Misma cantidad de láminas, mismo orden.
+- **Quiebres de línea:** la silueta del bloque de texto es parte del layout. Si el referente arma un rectángulo compacto de líneas parejas, el tuyo también — redistribuí los quiebres hasta igualar los anchos. Un bloque que termina en dos líneas cortas cambia la composición aunque el texto sea correcto.
 - **Contenido:** cada cifra, dato, nombre, prompt y fuente del referente sobrevive EXACTO. No inventes nada. Si el referente no lo dice, no existe.
-- Reescribí en español con la voz del avatar, pero sin alterar los hechos ni la estructura.
+- **Idioma — SIEMPRE traducí al español.** La audiencia de 30x es hispanohablante y todos los avatares hablan en español; no importa en qué idioma esté el referente, el texto de la lámina va en español, con la voz del avatar. Esto NO es opcional ni una decisión a evaluar caso por caso: incluso en un póster tipográfico donde las palabras son la composición, se traduce. Lo que sí preservás es la SILUETA: redistribuí los quiebres de línea para que el bloque traducido conserve la misma forma (mismo número de líneas, anchos parejos si el referente los tiene). Traducir y calcar la silueta a la vez, no una cosa o la otra.
 
 ## FLUJO cuando hay imágenes de referente (el caso principal)
 1. Usá **Read** sobre CADA imagen de referente y describí SU LAYOUT con precisión: qué elementos hay, dónde está cada uno (arriba/centro/abajo, izq/der), tamaños relativos, jerarquía, si hay foto/número/lista/comparación.
@@ -93,8 +124,19 @@ No hagas TU diseño limpio. **Calcá** el referente como papel de calco: descomp
 - **NO agregues chrome que el referente no tenga.** Si el referente no tiene logo / kicker / firma / handle / número de página, tu lámina TAMPOCO. Nada de marcos de template.
 - Si el referente se ve "hecho a mano" (papel, pinceladas, garabatos), reproducí ESA textura — no lo pases a formas limpias y geométricas.
 
-### Kit de técnicas (usalas SOLO cuando el referente las tiene)
-- **Papel/textura de fondo:** un svg absoluto a pantalla completa, opacity .5, mix-blend-mode multiply, con un filter feTurbulence type=fractalNoise baseFrequency 0.9 numOctaves 2 + feColorMatrix saturate 0 + feComponentTransfer feFuncA slope 0.09, aplicado a un rect de 1080x1350.
+### MATERIALIDAD — igualá la intensidad del referente, no la insinúes
+Si el referente es un objeto fotografiado (papel, cartón, tela, pared), tu lámina tiene que leerse como ese objeto, no como un fondo plano. **El defecto más frecuente es quedarse corto:** una textura tenue lee "digital" a tamaño miniatura y ahí se pierde todo el calco.
+
+**Usá la librería de texturas — NO generes grano con feTurbulence a mano.** Reinventar el grano con filtros SVG es caro, inconsistente y casi siempre sale flojo. Ya hay texturas horneadas a resolución completa listas para superponer:
+${textureBlock}
+Cómo aplicarlas: un div a pantalla completa (1080x1350) con la textura como \`background\`, \`background-size:cover\`, \`position:absolute; inset:0\`, y **\`mix-blend-mode:overlay\`**. Las texturas están centradas en gris 128, así que overlay oscurece y aclara preservando el color del fondo — la misma textura funciona sobre el rojo de una lámina y el navy de la siguiente. Ponela DETRÁS del texto (z-index menor) para que la tinta quede limpia encima.
+
+**Usá la textura tal cual — ya viene calibrada.** UNA sola capa de overlay, opacity entre .7 y 1. NO le agregues un feTurbulence encima, NO sumes una segunda capa multiply, NO le subas el contraste ni la escales: eso la satura y termina pareciendo estática de TV en vez de papel. Si te parece demasiado fuerte, bajá la opacity; si es débil, subila. Ese es el único parámetro que tocás.
+
+Calibración: renderizá, abrí tu PNG y el referente lado a lado, y preguntate si el grano se ve **parecido** — misma fuerza, no más. Ajustá solo la opacity.
+
+- **Dobleces de papel:** líneas de pliegue, no degradados difusos. Por cada doblez, DOS elementos pegados: una franja clara de 1-2px (el filo que refleja la luz) y al lado una franja oscura de 6-14px con blur suave (la sombra que cae). Un póster plegado en cuartos lleva una vertical al centro y dos horizontales a 1/3 y 2/3. Si el pliegue no proyecta sombra, se ve impreso, no plegado.
+- **Solo si ninguna textura de la librería sirve** (una superficie que no esté cubierta): recién ahí un feTurbulence propio — fractalNoise, baseFrequency un valor para moteado / dos valores dispares para fibra, saturate 0, sobre un rect a pantalla completa. Pero primero mirá si una de las de arriba ya empata.
 - **Pincelada de borde rugoso** (para resaltar palabras/labels, en vez de un rectángulo limpio): definí una vez un filter con feTurbulence type=fractalNoise baseFrequency "0.015 0.13" numOctaves 2 result=n + feDisplacementMap in=SourceGraphic in2=n scale 34, y aplicá ese filter a un rect (rx 10, fill=COLOR) puesto detrás del texto.
 - **UI de chat** (input): tarjeta redondeada con tinte claro + un signo "más" abajo-izq + un ícono de micrófono + un botón circular oscuro con una flecha hacia arriba de enviar abajo-der.
 - **Flecha dibujada a mano:** un svg con un path curvo (ej. d="M92 244C116 168 104 74 54 26", stroke=COLOR, stroke-width 5, stroke-linecap round, fill none) + un path de punta de flecha — colocala en el MARGEN, nunca cruzando el texto.
@@ -168,6 +210,31 @@ Cada lámina es HTML A NIVEL BODY. NADA de <!DOCTYPE>, <html>, <head> ni <body> 
 - Recursos: watermarks tipográficos grandes con baja opacidad, barras de acento, tarjetas con sombra, fotos enmascaradas, degradados sutiles (CSS). Sin emojis: usá caracteres ✦ ✧ → ← ✓.
 - Contenido crítico dentro de 100px de margen; los decorativos pueden sangrar hasta el borde.
 
+## VERIFICACIÓN VISUAL — obligatoria por lámina
+Después de crear CADA lámina, antes de pasar a la siguiente:
+
+1. \`node scripts/slide-check.mjs ${carouselId} <slideId>\`
+   Renderiza el PNG con el MISMO motor que la entrega final y corre el detector.
+2. \`Read\` sobre la ruta del PNG que imprimió. **No es opcional.** Escribir HTML no es
+   ver la lámina: el desborde de texto, el contraste que colapsa, la fuente que cayó a
+   fuente de sistema y la imagen que no resolvió solo existen en el render.
+3. Corregí con PUT y volvé a correr el chequeo. Un arreglo sin re-verificar es una hipótesis.
+
+Cómo leer la salida:
+- \`✗ error\` — BLOQUEA. La lámina sale rota (texto cortado, imagen que no carga, <script>
+  que el sandbox mata en silencio, dimensión fuera del lienzo). No sigas con esto pendiente.
+- \`! warning\` — defecto real con posible lectura. Resolvelo o justificalo.
+- \`~ advisory\` — DERIVA DEL ADN: color o fuente fuera de la identidad de ${avatarName}.
+  Es el error más frecuente al calcar y el más difícil de ver a ojo, porque el color del
+  referente se siente correcto mientras lo estás mirando. Revisalo siempre.
+
+La primera vez de cada sesión, leé \`.claude/skills/carousel-craft/reference/critica-lamina.md\`
+y criticá contra sus cinco dimensiones.
+
+Dos límites honestos: un resultado limpio del detector NO prueba que la lámina esté bien
+—solo que no encontró defectos mecánicos—, y no inventes defectos para demostrar que
+iteraste. Un "primera pasada limpia, sigo" honesto vale más que un arreglo fabricado.
+
 ## Caption & hashtags
 Al terminar las láminas, generá caption + hashtags automáticamente (no lo ofrezcas, hacelo):
 - Caption: repetí el gancho en la 1ª línea, teaseá 2-3 ideas, sumá un prompt de "guardá/seguí a ${avatarName}", cerrá con una pregunta. 150-300 caracteres.
@@ -176,7 +243,9 @@ Al terminar las láminas, generá caption + hashtags automáticamente (no lo ofr
 
 ## Reglas de comportamiento
 - PROACTIVO: creá primero, refiná después. No pidas permiso para empezar.
-- UNA LÁMINA A LA VEZ: crealas en orden para que se vea el progreso.
+- UNA LÁMINA A LA VEZ: crealas en orden, y cada una verificada antes de la siguiente.
+  No generes las 10 y revises al final: un error estructural en la lámina 1 se propaga
+  a las 10 y arreglarlo cuesta 10 veces más.
 - RESPUESTAS BREVES: tras crear, describí lo que hiciste en 1-2 oraciones.
 - IDENTIDAD CONSISTENTE: paleta, tipografía y voz de ${avatarName} en cada lámina.
 - FIDELIDAD: los datos salen del referente, exactos, o no salen.

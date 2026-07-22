@@ -52,3 +52,34 @@ export async function readDataSafe<T>(filename: string, fallback: T): Promise<T>
     return fallback;
   }
 }
+
+/**
+ * Lee, transforma y escribe dentro del mismo lock.
+ *
+ * `readDataSafe` + `writeData` por separado dejan una ventana entre la lectura y
+ * la escritura: dos pedidos simultáneos parten de la misma base y el segundo pisa
+ * el cambio del primero, que igual respondió OK. Esta versión mantiene el mutex
+ * tomado durante todo el ciclo, así que las mutaciones se serializan de verdad.
+ */
+export async function updateData<T>(
+  filename: string,
+  fallback: T,
+  mutate: (current: T) => T
+): Promise<T> {
+  const mutex = getMutex(filename);
+  return mutex.runExclusive(async () => {
+    let current: T;
+    try {
+      current = await readData<T>(filename);
+    } catch {
+      current = fallback;
+    }
+    const next = mutate(current);
+    await ensureDataDir();
+    const filePath = path.join(DATA_DIR, filename);
+    const tmpPath = filePath + ".tmp";
+    await writeFile(tmpPath, JSON.stringify(next, null, 2), "utf-8");
+    await rename(tmpPath, filePath);
+    return next;
+  });
+}

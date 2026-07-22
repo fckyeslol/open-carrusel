@@ -7,10 +7,28 @@ import { DIMENSIONS } from "@/types/carousel";
  */
 export function extractFontFamilies(html: string): string[] {
   const families = new Set<string>();
-  // Match font-family: "Font Name" or font-family: 'Font Name' or font-family: Font Name
-  const regex = /font-family:\s*['"]?([^;'"}\n]+?)['"]?\s*[;}"]/g;
+  // Los comentarios no declaran fuentes reales; sacarlos evita que un
+  // `<!-- font-family: … -->` descriptivo entre como fuente a cargar.
+  const sinComentarios = html.replace(/<!--[\s\S]*?-->/g, "");
+  // Captura el stack de font-family: tramos entre comillas simples o caracteres
+  // sueltos, hasta `;`, `}`, `<`, salto de línea, o la comilla doble que cierra
+  // el atributo style="...".
+  //
+  // El valor se parsea como una LISTA separada por comas, donde cada ítem es un
+  // nombre entre comillas simples, entre comillas dobles, o un token pelado (sin
+  // comillas ni espacios). Modelar la coma explícitamente es lo que evita el bug
+  // de swallow: tras un token pelado como `sans-serif`, si lo que sigue no es una
+  // coma, la lista termina — así la comilla doble que CIERRA el atributo
+  // (`'Inter',sans-serif">`) no se consume como apertura de un span. Y como los
+  // ítems entre comillas sí se contemplan, un `"Playfair Display"` legítimo entra.
+  //
+  // Reemplaza dos regex previos rotos: el original no matcheaba `'Inter',...`
+  // (devolvía [] → export con fuente de sistema), y su parche permitía spans
+  // "[^"]*" que se tragaban el HTML desde la comilla de cierre del atributo.
+  const item = `(?:'[^']*'|"[^"]*"|[^\\s,;}"'<]+)`;
+  const regex = new RegExp(`font-family:\\s*(${item}(?:\\s*,\\s*${item})*)`, "g");
   let match;
-  while ((match = regex.exec(html)) !== null) {
+  while ((match = regex.exec(sinComentarios)) !== null) {
     const raw = match[1].trim();
     // Split on commas and take non-generic font names
     const generics = new Set([

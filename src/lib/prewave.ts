@@ -139,6 +139,52 @@ export async function listJobs(
   return data.items || [];
 }
 
+/**
+ * Un item de la BANDEJA DE DISEÑO de la diseñadora: un carrusel en `por_disenar`
+ * de un avatar del que ella es la diseñadora. Es la fuente del modelo local (pull
+ * con SU token). Lo devuelve GET /production/design-queue, ya normalizado desde el
+ * `toApiBrief` de Prewave.
+ */
+export interface DesignQueueItem {
+  jobId: string; // curated_brief.id
+  avatarSlug: string; // el avenger (avatars.slug)
+  avatarName: string | null;
+  referenceUrl: string; // el post de IG a calcar (raw_post.canonical_url)
+  title: string | null;
+}
+
+/** Forma (parcial) del ApiBrief de Prewave que nos interesa. */
+interface ApiBriefLite {
+  id: string;
+  avatar?: { slug?: string | null; name?: string | null } | null;
+  scored_post?: {
+    raw_post?: { canonical_url?: string | null; post_url?: string | null } | null;
+  } | null;
+  video_title?: string | null;
+  angle_30x?: string | null;
+}
+
+function mapDesignItem(b: ApiBriefLite): DesignQueueItem {
+  const raw = b.scored_post?.raw_post;
+  return {
+    jobId: b.id,
+    avatarSlug: b.avatar?.slug ?? "",
+    avatarName: b.avatar?.name ?? null,
+    referenceUrl: raw?.canonical_url || raw?.post_url || "",
+    title: b.video_title || b.angle_30x || null,
+  };
+}
+
+/**
+ * Trae la bandeja de diseño de la diseñadora (scope por SU token JWT). Solo trae
+ * SUS carruseles en `por_disenar` — es el reemplazo por-persona de `listJobs`, que
+ * pega a la cola compartida `/agent-jobs`.
+ */
+export async function listDesignQueue(): Promise<DesignQueueItem[]> {
+  const data = await req<{ items: ApiBriefLite[] }>(`/production/design-queue`);
+  return (data.items || []).map(mapDesignItem);
+}
+
 /** Reclama un job (pending → processing). Sube el contador de intentos en el backend. */
 export async function claimJob(id: string): Promise<PrewaveJob> {
   const data = await req<{ ok: boolean; job: PrewaveJob }>(`/agent-jobs/${id}`, {

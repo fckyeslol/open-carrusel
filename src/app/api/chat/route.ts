@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { spawn } from "child_process";
-import crossSpawn from "cross-spawn";
-import { getClaudePath, isClaudeAvailable, resolveDirectExecutable } from "@/lib/claude-path";
+import { isClaudeAvailable } from "@/lib/claude-path";
+import { spawnClaude, ClaudeSpawnError } from "@/lib/generate-headless";
 import { buildSystemPrompt } from "@/lib/chat-system-prompt";
 import { getBrand } from "@/lib/brand";
 import { getCarousel } from "@/lib/carousels";
@@ -55,193 +54,81 @@ export async function POST(request: NextRequest) {
   const baseUrl = `http://${host}`;
   const systemPrompt = buildSystemPrompt(brand, carousel, stylePreset, baseUrl);
 
-  const claudePath = getClaudePath();
-  // Resolve to the actual .exe on Windows to bypass cmd.exe's 8191-char command line limit
-  const spawnPath = resolveDirectExecutable(claudePath);
   const abortController = new AbortController();
-
-  const args = [
-    "-p",
-    message,
-    "--output-format",
-    "stream-json",
-    "--include-partial-messages",
-    "--verbose",
-    "--append-system-prompt",
-    systemPrompt,
-    "--allowedTools",
-    "Bash",
-    "--allowedTools",
-    "WebFetch",
-    "--allowedTools",
-    "Read",
-    "--max-budget-usd",
-    // Generar un carrusel 30x lee varias imágenes de referente (visión, caro) y
-    // escribe N láminas ricas: $1 se queda corto y el proceso muere en exit 1.
-    // Configurable por env; default alto para el flujo 30x.
-    process.env.CLAUDE_MAX_BUDGET_USD || "8.00",
-  ];
-
-  if (sessionId) {
-    args.push("--resume", sessionId);
-  }
-
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
     start(controller) {
-      let childProcess: ReturnType<typeof spawn>;
-
-      // Use crossSpawn only if we still have a .cmd shim (couldn't resolve to .exe)
-      const isWindowsShim =
-        process.platform === "win32" && /\.(cmd|bat)$/i.test(spawnPath);
-      const spawner = isWindowsShim ? crossSpawn : spawn;
-
-      try {
-        childProcess = spawner(spawnPath, args, {
-          cwd: process.cwd(),
-          signal: abortController.signal,
-          stdio: ["pipe", "pipe", "pipe"],
-        });
-        // Close stdin — we don't send input to the subprocess
-        childProcess.stdin?.end();
-      } catch (err) {
-        const e = err as NodeJS.ErrnoException;
-        console.error("[chat] failed to spawn Claude CLI", {
-          claudePath: spawnPath,
-          platform: process.platform,
-          code: e?.code,
-          message: e?.message,
-        });
-        controller.enqueue(
-          encoder.encode(
-            `event: error\ndata: ${JSON.stringify({
-              error: "Failed to start Claude CLI",
-              code: e?.code,
-              path: claudePath,
-              message: e?.message,
-            })}\n\n`
-          )
-        );
-        controller.close();
-        return;
-      }
-
-      let buffer = "";
-      let resolvedSessionId = sessionId ?? "";
-
-      childProcess.stdout?.on("data", (chunk: Buffer) => {
-        buffer += chunk.toString();
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const event = JSON.parse(line);
-            handleEvent(event, controller, encoder, (id) => {
-              resolvedSessionId = id;
-            });
-          } catch {
-            // skip unparseable lines
-          }
-        }
-      });
-
-      let stderrBuf = "";
-      const STDERR_CAP = 8192;
-      childProcess.stderr?.on("data", (chunk: Buffer) => {
-        if (stderrBuf.length < STDERR_CAP) {
-          stderrBuf = (stderrBuf + chunk.toString()).slice(-STDERR_CAP);
-        }
-      });
-
-      // Timeout: kill subprocess after 8 minutes (autonomous mode creates many slides)
-      const timeout = setTimeout(() => {
-        childProcess.kill();
-      }, 480_000);
-
-      childProcess.on("error", (err) => {
-        clearTimeout(timeout);
-        const e = err as NodeJS.ErrnoException;
-        console.error("[chat] Claude subprocess error", {
-          claudePath: spawnPath,
-          platform: process.platform,
-          code: e?.code,
-          syscall: e?.syscall,
-          path: e?.path,
-          message: e?.message,
-          stderr: stderrBuf,
-        });
+      const enqueue = (chunk: string) => {
         try {
-          childProcess.kill();
-          controller.enqueue(
-            encoder.encode(
+          controller.enqueue(encoder.encode(chunk));
+        } catch {
+          // stream ya cerrado por el cliente
+        }
+      };
+
+      spawnClaude({
+        message,
+        systemPrompt,
+        sessionId,
+        cwd: process.cwd(),
+        signal: abortController.signal,
+        onToken: (text) =>
+          enqueue(`data: ${JSON.stringify({ type: "token", text })}\n\n`),
+        onResult: (text) =>
+          enqueue(`data: ${JSON.stringify({ type: "result", text })}\n\n`),
+      })
+        .then((res) => {
+          if (res.exitCode && res.exitCode !== 0) {
+            console.error("[chat] Claude subprocess exited non-zero", {
+              exitCode: res.exitCode,
+              stderr: res.stderr,
+            });
+            enqueue(
               `event: error\ndata: ${JSON.stringify({
-                error: err.message,
-                code: e?.code,
-                syscall: e?.syscall,
-                path: e?.path,
-                stderr: stderrBuf || undefined,
+                error: `Claude CLI exited with code ${res.exitCode}`,
+                exitCode: res.exitCode,
+                stderr: res.stderr || undefined,
               })}\n\n`
-            )
-          );
-          controller.close();
-        } catch {
-          // stream already closed
-        }
-      });
-
-      childProcess.on("exit", (code) => {
-        clearTimeout(timeout);
-        // process remaining buffer
-        if (buffer.trim()) {
-          try {
-            const event = JSON.parse(buffer);
-            handleEvent(event, controller, encoder, (id) => {
-              resolvedSessionId = id;
-            });
-          } catch {
-            // skip
-          }
-        }
-
-        if (code && code !== 0) {
-          console.error("[chat] Claude subprocess exited non-zero", {
-            claudePath: spawnPath,
-            platform: process.platform,
-            exitCode: code,
-            stderr: stderrBuf,
-          });
-          try {
-            controller.enqueue(
-              encoder.encode(
-                `event: error\ndata: ${JSON.stringify({
-                  error: `Claude CLI exited with code ${code}`,
-                  exitCode: code,
-                  stderr: stderrBuf || undefined,
-                })}\n\n`
-              )
             );
-          } catch {
-            // stream already closed
           }
-        }
-
-        try {
-          controller.enqueue(
-            encoder.encode(
-              `event: done\ndata: ${JSON.stringify({
-                sessionId: resolvedSessionId,
-                exitCode: code,
-              })}\n\n`
-            )
+          enqueue(
+            `event: done\ndata: ${JSON.stringify({
+              sessionId: res.sessionId,
+              exitCode: res.exitCode,
+            })}\n\n`
           );
-          controller.close();
-        } catch {
-          // stream already closed
-        }
-      });
+          try {
+            controller.close();
+          } catch {
+            // ya cerrado
+          }
+        })
+        .catch((err) => {
+          const e = err as ClaudeSpawnError;
+          console.error("[chat] failed to spawn Claude CLI", {
+            platform: process.platform,
+            code: e?.code,
+            syscall: e?.syscall,
+            path: e?.path,
+            message: e?.message,
+            stderr: e?.stderr,
+          });
+          enqueue(
+            `event: error\ndata: ${JSON.stringify({
+              error: e?.message || "Failed to start Claude CLI",
+              code: e?.code,
+              syscall: e?.syscall,
+              path: e?.path,
+              stderr: e?.stderr,
+            })}\n\n`
+          );
+          try {
+            controller.close();
+          } catch {
+            // ya cerrado
+          }
+        });
     },
 
     cancel() {
@@ -256,54 +143,4 @@ export async function POST(request: NextRequest) {
       Connection: "keep-alive",
     },
   });
-}
-
-function handleEvent(
-  event: Record<string, unknown>,
-  controller: ReadableStreamDefaultController,
-  encoder: TextEncoder,
-  onSessionId: (id: string) => void
-) {
-  // Extract session ID from init event
-  if (
-    event.type === "system" &&
-    event.subtype === "init" &&
-    event.session_id
-  ) {
-    onSessionId(event.session_id as string);
-    return;
-  }
-
-  // Extract streaming text tokens
-  if (event.type === "assistant" && event.message) {
-    const msg = event.message as Record<string, unknown>;
-    if (msg.type === "message" && Array.isArray(msg.content)) {
-      for (const block of msg.content) {
-        const b = block as Record<string, unknown>;
-        if (b.type === "text" && typeof b.text === "string") {
-          controller.enqueue(
-            encoder.encode(
-              `data: ${JSON.stringify({ type: "token", text: b.text })}\n\n`
-            )
-          );
-        }
-      }
-    }
-    return;
-  }
-
-  // Extract result with session ID
-  if (event.type === "result") {
-    if (event.session_id) {
-      onSessionId(event.session_id as string);
-    }
-    if (typeof event.result === "string" && event.result) {
-      controller.enqueue(
-        encoder.encode(
-          `data: ${JSON.stringify({ type: "result", text: event.result })}\n\n`
-        )
-      );
-    }
-    return;
-  }
 }

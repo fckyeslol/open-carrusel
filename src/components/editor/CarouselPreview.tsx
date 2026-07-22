@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, type CSSProperties } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useState, type CSSProperties } from "react";
+import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SlideRenderer } from "./SlideRenderer";
 import { SafeZoneOverlay } from "./SafeZoneOverlay";
@@ -23,22 +23,29 @@ export function CarouselPreview({
   showSafeZones = false,
 }: CarouselPreviewProps) {
   const slide = slides[activeIndex];
-  const prevIndexRef = useRef(activeIndex);
-  const direction = activeIndex >= prevIndexRef.current ? 12 : -12;
-  useEffect(() => {
-    prevIndexRef.current = activeIndex;
-  }, [activeIndex]);
+
+  // Dirección de entrada de la lámina (adelante = entra desde la derecha).
+  // Se ajusta durante el render en vez de leer un ref: leer ref.current en render
+  // rompe con StrictMode/render concurrente, y calcularlo en un efecto llegaba
+  // tarde — la primera pintura usaba la dirección anterior y el movimiento se
+  // veía invertido al saltar rápido entre láminas.
+  const [prevIndex, setPrevIndex] = useState(activeIndex);
+  const [direction, setDirection] = useState(12);
+  if (prevIndex !== activeIndex) {
+    setDirection(activeIndex > prevIndex ? 12 : -12);
+    setPrevIndex(activeIndex);
+  }
 
   if (!slide) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-[#f0f0f0]">
+      <div className="oc-canvas flex-1 flex items-center justify-center">
         <div className="text-center text-muted-foreground p-8">
           <div className="w-16 h-20 border-2 border-dashed border-muted-foreground/30 rounded-lg mx-auto mb-4 flex items-center justify-center">
-            <span className="text-2xl opacity-30">+</span>
+            <Plus className="h-5 w-5 opacity-40" aria-hidden="true" />
           </div>
-          <p className="text-sm font-medium">No slides yet</p>
-          <p className="text-xs mt-1 max-w-[200px]">
-            Use the AI assistant to create your first carousel slide
+          <p className="text-sm font-medium text-foreground">Todavía no hay láminas</p>
+          <p className="text-xs mt-1 max-w-[220px] leading-relaxed">
+            Pedile al chat que genere el carrusel y las láminas aparecen acá.
           </p>
         </div>
       </div>
@@ -46,7 +53,7 @@ export function CarouselPreview({
   }
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 min-w-0 bg-[#f0f0f0]">
+    <div className="oc-canvas flex-1 flex flex-col min-h-0 min-w-0">
       {/* Preview area with padding for arrows */}
       <div className="flex-1 relative min-h-0 p-8 px-14">
         {/* Left arrow */}
@@ -55,8 +62,8 @@ export function CarouselPreview({
           size="icon"
           onClick={() => onActiveChange(activeIndex - 1)}
           disabled={activeIndex <= 0}
-          className="absolute left-2 top-1/2 -translate-y-1/2 z-10 bg-white/90 shadow-sm hover:bg-white h-9 w-9"
-          aria-label="Previous slide"
+          className="absolute left-2 top-1/2 -translate-y-1/2 z-10 h-9 w-9 rounded-full border border-border bg-surface/90 shadow-sm backdrop-blur-sm transition-colors hover:bg-surface disabled:opacity-0"
+          aria-label="Lámina anterior"
         >
           <ChevronLeft className="h-4 w-4" />
         </Button>
@@ -81,8 +88,8 @@ export function CarouselPreview({
           size="icon"
           onClick={() => onActiveChange(activeIndex + 1)}
           disabled={activeIndex >= slides.length - 1}
-          className="absolute right-2 top-1/2 -translate-y-1/2 z-10 bg-white/90 shadow-sm hover:bg-white h-9 w-9"
-          aria-label="Next slide"
+          className="absolute right-2 top-1/2 -translate-y-1/2 z-10 h-9 w-9 rounded-full border border-border bg-surface/90 shadow-sm backdrop-blur-sm transition-colors hover:bg-surface disabled:opacity-0"
+          aria-label="Lámina siguiente"
         >
           <ChevronRight className="h-4 w-4" />
         </Button>
@@ -95,15 +102,22 @@ export function CarouselPreview({
             <button
               key={i}
               onClick={() => onActiveChange(i)}
-              className={`h-2 rounded-full transition-[width,background-color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] ${
-                i === activeIndex
-                  ? "w-6 bg-accent"
-                  : "w-2 bg-foreground/20 hover:bg-foreground/40"
-              }`}
-              aria-label={`Go to slide ${i + 1}`}
-            />
+              // Área táctil de 24px alrededor de un punto de 8px: el punto sigue
+              // siendo discreto pero deja de exigir puntería.
+              className="group grid h-6 place-items-center px-0.5 cursor-pointer"
+              aria-label={`Ir a la lámina ${i + 1}`}
+              aria-current={i === activeIndex ? "true" : undefined}
+            >
+              <span
+                className={`h-2 rounded-full transition-[width,background-color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] ${
+                  i === activeIndex
+                    ? "w-6 bg-foreground"
+                    : "w-2 bg-foreground/25 group-hover:bg-foreground/50"
+                }`}
+              />
+            </button>
           ))}
-          <span className="text-xs text-muted-foreground ml-2">
+          <span className="ml-2 text-xs tabular-nums text-muted-foreground">
             {activeIndex + 1}/{slides.length}
           </span>
         </div>

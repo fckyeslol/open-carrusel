@@ -12,6 +12,20 @@ npm run dev     # http://localhost:3000
 
 Panel de 30x: `http://localhost:3000/30x`
 
+## Ingesta automática (local, por avenger)
+
+Cada diseñadora corre la app en su compu. La app **le pregunta a Prewave por sus trabajos
+asignados** (con su token) y los carruseles **se generan solos** con el ADN del avenger, sin
+apretar nada. En el panel `/30x` los ves agrupados por avenger con su estado en vivo.
+
+- **QA humano:** la generación es 100% local y **no toca Prewave**. Cuando el carrusel está
+  listo, la diseñadora lo revisa (*Abrir para QA*) y recién ahí aprieta *Entregar*, que cierra
+  el trabajo en Prewave.
+- **Conexión:** pegá tu token de Prewave en el panel (botón *Conectar Prewave*). Sin hosting ni
+  webhooks: usa el Claude CLI que ya tenés instalado y logueado.
+- La entrada manual por URL (sección 01) sigue disponible.
+- Cuántos genera en paralelo: `THIRTYX_MAX_CONCURRENT` (default `1`).
+
 ## Qué hay dónde
 
 | Carpeta | Qué es |

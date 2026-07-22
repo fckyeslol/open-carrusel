@@ -6,6 +6,12 @@ import Link from "next/link";
 import { TopBar } from "@/components/layout/TopBar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { IngestProgress } from "@/components/thirtyx/IngestProgress";
+import { SectionLabel } from "@/components/thirtyx/SectionLabel";
+import { AssignmentQueue } from "@/components/thirtyx/AssignmentQueue";
+import { useIngest, type IngestDone } from "@/hooks/useIngest";
+import { isInstagramUrl } from "@/lib/instagram-url";
+import { cn } from "@/lib/utils";
 
 interface AvatarInfo {
   slug: string | null;
@@ -22,25 +28,19 @@ interface PrewaveStatus {
   hasApiKey: boolean;
 }
 
-interface Job {
-  id: string;
-  reference_url: string | null;
-  avatar_slug: string | null;
-  avatar_name: string | null;
-  created_at: string;
+/** "30X — Andrés Bilbao" → "Andrés Bilbao": el prefijo se repite en todos. */
+function shortAvatarName(name: string): string {
+  return name.replace(/^30X\s*[—–-]\s*/i, "").trim() || name;
 }
 
 export default function ThirtyXPage() {
   const router = useRouter();
   const [avatars, setAvatars] = useState<AvatarInfo[]>([]);
   const [prewave, setPrewave] = useState<PrewaveStatus | null>(null);
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [jobsError, setJobsError] = useState<string | null>(null);
 
   // manual entry
   const [url, setUrl] = useState("");
   const [avatarSlug, setAvatarSlug] = useState("");
-  const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // config form
@@ -48,6 +48,21 @@ export default function ThirtyXPage() {
   const [apiBase, setApiBase] = useState("");
   const [token, setToken] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [savingConfig, setSavingConfig] = useState(false);
+
+  const goToCarousel = useCallback(
+    (data: IngestDone) => {
+      try {
+        sessionStorage.setItem(`autogen-${data.carouselId}`, data.generationMessage);
+      } catch {
+        /* noop */
+      }
+      router.push(`/carousel/${data.carouselId}`);
+    },
+    [router]
+  );
+
+  const ingest = useIngest(goToCarousel);
 
   const loadConfig = useCallback(async () => {
     try {
@@ -63,76 +78,33 @@ export default function ThirtyXPage() {
     }
   }, [avatarSlug]);
 
-  const loadJobs = useCallback(async () => {
-    try {
-      const res = await fetch("/api/thirtyx/jobs");
-      const data = await res.json();
-      if (!res.ok) {
-        setJobsError(data.error || "No se pudieron cargar los trabajos");
-        setJobs([]);
-        return;
-      }
-      setJobsError(null);
-      setJobs(data.jobs || []);
-    } catch {
-      setJobsError("Error de red al cargar los trabajos");
-    }
-  }, []);
-
   useEffect(() => {
     loadConfig();
   }, [loadConfig]);
-  useEffect(() => {
-    if (prewave?.configured) loadJobs();
-  }, [prewave?.configured, loadJobs]);
 
-  const goToCarousel = (data: { carouselId: string; generationMessage: string }) => {
-    try {
-      sessionStorage.setItem(`autogen-${data.carouselId}`, data.generationMessage);
-    } catch {
-      /* noop */
-    }
-    router.push(`/carousel/${data.carouselId}`);
-  };
-
-  const handleManual = async () => {
+  const runManual = useCallback(() => {
     setError(null);
-    if (!url.trim()) return setError("Pegá la URL del referente de Instagram");
-    if (!avatarSlug) return setError("Elegí un avatar");
-    setBusy("manual");
-    try {
-      const res = await fetch("/api/thirtyx/from-reference", {
+    ingest.start("manual", (signal) =>
+      fetch("/api/thirtyx/from-reference", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ referenceUrl: url.trim(), avatarSlug }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Falló la ingesta");
-      goToCarousel(data);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(null);
-    }
-  };
+        signal,
+      })
+    );
+  }, [ingest, url, avatarSlug]);
 
-  const handleStartJob = async (jobId: string) => {
+  const handleManual = () => {
     setError(null);
-    setBusy(jobId);
-    try {
-      const res = await fetch(`/api/thirtyx/jobs/${jobId}/start`, { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "No se pudo iniciar el trabajo");
-      goToCarousel(data);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(null);
-    }
+    if (!url.trim()) return setError("Pegá la URL del referente de Instagram");
+    if (!isInstagramUrl(url.trim()))
+      return setError("Esa URL no parece un post o reel de Instagram");
+    if (!avatarSlug) return setError("Elegí un avatar");
+    runManual();
   };
 
   const saveConfig = async () => {
-    setBusy("config");
+    setSavingConfig(true);
     try {
       await fetch("/api/thirtyx/config", {
         method: "POST",
@@ -144,135 +116,207 @@ export default function ThirtyXPage() {
       setShowConfig(false);
       await loadConfig();
     } finally {
-      setBusy(null);
+      setSavingConfig(false);
     }
   };
 
   const readyAvatars = avatars.filter((a) => a.status === "ready");
+  const busy = ingest.runningKey !== null && !ingest.error && !ingest.finished;
+  const manualRunning = ingest.runningKey === "manual";
+  const canSubmit = url.trim().length > 0 && avatarSlug.length > 0;
+  const selectedAvatar = readyAvatars.find((a) => a.slug === avatarSlug);
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
+    <div className="flex min-h-screen flex-col bg-background">
       <TopBar />
-      <main className="flex-1 w-full max-w-3xl mx-auto px-6 py-10 space-y-10">
-        <header className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">Carruseles 30x</h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Generá un carrusel desde un referente de Instagram con el ADN del avatar.
-            </p>
+      <main className="mx-auto w-full max-w-4xl flex-1 px-6 py-12 sm:px-8">
+        {/* ── Masthead editorial ─────────────────────────────────────────── */}
+        <header className="border-b border-foreground/15 pb-6">
+          <div className="flex items-start justify-between gap-6">
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+                Carruseles
+              </p>
+              <h1 className="mt-1 text-5xl font-bold leading-none tracking-[-0.03em] sm:text-6xl">
+                30x
+              </h1>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowConfig((v) => !v)}
+              aria-expanded={showConfig}
+              className="group flex shrink-0 cursor-pointer items-center gap-2 rounded-full border border-border bg-surface px-3 py-1.5 text-[11px] font-medium transition-colors hover:border-foreground/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "h-1.5 w-1.5 rounded-full",
+                  prewave?.configured ? "bg-emerald-500" : "bg-muted-foreground/40"
+                )}
+              />
+              {prewave?.configured ? "Prewave conectado" : "Conectar Prewave"}
+            </button>
           </div>
-          <Button variant="outline" size="sm" onClick={() => setShowConfig((v) => !v)}>
-            {prewave?.configured ? "Conexión ✓" : "Conectar Prewave"}
-          </Button>
+
+          <p className="mt-4 max-w-[46ch] text-sm leading-relaxed text-muted-foreground">
+            Generá un carrusel desde un referente de Instagram con el ADN del avatar.
+          </p>
         </header>
 
         {error && (
-          <div className="rounded-lg border border-red-300 bg-red-50 text-red-700 text-sm px-4 py-3">
+          <div
+            role="alert"
+            className="mt-6 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+          >
             {error}
           </div>
         )}
 
-        {/* Config */}
+        {/* ── Config Prewave ─────────────────────────────────────────────── */}
         {showConfig && (
-          <section className="rounded-xl border border-border p-5 space-y-3 bg-surface">
-            <h2 className="font-semibold text-sm">Conexión con Prewave (la cola actual)</h2>
-            <label className="block text-xs text-muted-foreground">API base</label>
-            <Input value={apiBase} onChange={(e) => setApiBase(e.target.value)} placeholder="https://api.prewave.oracle30x.co/api/v1" />
-            <label className="block text-xs text-muted-foreground">
-              Tu token de diseñadora (JWT) — solo ves TUS trabajos
-            </label>
-            <Input value={token} onChange={(e) => setToken(e.target.value)} type="password" placeholder={prewave?.hasToken ? "•••••• (ya guardado)" : "pegá tu token"} />
-            <label className="block text-xs text-muted-foreground">
-              o Pipeline API key (ops) — acceso total
-            </label>
-            <Input value={apiKey} onChange={(e) => setApiKey(e.target.value)} type="password" placeholder={prewave?.hasApiKey ? "•••••• (ya guardada)" : "opcional"} />
-            <Button size="sm" onClick={saveConfig} disabled={busy === "config"}>
-              {busy === "config" ? "Guardando…" : "Guardar"}
-            </Button>
+          <section className="mt-8 rounded-xl border border-border bg-surface p-5">
+            <SectionLabel index="00">Conexión con Prewave</SectionLabel>
+            <div className="space-y-3">
+              <label className="block text-xs text-muted-foreground" htmlFor="prewave-base">
+                API base
+              </label>
+              <Input
+                id="prewave-base"
+                value={apiBase}
+                onChange={(e) => setApiBase(e.target.value)}
+                placeholder="https://api.prewave.oracle30x.co/api/v1"
+              />
+              <label className="block text-xs text-muted-foreground" htmlFor="prewave-token">
+                Tu token de diseñadora (JWT) — solo ves TUS trabajos
+              </label>
+              <Input
+                id="prewave-token"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                type="password"
+                placeholder={prewave?.hasToken ? "•••••• (ya guardado)" : "pegá tu token"}
+              />
+              <label className="block text-xs text-muted-foreground" htmlFor="prewave-key">
+                o Pipeline API key (ops) — acceso total
+              </label>
+              <Input
+                id="prewave-key"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                type="password"
+                placeholder={prewave?.hasApiKey ? "•••••• (ya guardada)" : "opcional"}
+              />
+              <Button size="sm" onClick={saveConfig} disabled={savingConfig}>
+                {savingConfig ? "Guardando…" : "Guardar"}
+              </Button>
+            </div>
           </section>
         )}
 
-        {/* Entrada manual */}
-        <section className="rounded-xl border border-border p-5 space-y-4">
-          <h2 className="font-semibold">Pegá una URL de Instagram</h2>
-          <Input
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://www.instagram.com/p/XXXXXXXX/"
-          />
-          <div className="flex items-center gap-3">
-            <select
-              className="h-9 rounded-md border border-border bg-background px-3 text-sm"
-              value={avatarSlug}
-              onChange={(e) => setAvatarSlug(e.target.value)}
-            >
-              <option value="">— Elegí un avatar —</option>
-              {readyAvatars.map((a) => (
-                <option key={a.presetId} value={a.slug || ""}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
-            <Button onClick={handleManual} disabled={busy === "manual"}>
-              {busy === "manual" ? "Bajando referente…" : "Generar carrusel"}
-            </Button>
-          </div>
-          {avatars.length > 0 && readyAvatars.length === 0 && (
-            <p className="text-xs text-amber-600">
-              Ningún avatar está listo. Corré <code>node scripts/import-avatars.mjs</code> y creá sus formatos.
-            </p>
-          )}
-        </section>
+        {/* ── 01 · Referente (el bloque protagonista) ────────────────────── */}
+        <section className="mt-10">
+          <SectionLabel
+            index="01"
+            aside={selectedAvatar ? shortAvatarName(selectedAvatar.name) : undefined}
+          >
+            Referente
+          </SectionLabel>
 
-        {/* Bandeja de trabajos */}
-        <section className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="font-semibold">Trabajos pendientes (cola de Prewave)</h2>
-            {prewave?.configured && (
-              <Button variant="outline" size="sm" onClick={loadJobs}>
-                Actualizar
+          <div className="rounded-xl border border-border bg-surface p-6 sm:p-7">
+            <label
+              htmlFor="reference-url"
+              className="block text-[11px] uppercase tracking-[0.14em] text-muted-foreground"
+            >
+              URL de Instagram
+            </label>
+
+            {/* Input subrayado, no encajonado: la URL es la protagonista. */}
+            <input
+              id="reference-url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && canSubmit && !busy) handleManual();
+              }}
+              disabled={busy}
+              inputMode="url"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="instagram.com/p/…"
+              className="mt-2 w-full border-0 border-b-2 border-border bg-transparent px-0 py-2.5 text-lg text-foreground transition-colors placeholder:text-muted-foreground/50 focus:border-accent focus:outline-none disabled:opacity-50 sm:text-xl"
+            />
+
+            <p className="mt-2 text-xs text-muted-foreground">
+              Post o reel público. Bajamos sus láminas y las usamos como referente.
+            </p>
+
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+              <label className="sr-only" htmlFor="avatar-select">
+                Avatar
+              </label>
+              <select
+                id="avatar-select"
+                className="h-10 cursor-pointer rounded-lg border border-border bg-background px-3 text-sm transition-colors hover:border-foreground/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50"
+                value={avatarSlug}
+                onChange={(e) => setAvatarSlug(e.target.value)}
+                disabled={busy}
+              >
+                <option value="">— Elegí un avatar —</option>
+                {readyAvatars.map((a) => (
+                  <option key={a.presetId} value={a.slug || ""}>
+                    {shortAvatarName(a.name)}
+                  </option>
+                ))}
+              </select>
+
+              {/* variant default (casi negro, 17.9:1). El acento en blanco solo
+                  da 3.83:1 y no pasa AA para el texto del botón. */}
+              <Button
+                onClick={handleManual}
+                disabled={busy || !canSubmit}
+                className="ml-auto"
+              >
+                {manualRunning && busy ? "Generando…" : "Generar carrusel"}
               </Button>
+            </div>
+
+            {avatars.length > 0 && readyAvatars.length === 0 && (
+              <p className="mt-4 text-xs text-amber-600">
+                Ningún avatar está listo. Corré <code>node scripts/import-avatars.mjs</code> y
+                creá sus formatos.
+              </p>
             )}
           </div>
-          {!prewave?.configured ? (
-            <p className="text-sm text-muted-foreground">
-              Conectá tu token de Prewave para ver los trabajos que te asignaron.
-            </p>
-          ) : jobsError ? (
-            <p className="text-sm text-red-600">{jobsError}</p>
-          ) : jobs.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No hay trabajos pendientes.</p>
-          ) : (
-            <ul className="space-y-2">
-              {jobs.map((job) => (
-                <li key={job.id} className="rounded-lg border border-border p-4 flex items-center justify-between gap-4">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium truncate">
-                      {job.avatar_name || job.avatar_slug || "Sin avatar"}
-                    </p>
-                    <a
-                      href={job.reference_url || "#"}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-accent underline truncate block max-w-md"
-                    >
-                      {job.reference_url}
-                    </a>
-                  </div>
-                  <Button size="sm" onClick={() => handleStartJob(job.id)} disabled={busy === job.id}>
-                    {busy === job.id ? "Preparando…" : "Generar"}
-                  </Button>
-                </li>
-              ))}
-            </ul>
+
+          {manualRunning && ingest.startedAt !== null && (
+            <div className="oc-enter mt-4">
+              {/* key por arranque: remonta el panel en cada reintento para que
+                  el cronómetro no muestre el tiempo del run anterior. */}
+              <IngestProgress
+                key={ingest.startedAt}
+                stages={ingest.stages}
+                startedAt={ingest.startedAt}
+                finished={ingest.finished}
+                error={ingest.error}
+                onRetry={runManual}
+                onCancel={ingest.reset}
+              />
+            </div>
           )}
         </section>
 
-        <p className="text-xs text-muted-foreground">
-          <Link href="/" className="underline">
+        {/* ── 02 · Asignaciones (push desde Prewave) ─────────────────────── */}
+        <AssignmentQueue />
+
+        <footer className="mt-16 border-t border-border pt-5">
+          <Link
+            href="/"
+            className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          >
             ← Volver a todos los carruseles
           </Link>
-        </p>
+        </footer>
       </main>
     </div>
   );

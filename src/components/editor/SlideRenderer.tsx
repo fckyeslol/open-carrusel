@@ -45,13 +45,18 @@ export function SlideRenderer({
     return () => obs.disconnect();
   }, [measure]);
 
-  // Calculate scale to fit the slide into the container
-  const scale = dims
-    ? Math.min(dims.w / slideW, dims.h / slideH)
-    : 0;
+  // Escala para encajar la lámina en el contenedor.
+  const rawScale = dims ? Math.min(dims.w / slideW, dims.h / slideH) : 0;
 
-  const scaledW = Math.floor(slideW * scale);
-  const scaledH = Math.floor(slideH * scale);
+  // NITIDEZ: el box se redondea a enteros y la escala se RE-DERIVA de ese box.
+  // Antes el contenedor usaba Math.floor() mientras el iframe se escalaba con el
+  // factor sin redondear: el contenido caía en coordenadas fraccionarias y el
+  // borde sangraba medio píxel, que es lo que se veía "borroso".
+  const scaledW = Math.round(slideW * rawScale);
+  const scaledH = Math.round(slideH * rawScale);
+  const scaleX = scaledW / slideW;
+  const scaleY = scaledH / slideH;
+  const scale = rawScale;
 
   return (
     <div
@@ -85,7 +90,10 @@ export function SlideRenderer({
               width: slideW,
               height: slideH,
               border: "none",
-              transform: `scale(${scale})`,
+              // Dos ejes: garantiza que el contenido cubra el box EXACTO. La
+              // diferencia entre scaleX y scaleY es <0.1% (invisible) y elimina
+              // la costura de subpíxel del borde.
+              transform: `scale(${scaleX}, ${scaleY})`,
               transformOrigin: "top left",
               position: "absolute",
               top: 0,

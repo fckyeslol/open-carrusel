@@ -9,6 +9,10 @@
   --ring: #1a1a2e;
   --accent: #e94560;
   --accent-foreground: #ffffff;
+  /* Variante oscura del acento para TEXTO: #e94560 sobre blanco da 3.83:1 y no
+     llega al 4.5:1 de WCAG AA. Esta da 5.43:1. El --accent normal se reserva
+     para elementos no textuales (puntos, barras, bordes), donde basta 3:1. */
+  --accent-strong: #c2334a;
   --surface: #ffffff;
   --destructive: #ef4444;
 
@@ -27,6 +31,7 @@
   --color-ring: var(--ring);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
+  --color-accent-strong: var(--accent-strong);
   --color-surface: var(--surface);
   --color-destructive: var(--destructive);
   --font-sans: var(--font-geist-sans);
@@ -194,8 +199,44 @@ body {
   animation: oc-caret 900ms steps(1, end) infinite;
 }
 
+/* Lienzo del editor: rejilla de puntos sutil en vez de un gris plano. Da
+   profundidad y hace que la lámina blanca se lea como flotando sobre la mesa
+   de trabajo, en lugar de fundirse con el fondo. */
+.oc-canvas {
+  background-color: #eeeeef;
+  background-image: radial-gradient(circle, rgba(0, 0, 0, 0.06) 1px, transparent 1px);
+  background-size: 16px 16px;
+  background-position: -1px -1px;
+}
+
+/* Ingesta 30x — pulso de la etapa activa y barra de descarga */
+@keyframes oc-ping {
+  0% { transform: scale(0.6); opacity: 0.8; }
+  70%, 100% { transform: scale(1.6); opacity: 0; }
+}
+.oc-ping {
+  animation: oc-ping 1600ms var(--ease-out-strong) infinite;
+}
+
+/* scaleX en vez de width: se anima en el compositor y no dispara layout. */
+.oc-bar {
+  transform-origin: left center;
+  transition: transform 320ms var(--ease-out-strong);
+  will-change: transform;
+}
+
 /* Reduced motion — fewer and gentler, not zero (per Emil's skill) */
 @media (prefers-reduced-motion: reduce) {
+  /* El pulso se vuelve un punto fijo: la etapa activa sigue siendo legible
+     por color y peso tipográfico, no depende del movimiento. */
+  .oc-ping {
+    animation: none !important;
+    opacity: 0.25;
+    transform: scale(1);
+  }
+  .oc-bar {
+    transition-duration: 0.01ms !important;
+  }
   [data-oc-overlay][data-state="open"],
   [data-oc-overlay][data-state="closed"],
   [data-oc-dialog][data-state="open"],

@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef, use } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Trash2, Grid3X3, Bookmark, Maximize2 } from "lucide-react";
+import { Trash2, Grid3X3, Bookmark, Maximize2, Pencil, PanelLeft } from "lucide-react";
 import { TopBar } from "@/components/layout/TopBar";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -14,8 +14,8 @@ import { SlideFilmstrip } from "@/components/editor/SlideFilmstrip";
 import { AspectRatioSelector } from "@/components/editor/AspectRatioSelector";
 import { ExportButton } from "@/components/editor/ExportButton";
 import { CaptionPanel } from "@/components/editor/CaptionPanel";
-import { SafeZoneOverlay } from "@/components/editor/SafeZoneOverlay";
 import { FullscreenPreview } from "@/components/editor/FullscreenPreview";
+import { SaveState } from "@/components/editor/SaveState";
 import type { Carousel, AspectRatio } from "@/types/carousel";
 
 interface PageProps {
@@ -305,39 +305,27 @@ export default function CarouselEditorPage({ params }: PageProps) {
         {/* Right side: toolbar + preview */}
         <div className="flex-1 flex flex-col min-w-0 min-h-0">
           {/* Toolbar */}
-          <div className="h-11 border-b border-border bg-surface flex items-center px-4 gap-3 shrink-0">
+          <div className="h-12 border-b border-border bg-surface flex items-center px-4 gap-2 shrink-0">
             <AspectRatioSelector
               value={carousel.aspectRatio}
               onChange={handleAspectChange}
             />
+
+            <span aria-hidden="true" className="mx-1 h-5 w-px bg-border" />
+
             <Button
-              variant={editMode ? "accent" : "outline"}
+              variant={editMode ? "default" : "outline"}
               size="sm"
               onClick={() => setEditMode((v) => !v)}
+              aria-pressed={editMode}
               title="Editor visual"
             >
-              {editMode ? "Editando ✓" : "Editar"}
+              <Pencil className="h-3.5 w-3.5" />
+              {editMode ? "Editando" : "Editar"}
             </Button>
-            {editMode && saveState !== "idle" && (
-              <span
-                className={`text-xs ${
-                  saveState === "saved"
-                    ? "text-muted-foreground"
-                    : saveState === "saving"
-                      ? "text-muted-foreground"
-                      : "text-red-600 font-medium"
-                }`}
-              >
-                {saveState === "saving" && "Guardando…"}
-                {saveState === "saved" && "Guardado ✓"}
-                {saveState === "error" && "⚠ No se pudo guardar"}
-                {saveState === "stale" && (
-                  <button className="underline" onClick={() => window.location.reload()}>
-                    ⚠ La lámina cambió — recargar
-                  </button>
-                )}
-              </span>
-            )}
+
+            {editMode && saveState !== "idle" && <SaveState state={saveState} />}
+
             <div className="flex-1" />
             <Button
               variant="ghost"
@@ -353,9 +341,14 @@ export default function CarouselEditorPage({ params }: PageProps) {
               variant={showSafeZones ? "outline" : "ghost"}
               size="sm"
               onClick={() => setShowSafeZones(!showSafeZones)}
-              className={showSafeZones ? "border-accent text-accent" : "text-muted-foreground"}
-              aria-label="Toggle safe zones"
-              title="Instagram safe zones"
+              aria-pressed={showSafeZones}
+              className={
+                showSafeZones
+                  ? "border-foreground/30 bg-muted text-foreground"
+                  : "text-muted-foreground"
+              }
+              aria-label="Zonas seguras de Instagram"
+              title="Zonas seguras de Instagram"
             >
               <Grid3X3 className="h-3.5 w-3.5" />
             </Button>
@@ -370,8 +363,8 @@ export default function CarouselEditorPage({ params }: PageProps) {
                 });
               }}
               className="text-muted-foreground"
-              aria-label="Save as template"
-              title="Save as template"
+              aria-label="Guardar como plantilla"
+              title="Guardar como plantilla"
             >
               <Bookmark className="h-3.5 w-3.5" />
             </Button>
@@ -380,16 +373,25 @@ export default function CarouselEditorPage({ params }: PageProps) {
               size="sm"
               onClick={handleDeleteCarousel}
               className="text-muted-foreground hover:text-destructive"
-              aria-label="Delete carousel"
+              aria-label="Eliminar carrusel"
+              title="Eliminar carrusel"
             >
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
-            <button
+
+            <span aria-hidden="true" className="mx-1 h-5 w-px bg-border" />
+
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => setChatOpen(!chatOpen)}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors px-3 py-1.5 rounded-md border border-border hover:bg-muted"
+              aria-pressed={chatOpen}
+              className="text-muted-foreground"
+              title={chatOpen ? "Ocultar el chat" : "Mostrar el chat"}
             >
-              {chatOpen ? "Hide Chat" : "Show Chat"}
-            </button>
+              <PanelLeft className="h-3.5 w-3.5" />
+              {chatOpen ? "Ocultar chat" : "Mostrar chat"}
+            </Button>
             <ExportButton
               carouselId={carousel.id}
               slideCount={carousel.slides.length}

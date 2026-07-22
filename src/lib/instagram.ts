@@ -13,6 +13,7 @@ import { writeFile } from "fs/promises";
 import { existsSync } from "fs";
 import path from "path";
 import puppeteer, { type Browser } from "puppeteer";
+import { normalizeInstagramUrl } from "./instagram-url";
 
 function findChrome(): string | undefined {
   if (process.env.PUPPETEER_EXECUTABLE_PATH) return process.env.PUPPETEER_EXECUTABLE_PATH;
@@ -37,22 +38,24 @@ export interface DownloadedSlide {
   name: string; // "referente 1/N"
 }
 
-/** Normaliza a la URL canónica del post: https://www.instagram.com/p/<code>/ */
-export function normalizeInstagramUrl(raw: string): string | null {
-  try {
-    const u = new URL(raw.trim());
-    if (!/instagram\.com|instagr\.am/i.test(u.hostname)) return null;
-    const m = u.pathname.match(/\/(p|reel|reels|tv)\/([A-Za-z0-9_-]+)/);
-    if (!m) return null;
-    return `https://www.instagram.com/p/${m[2]}/`;
-  } catch {
-    return null;
-  }
+/**
+ * Avisos de avance durante la descarga. Son opcionales: sin ellos la función se
+ * comporta igual que antes, pero la UI se queda ciega durante ~30-60s.
+ */
+export interface DownloadProgressHooks {
+  /** Chrome headless arrancó. */
+  onBrowserReady?: () => void;
+  /** Se está navegando al post para leer las URLs reales. */
+  onExtractStart?: () => void;
+  /** Se supo cuántas láminas tiene el referente. */
+  onExtracted?: (imageCount: number) => void;
+  /** Se guardó la lámina `current` de `total`. */
+  onSlideDownloaded?: (current: number, total: number) => void;
 }
 
-export function isInstagramUrl(raw: string): boolean {
-  return normalizeInstagramUrl(raw) !== null;
-}
+// Las funciones de URL viven en instagram-url.ts (sin deps de Node) para que
+// también las pueda usar el form del cliente. Se re-exportan acá por comodidad.
+export { normalizeInstagramUrl, isInstagramUrl } from "./instagram-url";
 
 /** Busca recursivamente en un JSON todas las URLs de imagen de mejor resolución. */
 function collectImageUrls(node: unknown, out: string[], seen: Set<object>): void {
@@ -132,7 +135,8 @@ async function extractImageUrls(browser: Browser, postUrl: string): Promise<stri
 export async function downloadInstagramReference(
   rawUrl: string,
   uploadDir: string,
-  makeId: () => string
+  makeId: () => string,
+  hooks: DownloadProgressHooks = {}
 ): Promise<DownloadedSlide[]> {
   const postUrl = normalizeInstagramUrl(rawUrl);
   if (!postUrl) throw new Error("URL de Instagram inválida");
@@ -144,14 +148,17 @@ export async function downloadInstagramReference(
     ...(executablePath ? { executablePath } : {}),
     args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu"],
   });
+  hooks.onBrowserReady?.();
 
   try {
+    hooks.onExtractStart?.();
     const imageUrls = await extractImageUrls(browser, postUrl);
     if (imageUrls.length === 0) {
       throw new Error(
         "No se pudieron extraer imágenes del post (¿privado, borrado, o Instagram pide login?). Probá subir capturas del referente a mano."
       );
     }
+    hooks.onExtracted?.(imageUrls.length);
 
     const slides: DownloadedSlide[] = [];
     for (let i = 0; i < imageUrls.length; i++) {
@@ -182,6 +189,7 @@ export async function downloadInstagramReference(
         absPath,
         name: `Referente ${i + 1}`,
       });
+      hooks.onSlideDownloaded?.(slides.length, imageUrls.length);
     }
 
     if (slides.length === 0) {
