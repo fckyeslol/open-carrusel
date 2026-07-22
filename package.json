@@ -13,6 +13,7 @@
   },
   "scripts": {
     "setup": "node scripts/setup.mjs",
+    "abrir": "node scripts/launch.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
