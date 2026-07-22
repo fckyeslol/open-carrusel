@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Verifica la conexión con Prewave para el modelo local: lee PREWAVE_TOKEN de
-// .env.local (o del entorno) y pega a GET /production/design-queue. Distingue los
+// .env.local (o del entorno) y pega a GET /agent-jobs?status=pending. Distingue los
 // fallos típicos (token vencido vs endpoint no desplegado) para que el setup sea
 // obvio. Uso: npm run prewave:check
 
@@ -32,7 +32,7 @@ if (!token) {
   process.exit(1);
 }
 
-const url = `${base}/production/design-queue`;
+const url = `${base}/agent-jobs?status=pending`;
 console.log(`→ GET ${url}`);
 
 try {
@@ -46,13 +46,11 @@ try {
   }
 
   if (res.status === 200 && body && Array.isArray(body.items)) {
-    console.log(`✅ Conectado. ${body.items.length} carrusel(es) asignado(s) a vos por diseñar.`);
+    console.log(`✅ Conectado. ${body.items.length} job(s) pendiente(s) en tu cola de generación 30x.`);
     for (const it of body.items.slice(0, 10)) {
-      const ref =
-        it.scored_post?.raw_post?.canonical_url ||
-        it.scored_post?.raw_post?.post_url ||
-        "(sin referente)";
-      console.log(`   • ${it.avatar?.slug ?? "?"} — ${ref}`);
+      const ref = it.reference_url || "(sin referente)";
+      const avatar = it.avatar_slug || it.avatar_hint || "?";
+      console.log(`   • ${avatar} — ${ref}`);
     }
     process.exit(0);
   }
@@ -62,7 +60,7 @@ try {
   }
   if (res.status === 404) {
     console.error(
-      "❌ 404: el endpoint /production/design-queue NO existe en el Prewave desplegado.\n" +
+      "❌ 404: el endpoint /agent-jobs NO existe en el Prewave desplegado.\n" +
         "   ¿Ya se desplegó a producción (main)? Ver docs/GUIA-CARRUSELES-30X.md §3."
     );
     process.exit(1);

@@ -1,11 +1,11 @@
 /**
  * Cliente de Prewave para el modelo LOCAL por diseñadora.
  *
- * La app corre en la máquina de cada diseñadora y jala SU bandeja de diseño con
- * SU token (scope por JWT), vía el endpoint de Prewave:
+ * La app corre en la máquina de cada diseñadora y drena SU cola de generación 30x
+ * (tabla `agent_jobs` de Prewave, scope por JWT), vía los endpoints:
  *
- *   GET /production/design-queue  → los carruseles asignados a ella que necesitan
- *                                   diseño (ver listDesignQueue()).
+ *   GET   /agent-jobs?status=pending  → sus jobs "Generar 30x" (ver listPendingJobs()).
+ *   PATCH /agent-jobs/:id             → claim (processing) / done / failed.
  *
  * Auth: Authorization: Bearer <token>  (el JWT de 30 días de su sesión de Prewave).
  *
@@ -108,45 +108,77 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 /**
- * Un item de la BANDEJA DE DISEÑO de la diseñadora: un carrusel asignado a ella
- * que necesita diseño. Es la fuente del modelo local (pull con SU token). Lo
- * devuelve GET /production/design-queue, normalizado desde el `toApiBrief` de Prewave.
+ * Un job de la cola `agent_jobs` de Prewave (kind `carousel_30x`): una solicitud
+ * de "Generar 30x" con SU referente de Instagram. Es la ingesta del worker local
+ * (pull con SU token JWT, scope por diseñadora). Lo devuelve GET /agent-jobs.
+ *
+ * ⚠️ NO es `/production/design-queue` (esos son briefs de producción, mayormente
+ * contenido propio "manual" SIN referente). La cola real de generación es esta:
+ * cada job trae `reference_url`. Ver docs/PLAN-MIGRACION-CARRUSELES.md §3.
  */
-export interface DesignQueueItem {
-  jobId: string; // curated_brief.id
-  avatarSlug: string; // el avenger (avatars.slug)
+export interface AgentJob {
+  jobId: string; // agent_jobs.id
+  referenceUrl: string; // el post de IG a calcar (reference_url)
+  avatarSlug: string; // avatar_slug (origen Producción) → avatar_hint (origen Diseño)
   avatarName: string | null;
-  referenceUrl: string; // el post de IG a calcar (raw_post.canonical_url)
-  title: string | null;
 }
 
-/** Forma (parcial) del ApiBrief de Prewave que nos interesa. */
-interface ApiBriefLite {
+/**
+ * Forma (parcial) del agent_job de Prewave. Exactamente uno de brief_id /
+ * design_request_id viene no-null; con brief_id (origen Producción) el avatar viene
+ * resuelto por FK en avatar_slug. Ver queue_client.py del pipeline.
+ */
+interface ApiAgentJob {
   id: string;
-  avatar?: { slug?: string | null; name?: string | null } | null;
-  scored_post?: {
-    raw_post?: { canonical_url?: string | null; post_url?: string | null } | null;
-  } | null;
-  video_title?: string | null;
-  angle_30x?: string | null;
+  reference_url?: string | null;
+  avatar_slug?: string | null;
+  avatar_name?: string | null;
+  avatar_hint?: string | null;
+  status?: string | null;
 }
 
-function mapDesignItem(b: ApiBriefLite): DesignQueueItem {
-  const raw = b.scored_post?.raw_post;
+function mapAgentJob(j: ApiAgentJob): AgentJob {
   return {
-    jobId: b.id,
-    avatarSlug: b.avatar?.slug ?? "",
-    avatarName: b.avatar?.name ?? null,
-    referenceUrl: raw?.canonical_url || raw?.post_url || "",
-    title: b.video_title || b.angle_30x || null,
+    jobId: j.id,
+    referenceUrl: j.reference_url || "",
+    // Producción trae avatar_slug directo; Diseño (legacy) solo avatar_hint.
+    avatarSlug: j.avatar_slug || j.avatar_hint || "",
+    avatarName: j.avatar_name ?? null,
   };
 }
 
 /**
- * Trae la bandeja de diseño de la diseñadora (scope por SU token JWT): solo SUS
- * carruseles asignados que necesitan diseño.
+ * Trae los jobs PENDIENTES de la diseñadora (scope por SU token JWT): las
+ * solicitudes de "Generar 30x" que todavía nadie reclamó.
  */
-export async function listDesignQueue(): Promise<DesignQueueItem[]> {
-  const data = await req<{ items: ApiBriefLite[] }>(`/production/design-queue`);
-  return (data.items || []).map(mapDesignItem);
+export async function listPendingJobs(): Promise<AgentJob[]> {
+  const data = await req<{ items: ApiAgentJob[] }>(`/agent-jobs?status=pending`);
+  return (data.items || []).map(mapAgentJob);
+}
+
+/** Reclama un job (pending → processing) para que otro worker no lo tome. */
+export async function claimJob(jobId: string): Promise<void> {
+  await req(`/agent-jobs/${jobId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status: "processing" }),
+  });
+}
+
+/**
+ * Cierra un job OK (→ done) con el link del resultado. El endpoint espera
+ * `resultUrl` en camelCase (snake_case se ignora — verificado en el pipeline).
+ */
+export async function completeJob(jobId: string, resultUrl: string): Promise<void> {
+  await req(`/agent-jobs/${jobId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status: "done", resultUrl }),
+  });
+}
+
+/** Marca un job como fallido (→ failed) con el motivo (máx 1000 chars). */
+export async function failJob(jobId: string, error: string): Promise<void> {
+  await req(`/agent-jobs/${jobId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status: "failed", error: error.slice(0, 1000) }),
+  });
 }

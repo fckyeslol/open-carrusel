@@ -10,12 +10,11 @@
  */
 import { readDataSafe, updateData } from "./data";
 import { now } from "./utils";
-import type { DesignQueueItem } from "./prewave";
+import type { AgentJob } from "./prewave";
 
 const FILE = "thirtyx-assignments.json";
 
 export type AssignmentStatus =
-  | "needs_reference" // brief sin URL de IG (producción manual): espera que la diseñadora pegue un referente
   | "received" // llegó el webhook, en cola
   | "claiming" // reclamando el job en Prewave (pending → processing)
   | "ingesting" // bajando el referente + creando el carrusel
@@ -81,14 +80,14 @@ export async function listReprocessable(): Promise<Assignment[]> {
 }
 
 /**
- * Inserta la asignación si es nueva, a partir de un item de la bandeja de diseño
+ * Inserta la asignación si es nueva, a partir de un job de la cola `agent_jobs`
  * traído de Prewave con el token de la diseñadora (pull). Idempotente por `jobId`:
  * si ya existe (re-pull en el próximo ciclo), NO lo reinicia ni lo re-encola —
  * devuelve el existente con `isNew: false`. El avenger sale de `avatarSlug`; la
  * generación local resuelve su preset y falla con mensaje claro si no calza.
  */
-export async function upsertFromDesignItem(
-  item: DesignQueueItem
+export async function upsertFromAgentJob(
+  item: AgentJob
 ): Promise<{ assignment: Assignment; isNew: boolean }> {
   const ts = now();
   let isNew = false;
@@ -142,21 +141,6 @@ export async function setStatus(
             error: patch.error !== undefined ? patch.error : status === "failed" ? a.error : null,
             updatedAt: now(),
           }
-        : a
-    ),
-  }));
-}
-
-/**
- * Asigna un referente a mano (para briefs de producción manual sin URL) y deja el
- * job en cola. La UI lo llama cuando la diseñadora pega una URL de IG en un job
- * `needs_reference`. Idempotente en cuanto al store; el re-encolado lo hace la ruta.
- */
-export async function setReference(jobId: string, referenceUrl: string): Promise<void> {
-  await updateData<Store>(FILE, EMPTY, (store) => ({
-    assignments: store.assignments.map((a) =>
-      a.jobId === jobId
-        ? { ...a, referenceUrl, status: "received", error: null, updatedAt: now() }
         : a
     ),
   }));

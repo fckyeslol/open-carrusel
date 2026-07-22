@@ -23,6 +23,7 @@ import { getCarousel } from "./carousels";
 import { getPreset } from "./style-presets";
 import { exportAllSlides } from "./export-slides";
 import { isInstagramUrl } from "./instagram-url";
+import { claimJob, completeJob, failJob } from "./prewave";
 import {
   getAssignment,
   setStatus,
@@ -122,6 +123,12 @@ async function processAssignment(jobId: string): Promise<void> {
   try {
     await incrementAttempts(jobId);
 
+    // Reclama el job en Prewave (pending → processing) para que otro worker no lo
+    // tome. Best-effort: si el PATCH falla (403 de ownership, red), seguimos con la
+    // generación local igual — el claim es una optimización, no un bloqueo. Ver
+    // docs/PLAN-MIGRACION-CARRUSELES.md §3/§6.5.
+    await writeback(() => claimJob(jobId));
+
     if (!isInstagramUrl(a.referenceUrl)) {
       throw new Error(`El referente no es una URL de Instagram válida: ${a.referenceUrl || "(vacío)"}`);
     }
@@ -165,11 +172,33 @@ async function processAssignment(jobId: string): Promise<void> {
       await writeFile(path.join(outDir, f.name), f.buffer);
     }
 
-    // 4. Listo para QA. NO se toca Prewave: la diseñadora revisa y entrega a mano.
+    // 4. Listo para QA + writeback a Prewave (→ done). El estado local es la fuente
+    //    de verdad de la UI; el writeback es best-effort para no perder el resultado
+    //    si Prewave está caído. resultUrl apunta al editor local donde la diseñadora
+    //    revisa (worker local-first). ⚠️ Subir los PNG a GCS y adjuntarlos al brief
+    //    para el flujo de aprobación/publicación es Fase 7 del plan (contrato por
+    //    confirmar en Prewave); todavía no está.
     await setStatus(jobId, "done", { resultUrl: `/exports/${carousel.id}/` });
+    await writeback(() => completeJob(jobId, `${localBase()}/carousel/${carousel.id}`));
   } catch (e) {
     const msg = (e as Error).message || "Error desconocido en la generación";
     await setStatus(jobId, "failed", { error: msg });
+    await writeback(() => failJob(jobId, msg));
+  }
+}
+
+/**
+ * Ejecuta un write a Prewave sin dejar que su fallo tumbe el pipeline local. El
+ * estado local (data/thirtyx-assignments.json) manda para la UI; el writeback es
+ * un side-effect: si el PATCH revienta (403, red, token vencido) lo tragamos acá
+ * a propósito para no convertir una generación OK en un "failed", ni un fallo real
+ * en un crash. Se reintenta naturalmente en el próximo ciclo/acción.
+ */
+async function writeback(fn: () => Promise<void>): Promise<void> {
+  try {
+    await fn();
+  } catch {
+    // best-effort: el estado local ya refleja la realidad; Prewave se reconcilia luego
   }
 }
 
