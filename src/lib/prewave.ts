@@ -182,3 +182,51 @@ export async function failJob(jobId: string, error: string): Promise<void> {
     body: JSON.stringify({ status: "failed", error: error.slice(0, 1000) }),
   });
 }
+
+/** Una lámina exportada lista para subir. */
+export interface CarouselSlideFile {
+  name: string;
+  buffer: Uint8Array;
+}
+
+/**
+ * Sube las láminas PNG del carrusel al endpoint de worker de Prewave
+ * (POST /agent-jobs/:id/carousel), que las guarda en GCS, las siembra como media
+ * del brief (publish_media_urls, en orden) y cierra el job (done). Reemplaza al
+ * completeJob para jobs con brief. Se manda multipart con un `file` por lámina,
+ * renombrado `slide-0001.png`… para que el backend las ordene por nombre.
+ *
+ * Lanza PrewaveError si el endpoint no está (404 = aún no desplegado) o el job no
+ * tiene brief (422): el runner cae a completeJob con un link local en ese caso.
+ */
+export async function uploadCarousel(
+  jobId: string,
+  files: readonly CarouselSlideFile[]
+): Promise<void> {
+  const cfg = await getPrewaveConfig();
+  if (!isConfigured(cfg)) {
+    throw new PrewaveError(401, "Prewave sin configurar: falta token o API key");
+  }
+
+  const form = new FormData();
+  files.forEach((f, i) => {
+    const ordered = `slide-${String(i + 1).padStart(4, "0")}.png`;
+    form.append("file", new Blob([f.buffer as unknown as BlobPart], { type: "image/png" }), ordered);
+  });
+
+  // No seteamos Content-Type: undici pone el multipart boundary solo.
+  const headers: Record<string, string> = {};
+  if (cfg.token) headers["Authorization"] = `Bearer ${cfg.token}`;
+  else if (cfg.apiKey) headers["X-API-Key"] = cfg.apiKey;
+
+  const res = await fetch(`${cfg.apiBase}/agent-jobs/${jobId}/carousel`, {
+    method: "POST",
+    headers,
+    body: form,
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new PrewaveError(res.status, `carousel upload HTTP ${res.status}: ${text.slice(0, 200)}`);
+  }
+}

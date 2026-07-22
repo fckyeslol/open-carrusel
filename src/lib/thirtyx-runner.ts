@@ -29,7 +29,7 @@ import { getCarousel } from "./carousels";
 import { getPreset, getPresetByAvatarSlug } from "./style-presets";
 import { exportAllSlides } from "./export-slides";
 import { isInstagramUrl } from "./instagram-url";
-import { claimJob, completeJob, failJob } from "./prewave";
+import { claimJob, completeJob, failJob, uploadCarousel } from "./prewave";
 import {
   getAssignment,
   setStatus,
@@ -202,12 +202,19 @@ async function processAssignment(jobId: string): Promise<void> {
 
     // 4. Listo para QA + writeback a Prewave (→ done). El estado local es la fuente
     //    de verdad de la UI; el writeback es best-effort para no perder el resultado
-    //    si Prewave está caído. resultUrl apunta al editor local donde la diseñadora
-    //    revisa (worker local-first). ⚠️ Subir los PNG a GCS y adjuntarlos al brief
-    //    para el flujo de aprobación/publicación es Fase 7 del plan (contrato por
-    //    confirmar en Prewave); todavía no está.
+    //    si Prewave está caído.
     await setStatus(jobId, "done", { resultUrl: `/exports/${carousel.id}/` });
-    await writeback(() => completeJob(jobId, `${localBase()}/carousel/${carousel.id}`));
+    //    Fase 7: subir los PNG al endpoint de worker (sube a GCS + siembra la media
+    //    del brief + cierra el job). Si el endpoint no está desplegado (404) o el job
+    //    no tiene brief (422), cae al completeJob con un link local. Así esto se
+    //    auto-activa cuando el endpoint /agent-jobs/:id/carousel esté en producción.
+    await writeback(async () => {
+      try {
+        await uploadCarousel(jobId, files);
+      } catch {
+        await completeJob(jobId, `${localBase()}/carousel/${carousel.id}`);
+      }
+    });
   } catch (e) {
     const msg = (e as Error).message || "Error desconocido en la generación";
     await setStatus(jobId, "failed", { error: msg });
