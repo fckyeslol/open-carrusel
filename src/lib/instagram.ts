@@ -131,38 +131,22 @@ async function extractImageUrls(page: Page, postUrl: string): Promise<string[]> 
 /**
  * Baja una imagen del CDN de Instagram y devuelve sus bytes, o null si falla.
  *
- * Estrategia: primero el fetch corre DENTRO de la página (origen instagram.com),
- * así lleva Referer + cookies de sesión y el CDN (fbcdn.net) no responde 403 —
- * que es el motivo por el que el fetch pelado de Node fallaba. Si eso no da un
- * buffer usable, se intenta un fetch de Node con Referer como último recurso.
+ * Estrategia: navegar el navegador DIRECTO a la URL de la imagen (page.goto) y
+ * tomar el buffer de la respuesta. Al ser una navegación de nivel superior no
+ * aplica CORS (un fetch a fbcdn.net desde el origen instagram.com lo bloquea) y
+ * el CDN sirve la imagen sin el 403 que devolvía el fetch pelado de Node. Si la
+ * navegación falla, se intenta un fetch de Node con Referer como último recurso.
  */
-async function downloadImageBytes(page: Page, src: string): Promise<Buffer | null> {
-  // 1) Fetch en contexto de navegador (mismo origen que el post).
+async function downloadImageBytes(imgPage: Page, src: string): Promise<Buffer | null> {
+  // 1) Navegación directa a la imagen (sin CORS, con red del navegador).
   try {
-    const dataUrl: string | null = await page.evaluate(async (url) => {
-      try {
-        const resp = await fetch(url, { credentials: "include", referrerPolicy: "no-referrer-when-downgrade" });
-        if (!resp.ok) return null;
-        const blob = await resp.blob();
-        return await new Promise<string | null>((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(typeof reader.result === "string" ? reader.result : null);
-          reader.onerror = () => resolve(null);
-          reader.readAsDataURL(blob);
-        });
-      } catch {
-        return null;
-      }
-    }, src);
-    if (dataUrl) {
-      const comma = dataUrl.indexOf(",");
-      if (comma !== -1) {
-        const buf = Buffer.from(dataUrl.slice(comma + 1), "base64");
-        if (buf.length > 0) return buf;
-      }
+    const resp = await imgPage.goto(src, { waitUntil: "networkidle2", timeout: 30000 });
+    if (resp?.ok()) {
+      const buf = await resp.buffer();
+      if (buf.length > 0) return buf;
     }
   } catch {
-    // el contexto de la página puede caerse; seguimos con el fallback
+    // navegación caída; seguimos con el fallback
   }
 
   // 2) Fallback: fetch de Node con Referer de instagram.com.
@@ -181,6 +165,19 @@ async function downloadImageBytes(page: Page, src: string): Promise<Buffer | nul
   } catch {
     return null;
   }
+}
+
+/** Detecta el formato por magic bytes. Instagram sirve WebP casi siempre hoy. */
+function detectImageExt(b: Buffer): "jpg" | "png" | "webp" | null {
+  if (b[0] === 0xff && b[1] === 0xd8) return "jpg";
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "png";
+  if (
+    b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && // "RIFF"
+    b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50 // "WEBP"
+  ) {
+    return "webp";
+  }
+  return null;
 }
 
 /**
@@ -206,6 +203,7 @@ export async function downloadInstagramReference(
   hooks.onBrowserReady?.();
 
   const page = await browser.newPage();
+  const imgPage = await browser.newPage();
   try {
     hooks.onExtractStart?.();
     const imageUrls = await extractImageUrls(page, postUrl);
@@ -218,13 +216,10 @@ export async function downloadInstagramReference(
 
     const slides: DownloadedSlide[] = [];
     for (let i = 0; i < imageUrls.length; i++) {
-      const buffer = await downloadImageBytes(page, imageUrls[i]);
+      const buffer = await downloadImageBytes(imgPage, imageUrls[i]);
       if (!buffer) continue;
-      // Verificar magic JPEG/PNG antes de guardar.
-      const isJpeg = buffer[0] === 0xff && buffer[1] === 0xd8;
-      const isPng = buffer[0] === 0x89 && buffer[1] === 0x50;
-      if (!isJpeg && !isPng) continue;
-      const ext = isPng ? "png" : "jpg";
+      const ext = detectImageExt(buffer);
+      if (!ext) continue; // no es una imagen que reconozcamos
       const fileName = `${makeId()}.${ext}`;
       const absPath = path.join(uploadDir, fileName);
       await writeFile(absPath, buffer);
@@ -242,6 +237,7 @@ export async function downloadInstagramReference(
     return slides;
   } finally {
     await page.close().catch(() => {});
+    await imgPage.close().catch(() => {});
     await browser.close().catch(() => {});
   }
 }
