@@ -106,8 +106,10 @@ La lámina se ve primero como miniatura en un feed, y se desliza rápido.
 - ¿El titular se lee a tamaño miniatura? Achicá el PNG mentalmente a 200px de
   ancho: si el titular deja de leerse, no funciona.
 - ¿El contraste aguanta? Texto claro sobre foto clara colapsa al comprimir.
-- ¿Hay texto crítico dentro de los 108px del borde (la zona segura es un padding
-  firme de 108px por lado), donde Instagram superpone su UI?
+- ¿Hay texto fuera del recuadro del grid? REGLA DURA: todo el texto se genera
+  dentro del recuadro con padding firme de 108px desde los bordes laterales y
+  superior (y 108px abajo). Fuera de ahí Instagram superpone su UI y el detector
+  bloquea la lámina. Solo los decorativos pueden sangrar hasta el borde.
 - ¿Algún texto se desborda o se corta?
 
 **0** = hay que hacer zoom para leerla. **4** = el mensaje entra en un vistazo.
