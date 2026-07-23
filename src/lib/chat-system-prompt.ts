@@ -104,13 +104,20 @@ texto encima: el texto siempre lo pones tú en el HTML de la lámina.
   modelo); nada de palabras que deban aparecer escritas en la imagen.
 - Sale ya recortada a ${dimensions.width}x${dimensions.height}px (formato ${aspectRatio}).
 - La respuesta trae \`url\` (ej. \`/uploads/generated/xxx.jpg\`): referenciala tal cual en el HTML.
+- **El modelo también VE imágenes** (image→image): pasá \`imageReference\` con la ruta local de
+  una imagen (\`/uploads/...\` o \`/avatar-assets/...\`) y Soul la usa como base visual —
+  composición, persona, ambiente. Usalo cuando la imagen debe basarse en una foto real
+  (ej. la foto del avatar en \`/avatar-assets/<slug>/fotos/\`, una imagen del referente, o una
+  que adjuntó el usuario) en vez de inventar desde cero. El prompt sigue mandando: describí
+  qué conservar y qué cambiar de la referencia.
 
 python3 -c "
 import json, urllib.request
-data = json.dumps({'prompt': 'DESCRIPCION VISUAL EN INGLES', 'aspectRatio': '${aspectRatio}'}).encode('utf-8')
+data = json.dumps({'prompt': 'DESCRIPCION VISUAL EN INGLES', 'aspectRatio': '${aspectRatio}', 'imageReference': '/uploads/OPCIONAL.png'}).encode('utf-8')
 req = urllib.request.Request('${baseUrl}/api/generate-image', data=data, method='POST', headers={'Content-Type': 'application/json'})
 with urllib.request.urlopen(req) as r: print(r.read().decode('utf-8'))
-"`
+"
+(omití 'imageReference' si no hay imagen base)`
     : "";
 
   return `Sos el motor de diseño de carruseles de 30X. Trabajás sin pedir permiso: creás las láminas directamente.

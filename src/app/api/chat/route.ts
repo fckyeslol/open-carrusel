@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { stat } from "fs/promises";
+import path from "path";
 import { isClaudeAvailable } from "@/lib/claude-path";
 import { spawnClaude, ClaudeSpawnError } from "@/lib/generate-headless";
 import { buildSystemPrompt } from "@/lib/chat-system-prompt";
@@ -10,6 +12,34 @@ import { isHiggsfieldConfigured } from "@/lib/higgsfield";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
+
+const UPLOADS_DIR = path.resolve(process.cwd(), "public", "uploads");
+const MAX_ATTACHMENTS = 6;
+
+/**
+ * Resuelve un adjunto del chat (`/uploads/...`) a su ruta absoluta en disco,
+ * verificando que exista y no se escape de la carpeta de uploads. Devuelve
+ * null si es inválido — un adjunto malo no debe tumbar el mensaje entero.
+ */
+async function resolveAttachment(ref: unknown): Promise<string | null> {
+  if (typeof ref !== "string" || !ref.startsWith("/uploads/")) return null;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(ref);
+  } catch {
+    return null;
+  }
+  const segments = decoded.split("/").filter(Boolean);
+  if (segments.length < 2 || segments.some((s) => s === "." || s === "..")) return null;
+  const resolved = path.resolve(UPLOADS_DIR, ...segments.slice(1));
+  if (!resolved.startsWith(UPLOADS_DIR + path.sep)) return null;
+  try {
+    const info = await stat(resolved);
+    return info.isFile() ? resolved : null;
+  } catch {
+    return null;
+  }
+}
 
 export async function POST(request: NextRequest) {
   if (!isClaudeAvailable()) {
@@ -27,6 +57,8 @@ export async function POST(request: NextRequest) {
     sessionId?: string;
     carouselId?: string;
     stylePresetId?: string;
+    /** URLs públicas locales (`/uploads/...`) de imágenes adjuntas al mensaje. */
+    attachments?: string[];
   };
   try {
     body = await request.json();
@@ -34,16 +66,45 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { message, sessionId, carouselId, stylePresetId } = body;
+  const { message, sessionId, carouselId, stylePresetId, attachments } = body;
 
+  // Adjuntos: validar y resolver a rutas absolutas ANTES de validar el mensaje,
+  // porque un mensaje solo-imágenes es válido.
+  const attachmentPaths: string[] = [];
+  if (attachments !== undefined) {
+    if (!Array.isArray(attachments) || attachments.length > MAX_ATTACHMENTS) {
+      return NextResponse.json({ error: "Invalid attachments" }, { status: 400 });
+    }
+    for (const ref of attachments) {
+      const abs = await resolveAttachment(ref);
+      if (!abs) {
+        return NextResponse.json(
+          { error: `Invalid attachment: ${String(ref)}` },
+          { status: 400 }
+        );
+      }
+      attachmentPaths.push(abs);
+    }
+  }
+
+  const trimmedMessage = typeof message === "string" ? message.trim() : "";
   if (
-    !message ||
-    typeof message !== "string" ||
-    !message.trim() ||
-    message.length > 10000
+    (!trimmedMessage && attachmentPaths.length === 0) ||
+    (typeof message === "string" && message.length > 10000)
   ) {
     return NextResponse.json({ error: "Invalid message" }, { status: 400 });
   }
+
+  // El CLI recibe texto: las imágenes viajan como rutas que el agente mira con Read.
+  const attachmentBlock =
+    attachmentPaths.length > 0
+      ? `\n\n[Imágenes adjuntas por el usuario — antes de responder, miralas con Read:\n${attachmentPaths
+          .map((p) => `- ${p}`)
+          .join("\n")}]`
+      : "";
+  const effectiveMessage =
+    (trimmedMessage || "Mirá las imágenes adjuntas y usalas como referencia.") +
+    attachmentBlock;
 
   // Build dynamic system prompt with current brand + carousel + style preset context
   const brand = await getBrand();
@@ -75,7 +136,7 @@ export async function POST(request: NextRequest) {
       };
 
       spawnClaude({
-        message,
+        message: effectiveMessage,
         systemPrompt,
         sessionId,
         cwd: process.cwd(),

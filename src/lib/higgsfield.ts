@@ -64,6 +64,12 @@ export interface GenerateImageOptions {
   styleStrength?: number;
   /** Semilla para reproducibilidad (0–1.000.000). Opcional. */
   seed?: number;
+  /**
+   * Bytes JPEG de una imagen de referencia (image→image). Se sube al CDN de
+   * Higgsfield y Soul la usa como base visual de la generación: composición,
+   * persona, ambiente. El que llama es responsable de normalizar a JPEG.
+   */
+  imageReferenceBytes?: Buffer;
 }
 
 export interface GeneratedImage {
@@ -214,6 +220,21 @@ export async function generarImagen(options: GenerateImageOptions): Promise<Gene
   if (options.styleId) {
     params.style_id = options.styleId;
     params.style_strength = clampStrength(options.styleStrength ?? 0.8);
+  }
+
+  // Imagen de referencia (image→image): subirla al CDN de Higgsfield primero,
+  // porque Soul solo acepta URLs públicas (una URL localhost no le sirve).
+  if (options.imageReferenceBytes) {
+    let referenceUrl: string;
+    try {
+      referenceUrl = await client.uploadImage(options.imageReferenceBytes, "jpeg");
+    } catch (err) {
+      const msg = (err as Error)?.message || "error desconocido";
+      throw new HiggsfieldError(
+        `No se pudo subir la imagen de referencia a Higgsfield: ${msg}`
+      );
+    }
+    params.image_reference = { type: "image_url", image_url: referenceUrl };
   }
 
   let jobSet;

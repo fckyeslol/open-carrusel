@@ -3,13 +3,19 @@
 import { cn } from "@/lib/utils";
 import { Bot, User } from "lucide-react";
 
+interface MessageAttachment {
+  url: string;
+  name: string;
+}
+
 interface ChatMessageProps {
   role: "user" | "assistant";
   content: string;
+  attachments?: MessageAttachment[];
   isStreaming?: boolean;
 }
 
-export function ChatMessage({ role, content, isStreaming }: ChatMessageProps) {
+export function ChatMessage({ role, content, attachments, isStreaming }: ChatMessageProps) {
   return (
     <div
       className={cn(
@@ -35,6 +41,20 @@ export function ChatMessage({ role, content, isStreaming }: ChatMessageProps) {
         <div className="text-xs font-medium text-muted-foreground mb-1">
           {role === "user" ? "You" : "Carrusel AI"}
         </div>
+        {attachments && attachments.length > 0 && (
+          <div className="mb-1.5 flex flex-wrap gap-1.5">
+            {attachments.map((att) => (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={att.url}
+                src={att.url}
+                alt={att.name}
+                title={att.name}
+                className="h-16 w-16 rounded-md border border-border object-cover"
+              />
+            ))}
+          </div>
+        )}
         <div className="text-sm leading-relaxed whitespace-pre-wrap break-words">
           {content}
           {isStreaming && (

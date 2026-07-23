@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { ChatMessage } from "./ChatMessage";
-import { ChatInput } from "./ChatInput";
+import { ChatInput, type ChatAttachment } from "./ChatInput";
 import { ReferenceImages } from "./ReferenceImages";
 import { AlertCircle, Plug } from "lucide-react";
 import type { ReferenceImage } from "@/types/carousel";
@@ -11,6 +11,7 @@ interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
+  attachments?: ChatAttachment[];
 }
 
 interface ChatPanelProps {
@@ -83,7 +84,7 @@ export function ChatPanel({
   }, [messages]);
 
   const handleSend = useCallback(
-    async (message: string) => {
+    async (message: string, attachments: ChatAttachment[] = []) => {
       if (isStreaming) return;
       setError(null);
       setIsStreaming(true);
@@ -94,6 +95,7 @@ export function ChatPanel({
         id: crypto.randomUUID(),
         role: "user",
         content: message,
+        ...(attachments.length > 0 ? { attachments } : {}),
       };
       setMessages((prev) => [...prev, userMsg]);
 
@@ -114,6 +116,9 @@ export function ChatPanel({
             message,
             sessionId,
             carouselId,
+            ...(attachments.length > 0
+              ? { attachments: attachments.map((a) => a.url) }
+              : {}),
           }),
           signal: abortRef.current.signal,
         });
@@ -301,6 +306,7 @@ export function ChatPanel({
             key={msg.id}
             role={msg.role}
             content={msg.content}
+            attachments={msg.attachments}
             isStreaming={
               isStreaming &&
               msg.role === "assistant" &&
