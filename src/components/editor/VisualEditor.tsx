@@ -58,6 +58,7 @@ interface Selection {
   fontFamily?: string;
   fontSize?: number;
   color?: string;
+  bg?: string; // fondo del elemento ('' = transparente)
   fontWeight?: string;
   italic?: boolean;
   align?: string;
@@ -514,6 +515,46 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
               )}
 
               <Section title="Apariencia" defaultOpen={!sel.isText && !sel.isImage}>
+                {/* Fondo del PROPIO elemento (p.ej. el resaltado amarillo de un texto).
+                    "Separar" lo convierte en una caja independiente detrás del texto,
+                    para poder mover texto y caja por separado. */}
+                {!sel.isImage && (
+                  <div className="block">
+                    <span className={labelCls}>Fondo del elemento</span>
+                    <div className="mt-1 flex items-center gap-1.5">
+                      <input
+                        type="color"
+                        className="h-9 w-12 rounded-md border border-border bg-background"
+                        value={sel.bg || "#ffffff"}
+                        onChange={(e) => {
+                          setSel({ ...sel, bg: e.target.value });
+                          applyProp("bg", e.target.value);
+                        }}
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="flex-1"
+                        disabled={!sel.bg}
+                        onClick={() => applyProp("bg", "transparent")}
+                      >
+                        Sin fondo
+                      </Button>
+                      {sel.isText && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="flex-1"
+                          disabled={!sel.bg}
+                          title="Convierte el fondo en una caja aparte: el texto queda libre para moverse"
+                          onClick={() => applyProp("splitBg", true)}
+                        >
+                          Separar
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                )}
                 <label className="block">
                   <span className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                     Opacidad <span className="tabular-nums">{sel.opacity ?? 100}%</span>
