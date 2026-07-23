@@ -94,7 +94,51 @@ function deriveColors(paleta) {
   return { primary, secondary, accent, background, surface };
 }
 
-function buildDesignRules(adn) {
+// ── assets por avatar ─────────────────────────────────────────────────────────
+const ASSET_KINDS = ["logo", "fotos", "fondos", "referencias"];
+const ASSET_EXTS = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"]);
+
+/**
+ * Lee la carpeta de assets del avatar (30x/avatars/<slug>/assets/<tipo>/) y
+ * devuelve las URLs con que la app los sirve (/avatar-assets/<slug>/...).
+ * La carpeta es la fuente de verdad: soltar un archivo ahí basta para que el
+ * próximo arranque lo detecte — cero configuración.
+ */
+async function scanAssets(avatarsDir, slug) {
+  const assets = { logo: [], fotos: [], fondos: [], referencias: [] };
+  for (const kind of ASSET_KINDS) {
+    const dir = path.join(avatarsDir, slug, "assets", kind);
+    if (!existsSync(dir)) continue;
+    try {
+      const files = (await readdir(dir))
+        .filter((f) => ASSET_EXTS.has(path.extname(f).toLowerCase()))
+        .sort();
+      assets[kind] = files.map((f) => `/avatar-assets/${slug}/${kind}/${encodeURIComponent(f)}`);
+    } catch {
+      // carpeta ilegible → se trata como vacía
+    }
+  }
+  return assets;
+}
+
+function buildAssetRules(assets) {
+  const lines = [];
+  const total = ASSET_KINDS.reduce((n, k) => n + assets[k].length, 0);
+  if (total === 0) return "";
+  lines.push("ASSETS DE MARCA del avatar (usar SOLO estos archivos, referenciarlos por su URL exacta; no inventar rutas):");
+  if (assets.logo.length) lines.push(`- Logo/firma: ${assets.logo.join(", ")}`);
+  if (assets.fotos.length)
+    lines.push(`- Fotos del mentor (para FONDO 3 - FOTO MENTOR): ${assets.fotos.join(", ")}`);
+  if (assets.fondos.length)
+    lines.push(`- Fondos de marca (FONDO 1/2/4): ${assets.fondos.join(", ")}`);
+  if (assets.referencias.length)
+    lines.push(
+      `- Referencias de carruseles ya publicados (calibrar estilo, NO incrustar en láminas): ${assets.referencias.join(", ")}`
+    );
+  return lines.join("\n");
+}
+
+function buildDesignRules(adn, assets) {
   const vi = adn.visual_identity || {};
   const voice = adn.voice_dna || {};
   const brand = adn.brand || {};
@@ -121,6 +165,8 @@ function buildDesignRules(adn) {
     lines.push(`Firma hablada de Prewave (referencia de voz, adaptar al carrusel): "${voice.firma_cierre_prewave}".`);
   if (Array.isArray(voice.do) && voice.do.length) lines.push(`HACER: ${voice.do.join(" | ")}.`);
   if (Array.isArray(voice.dont) && voice.dont.length) lines.push(`NO HACER: ${voice.dont.join(" | ")}.`);
+  const assetRules = assets ? buildAssetRules(assets) : "";
+  if (assetRules) lines.push(assetRules);
   lines.push(
     "FIDELIDAD ESTRICTA: cada cifra, dato y fuente del referente sobrevive EXACTO. No inventar nada. Si el referente no lo dice, no existe."
   );
@@ -199,6 +245,8 @@ export async function importAvatars({ avatarsDir = DEFAULT_AVATARS_DIR, quiet = 
     const name = adn.avatar?.name || slug;
     const exampleSlideHtml = await readExampleHtml(slug);
     const programMatch = adn.avatar?.prewave_program_match || [];
+    const assets = await scanAssets(avatarsDir, slug);
+    const assetCount = ASSET_KINDS.reduce((n, k) => n + assets[k].length, 0);
 
     presets.push({
       id: `avatar-${slug}`,
@@ -209,12 +257,12 @@ export async function importAvatars({ avatarsDir = DEFAULT_AVATARS_DIR, quiet = 
         colors,
         fonts: { heading: family, body: family },
         customFonts: [],
-        logoPath: null,
+        logoPath: assets.logo[0] || null,
         styleKeywords: buildKeywords(adn),
         createdAt: nowIso,
         updatedAt: nowIso,
       },
-      designRules: buildDesignRules(adn),
+      designRules: buildDesignRules(adn, assets),
       exampleSlideHtml,
       aspectRatio: ASPECT,
       tags: ["30x", `avatar:${slug}`, ...programMatch.map((p) => `match:${p}`)],
@@ -225,7 +273,8 @@ export async function importAvatars({ avatarsDir = DEFAULT_AVATARS_DIR, quiet = 
     });
     say(
       `  ✓ ${slug.padEnd(16)} ${family.padEnd(20)} bg ${colors.background} · text ${colors.primary} · accent ${colors.accent}` +
-        (exampleSlideHtml ? "  [+formato]" : "  [sin formato aún]")
+        (exampleSlideHtml ? "  [+formato]" : "  [sin formato aún]") +
+        (assetCount ? `  [${assetCount} assets]` : "  [sin assets]")
     );
   }
 

@@ -23,6 +23,10 @@ AI-powered Instagram carousel builder. Next.js 16 + React 19 + TypeScript + Tail
 - `src/lib/data.ts` — JSON storage with proper async-mutex and atomic writes
 - `src/lib/carousels.ts` — Carousel and slide CRUD with version history
 - `src/lib/claude-path.ts` — Portable Claude CLI discovery
+- `30x/avatars/<slug>/assets/` — Per-avatar brand assets (`logo/`, `fotos/`, `fondos/`,
+  `referencias/`), versioned in git. Drop files in; `scripts/import-avatars.mjs` picks them up on
+  next launch (sets `logoPath`, lists asset URLs in the preset's designRules). Served at
+  `/avatar-assets/<slug>/<kind>/<file>` by `src/app/avatar-assets/[slug]/[...file]/route.ts`
 
 ## API Routes
 
@@ -41,6 +45,7 @@ All at localhost:3000:
 - `GET/POST /api/templates` — Templates
 - `POST /api/upload` — Image upload (PNG/JPG/WebP only, max 10MB)
 - `GET /api/fonts` — Google Fonts list
+- `GET /avatar-assets/{slug}/{kind}/{file}` — Serve per-avatar brand assets from `30x/avatars/`
 
 ## Conventions
 

@@ -35,9 +35,10 @@ apretar nada. En el panel `/30x` los ves agrupados por avenger con su estado en 
 | `src/lib/prewave.ts` | Cliente de la cola `agent_jobs` de producción |
 | `src/lib/instagram.ts` | Descarga el referente de IG |
 | `30x/avatars/<slug>/adn.json` | **Identidad de cada mentor**: fuente, paleta, voz. Fuente de verdad |
+| `30x/avatars/<slug>/assets/` | **Assets de marca de cada avenger** (logo, fotos, fondos, referencias). Soltá archivos ahí y quedan versionados en git — viajan a todo el equipo y el sistema los detecta solo al arrancar. Ver el README de la carpeta |
 | `30x/scripts/` | Generadores del calco (`build_calco.py`) + `content.json` con el contenido extraído |
 | `public/30x-slides/` | Formatos de referencia por avatar + los 3 layouts de calco validados |
-| `public/uploads/` | Fotos de los mentores y assets de marca. **Fuera de git a propósito** (pesan) |
+| `public/uploads/` | Subidas sueltas desde la app (referentes, imágenes de trabajo). **Fuera de git a propósito** (pesan). Los assets de marca de cada avenger ya NO van acá: van a `30x/avatars/<slug>/assets/` |
 | `30x/brand-kit/` | Fuentes (Inter/Archivo), logos, paleta, degradados, referencias, universo gráfico, brandbook y podcasts. 520 MB, **fuera de git** |
 | `data/style-presets.json` | Presets generados desde los `adn.json` (`node scripts/import-avatars.mjs`) |
 | `docs/` | Plan de migración y guías |
