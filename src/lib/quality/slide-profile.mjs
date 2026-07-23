@@ -24,7 +24,7 @@ const OFF_LIENZO_FIJO = {
     'Jerarquía semántica de headings. La lámina termina siendo un PNG: no hay lector ' +
     'de pantalla ni SEO que la consuma. La jerarquía visual la cubre flat-type-hierarchy.',
   'body-text-viewport-edge':
-    'Reemplazada por la regla propia safe-margin, que es más estricta (100px) y está ' +
+    'Reemplazada por la regla propia safe-margin, que es más estricta (108px) y está ' +
     'calibrada al recorte de Instagram.',
 };
 

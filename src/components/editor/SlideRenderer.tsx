@@ -10,6 +10,9 @@ interface SlideRendererProps {
   aspectRatio: AspectRatio;
   className?: string;
   style?: React.CSSProperties;
+  /** Se renderiza DENTRO del box escalado de la lámina (no del contenedor con
+      letterbox), así un overlay con inset-0 coincide con el rectángulo real. */
+  overlay?: React.ReactNode;
 }
 
 export function SlideRenderer({
@@ -17,6 +20,7 @@ export function SlideRenderer({
   aspectRatio,
   className,
   style,
+  overlay,
 }: SlideRendererProps) {
   const outerRef = useRef<HTMLDivElement>(null);
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
@@ -101,6 +105,7 @@ export function SlideRenderer({
               pointerEvents: "none",
             }}
           />
+          {overlay}
         </div>
       )}
     </div>

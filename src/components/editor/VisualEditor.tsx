@@ -6,6 +6,7 @@ import { DIMENSIONS, type AspectRatio } from "@/types/carousel";
 import { Button } from "@/components/ui/button";
 import { Section } from "@/components/ui/section";
 import { BackgroundPicker } from "./BackgroundPicker";
+import { SafeZoneOverlay } from "./SafeZoneOverlay";
 import {
   Type,
   Image as ImageIcon,
@@ -76,9 +77,10 @@ interface VisualEditorProps {
   html: string;
   aspectRatio: AspectRatio;
   onChange: (html: string) => void; // se llama con el HTML serializado tras cada edición
+  showSafeZones?: boolean;
 }
 
-export function VisualEditor({ html, aspectRatio, onChange }: VisualEditorProps) {
+export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = false }: VisualEditorProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [sel, setSel] = useState<Selection>({ none: true });
@@ -236,6 +238,9 @@ export function VisualEditor({ html, aspectRatio, onChange }: VisualEditorProps)
                 left: 0,
               }}
             />
+            {/* Guías de zona segura sobre el lienzo: pointer-events-none, así
+                no interfieren con la selección/arrastre dentro del iframe. */}
+            <SafeZoneOverlay aspectRatio={aspectRatio} visible={showSafeZones} />
           </div>
         )}
       </div>

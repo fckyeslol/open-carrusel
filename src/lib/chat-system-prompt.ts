@@ -231,7 +231,7 @@ Cada lámina es HTML A NIVEL BODY. NADA de <!DOCTYPE>, <html>, <head> ni <body> 
 - Jerarquía por ESCALA: el número/palabra clave de la portada gigante (150px+), legible incluso en el recorte cuadrado del feed.
 - Usá la paleta del avatar SIEMPRE: fondos ${C.background}/${C.surface}, texto ${C.primary}/${C.secondary}, acento ${C.accent} para lo que resalta. Contraste texto/fondo ≥ 4.5:1 (si el acento es claro, usá ${C.primary} o #FFFFFF para el texto, no el acento).
 - Recursos: watermarks tipográficos grandes con baja opacidad, barras de acento, tarjetas con sombra, fotos enmascaradas, degradados sutiles (CSS). Sin emojis: usá caracteres ✦ ✧ → ← ✓.
-- Contenido crítico dentro de 100px de margen; los decorativos pueden sangrar hasta el borde.
+- Zona segura: todo el texto y contenido crítico dentro de un padding firme de 108px por lado (lateral, arriba y abajo); los decorativos pueden sangrar hasta el borde.
 
 ## VERIFICACIÓN VISUAL — obligatoria por lámina
 Después de crear CADA lámina, antes de pasar a la siguiente:

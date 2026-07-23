@@ -17,7 +17,7 @@ import { ExportPptxButton } from "@/components/editor/ExportPptxButton";
 import { CaptionPanel } from "@/components/editor/CaptionPanel";
 import { FullscreenPreview } from "@/components/editor/FullscreenPreview";
 import { SaveState } from "@/components/editor/SaveState";
-import type { Carousel, AspectRatio } from "@/types/carousel";
+import type { Carousel, AspectRatio, Slide } from "@/types/carousel";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -36,6 +36,10 @@ export default function CarouselEditorPage({ params }: PageProps) {
   const [editMode, setEditMode] = useState(false);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error" | "stale">("idle");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Espejo en vivo del HTML editado por lámina (slideId → html). Es un ref para
+  // no re-renderizar la tira en cada tecla; sirve para que el fullscreen muestre
+  // lo que estás editando ahora y no la versión anterior del carrusel.
+  const liveEditsRef = useRef<Record<string, string>>({});
 
   // Guarda el HTML editado (debounced). CLAVE para la fluidez: NO tocamos el
   // estado de React mientras se edita — hacerlo re-renderizaba los 7 iframes de
@@ -43,6 +47,7 @@ export default function CarouselEditorPage({ params }: PageProps) {
   // refresca al salir del modo edición.
   const handleSlideHtmlChange = useCallback(
     (slideId: string, newHtml: string) => {
+      liveEditsRef.current[slideId] = newHtml;
       if (saveTimer.current) clearTimeout(saveTimer.current);
       setSaveState("saving");
       saveTimer.current = setTimeout(async () => {
@@ -64,6 +69,24 @@ export default function CarouselEditorPage({ params }: PageProps) {
     [id]
   );
   const [showFullscreen, setShowFullscreen] = useState(false);
+  // Snapshot de láminas para el fullscreen. Se calcula al abrir fusionando las
+  // ediciones en vivo, así "expandir" refleja el estado actual y no el guardado.
+  const [fullscreenSlides, setFullscreenSlides] = useState<Slide[] | null>(null);
+
+  const openFullscreen = useCallback(() => {
+    // Solo en modo edición hace falta el snapshot: fuera de él, carousel.slides
+    // ya es la fuente de verdad y conviene pasarlo vivo (la IA puede seguir
+    // agregando láminas mientras el fullscreen está abierto).
+    const edits = liveEditsRef.current;
+    setFullscreenSlides(
+      editMode && carousel
+        ? carousel.slides.map((s) =>
+            edits[s.id] != null ? { ...s, html: edits[s.id] } : s
+          )
+        : null
+    );
+    setShowFullscreen(true);
+  }, [editMode, carousel]);
   // Generación 30x: mensaje a auto-enviar al chat cuando el carrusel viene de un
   // referente recién ingestado (la /30x guarda el mensaje en sessionStorage).
   const [autoGenMsg, setAutoGenMsg] = useState<string | undefined>(undefined);
@@ -117,9 +140,14 @@ export default function CarouselEditorPage({ params }: PageProps) {
     }
   }, [id]);
 
-  // Al salir del modo edición, refrescamos el carrusel (actualiza la tira).
+  // Al salir del modo edición, refrescamos el carrusel (actualiza la tira) y
+  // descartamos las ediciones en vivo: el servidor ya es la fuente de verdad y
+  // un snapshot viejo no debe pisar contenido regenerado después.
   useEffect(() => {
-    if (!editMode) fetchCarousel();
+    if (!editMode) {
+      liveEditsRef.current = {};
+      fetchCarousel();
+    }
   }, [editMode, fetchCarousel]);
 
   // Initial data load
@@ -268,8 +296,11 @@ export default function CarouselEditorPage({ params }: PageProps) {
       {/* Fullscreen preview */}
       <FullscreenPreview
         open={showFullscreen}
-        onOpenChange={setShowFullscreen}
-        slides={carousel.slides}
+        onOpenChange={(open) => {
+          setShowFullscreen(open);
+          if (!open) setFullscreenSlides(null);
+        }}
+        slides={fullscreenSlides ?? carousel.slides}
         aspectRatio={carousel.aspectRatio}
         activeIndex={activeSlide}
         onActiveChange={setActiveSlide}
@@ -331,7 +362,7 @@ export default function CarouselEditorPage({ params }: PageProps) {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setShowFullscreen(true)}
+              onClick={openFullscreen}
               className="text-muted-foreground"
               aria-label="Fullscreen preview"
               title="Fullscreen preview"
@@ -413,6 +444,7 @@ export default function CarouselEditorPage({ params }: PageProps) {
               onChange={(newHtml) =>
                 handleSlideHtmlChange(carousel.slides[activeSlide].id, newHtml)
               }
+              showSafeZones={showSafeZones}
             />
           ) : (
             <CarouselPreview

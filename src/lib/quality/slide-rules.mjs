@@ -12,7 +12,9 @@ import path from 'node:path';
 import { DIMENSIONES } from './dimensiones.mjs';
 
 const RAIZ = process.cwd();
-const MARGEN_SEGURO_PX = 100;
+// Debe coincidir con SAFE_PADDING_PX del SafeZoneOverlay y con el system prompt:
+// la zona segura es un padding firme de 108px por lado (10% del ancho de 1080px).
+const MARGEN_SEGURO_PX = 108;
 
 function hallazgo(id, nombre, severidad, mensaje, snippet) {
   return { antipattern: id, name: nombre, severity: severidad, description: mensaje, snippet, origen: '30x' };
@@ -148,7 +150,7 @@ function dimensionesDelLienzo(html, aspectRatio, dimensiones) {
 
 /**
  * Instagram superpone UI sobre los bordes de la lámina. El system prompt pide
- * 100px de margen para contenido crítico, pero hoy nada lo verifica.
+ * 108px de margen para contenido crítico; esta regla lo verifica.
  *
  * Alcance honesto: esto lee posicionamiento absoluto declarado, no layout
  * calculado. Detecta el caso frecuente (position:absolute con un offset chico);

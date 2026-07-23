@@ -8,67 +8,41 @@ interface SafeZoneOverlayProps {
   visible: boolean;
 }
 
+// Padding firme de 108px por lado — lateral, arriba y abajo — medido sobre el
+// lienzo real (1080px de ancho). Todo lo que viva DENTRO de este recuadro es la
+// "zona segura": no se recorta en el grid ni queda tapado por la UI de Instagram.
+// El texto siempre debe quedar acá adentro.
+const SAFE_PADDING_PX = 108;
+
 export function SafeZoneOverlay({ aspectRatio, visible }: SafeZoneOverlayProps) {
   if (!visible) return null;
 
   const { width, height } = DIMENSIONS[aspectRatio];
-  const isPortrait = height > width;
 
-  // Grid crop zone: Instagram shows center square on profile grid
-  const gridCropTop = isPortrait ? ((height - width) / 2 / height) * 100 : 0;
-  const gridCropBottom = isPortrait ? ((height - width) / 2 / height) * 100 : 0;
-
-  // Bottom UI overlay: ~14% of height (like/save buttons area)
-  const bottomUiPercent = 14;
+  // El overlay se estira al 100% del lienzo escalado, así que convertimos los
+  // 108px a porcentaje de cada eje. Así el recuadro corresponde a exactamente
+  // 108px reales en la exportación sin importar el zoom del preview.
+  const padX = (SAFE_PADDING_PX / width) * 100;
+  const padY = (SAFE_PADDING_PX / height) * 100;
 
   return (
-    <div className="absolute inset-0 pointer-events-none z-10">
-      {/* Grid crop zone — top */}
-      {isPortrait && (
-        <div
-          className="absolute left-0 right-0 top-0 bg-red-500/10 border-b border-dashed border-red-400/50"
-          style={{ height: `${gridCropTop}%` }}
-        >
-          <span className="absolute bottom-1 left-2 text-[8px] text-red-500/70 font-medium">
-            Grid crop
-          </span>
-        </div>
-      )}
-
-      {/* Grid crop zone — bottom */}
-      {isPortrait && (
-        <div
-          className="absolute left-0 right-0 bottom-0 bg-red-500/10 border-t border-dashed border-red-400/50"
-          style={{ height: `${gridCropBottom}%` }}
-        >
-          <span className="absolute top-1 left-2 text-[8px] text-red-500/70 font-medium">
-            Grid crop
-          </span>
-        </div>
-      )}
-
-      {/* Bottom UI overlay zone */}
+    <div className="absolute inset-0 pointer-events-none z-10 overflow-hidden">
+      {/* Recuadro de zona segura. El box-shadow gigante hacia afuera oscurece
+          todo el margen de 108px, dejando claro visualmente dónde NO poner
+          contenido; el overflow-hidden del contenedor recorta la sombra al
+          borde del lienzo. */}
       <div
-        className="absolute left-0 right-0 bottom-0 bg-blue-500/8 border-t border-dashed border-blue-400/40"
-        style={{ height: `${bottomUiPercent}%` }}
-      >
-        <span className="absolute top-1 right-2 text-[8px] text-blue-500/60 font-medium">
-          UI overlay
-        </span>
-      </div>
-
-      {/* Safe zone border — center 80% */}
-      <div
-        className="absolute border border-dashed border-green-400/40 rounded-sm"
+        className="absolute rounded-sm border border-dashed border-emerald-400/80"
         style={{
-          left: "10%",
-          right: "10%",
-          top: "10%",
-          bottom: `${Math.max(10, bottomUiPercent + 2)}%`,
+          left: `${padX}%`,
+          right: `${padX}%`,
+          top: `${padY}%`,
+          bottom: `${padY}%`,
+          boxShadow: "0 0 0 9999px rgba(0,0,0,0.28)",
         }}
       >
-        <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-[8px] text-green-500/70 font-medium bg-white/80 px-1 rounded">
-          Safe zone
+        <span className="absolute -top-[19px] left-0 whitespace-nowrap rounded bg-black/70 px-1.5 py-0.5 text-[9px] font-medium text-emerald-200">
+          Zona segura · 108px
         </span>
       </div>
     </div>
