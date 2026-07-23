@@ -129,6 +129,13 @@ export async function prepareRenderableHtml(
 /**
  * Export a single slide to PNG buffer.
  */
+/**
+ * Render scale for exports. 2 = supersampling: Chrome renders at 2160×2700
+ * (4:5), so text and edges come out crisp. Instagram accepts up to 2160px
+ * wide and downscales with better results than a 1080px source.
+ */
+const EXPORT_SCALE = 2;
+
 export async function exportSlide(
   slide: Slide,
   aspectRatio: AspectRatio
@@ -141,7 +148,7 @@ export async function exportSlide(
   const page = await br.newPage();
 
   try {
-    await page.setViewport({ width, height, deviceScaleFactor: 1 });
+    await page.setViewport({ width, height, deviceScaleFactor: EXPORT_SCALE });
     await page.setContent(fullHtml, { waitUntil: "domcontentloaded", timeout: 15000 });
 
     // Wait for fonts to be ready

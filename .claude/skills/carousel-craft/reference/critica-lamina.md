@@ -60,12 +60,16 @@ misma estructura.
 
 ### 1b. Materialidad
 
-Solo aplica cuando el referente es un objeto fotografiado: papel, cartón, tela,
-pared, pantalla.
+Solo aplica cuando el usuario pidió **explícitamente** el efecto de textura/grano
+en el chat. Si NO lo pidió, la dimensión se evalúa al revés: cualquier grano,
+ruido o feTurbulence superpuesto es un **defecto que hay que quitar** — sobre
+todo encima de una foto de fondo, donde el grano la ensucia. Sin pedido
+explícito, fondo limpio = 4 y lámina con grano = 0.
 
-- ¿El grano se ve **igual de fuerte**, o insinuaste una textura que a tamaño
-  miniatura desaparece? Quedarse corto es el error por defecto: una capa de ruido
-  al 5% lee "digital" y tira abajo todo el calco.
+Cuando sí lo pidió:
+
+- ¿El grano se ve **igual de fuerte** que el referente, o insinuaste una textura
+  que a tamaño miniatura desaparece? Una capa de ruido al 5% lee "digital".
 - ¿Los dobleces proyectan sombra, o son degradados difusos? Un pliegue sin sombra
   se ve impreso, no plegado.
 - ¿El grano es del tipo correcto — moteado uniforme vs fibra direccional?

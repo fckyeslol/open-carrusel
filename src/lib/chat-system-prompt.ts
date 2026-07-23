@@ -160,12 +160,12 @@ ${presetSection}
 ## CALCAR (cómo lograr que NO se vea "hecho por IA")
 No hagas TU diseño limpio. **Calcá** el referente como papel de calco: descomponé la imagen (posiciones exactas, tamaños, qué va grande/centrado, texturas, elementos hechos a mano) y reproducí CADA elemento tal cual, cambiando SOLO fuente y colores.
 - **NO agregues chrome que el referente no tenga.** Si el referente no tiene logo / kicker / firma / handle / número de página, tu lámina TAMPOCO. Nada de marcos de template.
-- Si el referente se ve "hecho a mano" (papel, pinceladas, garabatos), reproducí ESA textura — no lo pases a formas limpias y geométricas.
+- Si el referente se ve "hecho a mano" (pinceladas, garabatos, formas irregulares), reproducí esos elementos — no los pases a formas limpias y geométricas. Ojo: el grano/ruido de fondo NO entra acá — se rige por la regla de MATERIALIDAD de abajo (solo si el usuario lo pide).
 
-### MATERIALIDAD — igualá la intensidad del referente, no la insinúes
-Si el referente es un objeto fotografiado (papel, cartón, tela, pared), tu lámina tiene que leerse como ese objeto, no como un fondo plano. **El defecto más frecuente es quedarse corto:** una textura tenue lee "digital" a tamaño miniatura y ahí se pierde todo el calco.
+### MATERIALIDAD — grano/textura SOLO si el usuario lo pide explícitamente
+**Por defecto: CERO grano.** No superpongas texturas de ruido, feTurbulence ni overlays granulados en ninguna lámina — aunque el referente parezca un objeto fotografiado, y NUNCA sobre una foto de fondo (el grano ensucia la foto y mata el resultado). Un fondo limpio siempre es el default. El efecto solo existe cuando el usuario lo pide explícitamente en el chat ("con grano", "textura de papel", "efecto impreso").
 
-**Usá la librería de texturas — NO generes grano con feTurbulence a mano.** Reinventar el grano con filtros SVG es caro, inconsistente y casi siempre sale flojo. Ya hay texturas horneadas a resolución completa listas para superponer:
+**Cuando SÍ te lo pidan — usá la librería de texturas, NO generes grano con feTurbulence a mano.** Reinventar el grano con filtros SVG es caro, inconsistente y casi siempre sale flojo. Ya hay texturas horneadas a resolución completa listas para superponer:
 ${textureBlock}
 Cómo aplicarlas: un div a pantalla completa (1080x1350) con la textura como \`background\`, \`background-size:cover\`, \`position:absolute; inset:0\`, y **\`mix-blend-mode:overlay\`**. Las texturas están centradas en gris 128, así que overlay oscurece y aclara preservando el color del fondo — la misma textura funciona sobre el rojo de una lámina y el navy de la siguiente. Ponela DETRÁS del texto (z-index menor) para que la tinta quede limpia encima.
 
@@ -175,6 +175,8 @@ Calibración: renderizá, abrí tu PNG y el referente lado a lado, y preguntate 
 
 - **Dobleces de papel:** líneas de pliegue, no degradados difusos. Por cada doblez, DOS elementos pegados: una franja clara de 1-2px (el filo que refleja la luz) y al lado una franja oscura de 6-14px con blur suave (la sombra que cae). Un póster plegado en cuartos lleva una vertical al centro y dos horizontales a 1/3 y 2/3. Si el pliegue no proyecta sombra, se ve impreso, no plegado.
 - **Solo si ninguna textura de la librería sirve** (una superficie que no esté cubierta): recién ahí un feTurbulence propio — fractalNoise, baseFrequency un valor para moteado / dos valores dispares para fibra, saturate 0, sobre un rect a pantalla completa. Pero primero mirá si una de las de arriba ya empata.
+
+**Kit de técnicas de calco** (estas SÍ siempre disponibles cuando el referente las muestre — no dependen de que pidan textura):
 - **Pincelada de borde rugoso** (para resaltar palabras/labels, en vez de un rectángulo limpio): definí una vez un filter con feTurbulence type=fractalNoise baseFrequency "0.015 0.13" numOctaves 2 result=n + feDisplacementMap in=SourceGraphic in2=n scale 34, y aplicá ese filter a un rect (rx 10, fill=COLOR) puesto detrás del texto.
 - **UI de chat** (input): tarjeta redondeada con tinte claro + un signo "más" abajo-izq + un ícono de micrófono + un botón circular oscuro con una flecha hacia arriba de enviar abajo-der.
 - **Flecha dibujada a mano:** un svg con un path curvo (ej. d="M92 244C116 168 104 74 54 26", stroke=COLOR, stroke-width 5, stroke-linecap round, fill none) + un path de punta de flecha — colocala en el MARGEN, nunca cruzando el texto.
