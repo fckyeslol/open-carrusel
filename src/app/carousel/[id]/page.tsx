@@ -40,21 +40,25 @@ export default function CarouselEditorPage({ params }: PageProps) {
   // lo que estás editando ahora y no la versión anterior del carrusel.
   const liveEditsRef = useRef<Record<string, string>>({});
 
-  // Guarda el HTML editado (debounced). CLAVE para la fluidez: NO tocamos el
-  // estado de React mientras se edita — hacerlo re-renderizaba los 7 iframes de
-  // la tira en cada micro-cambio y era la principal fuente de jank. La tira se
-  // refresca al salir del modo edición.
-  const handleSlideHtmlChange = useCallback(
-    (slideId: string, newHtml: string) => {
-      liveEditsRef.current[slideId] = newHtml;
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-      setSaveState("saving");
-      saveTimer.current = setTimeout(async () => {
+  // Última edición que el server todavía no confirmó. Permite "flushear" el
+  // guardado pendiente (salida del modo edición, cierre de la página) en vez de
+  // perder los últimos 600 ms de trabajo por el debounce.
+  const pendingSaveRef = useRef<{ slideId: string; html: string } | null>(null);
+  // Cadena de PUTs: garantiza que los guardados llegan al server EN ORDEN.
+  // Sin esto, un flush podía adelantarse a un PUT en vuelo y una versión vieja
+  // pisaba a la nueva.
+  const saveChainRef = useRef<Promise<void>>(Promise.resolve());
+
+  const putSlide = useCallback(
+    (slideId: string, newHtml: string, keepalive = false) => {
+      saveChainRef.current = saveChainRef.current.then(async () => {
         try {
           const res = await fetch(`/api/carousels/${id}/slides/${slideId}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ html: newHtml }),
+            // keepalive: el guardado sobrevive aunque la página se esté cerrando
+            keepalive,
           });
           // 404 = la lámina ya no existe (el carrusel cambió por fuera). Antes esto
           // fallaba en silencio y se perdía todo lo editado.
@@ -63,10 +67,61 @@ export default function CarouselEditorPage({ params }: PageProps) {
         } catch (e) {
           setSaveState((e as Error).message === "stale" ? "stale" : "error");
         }
-      }, 600);
+      });
+      return saveChainRef.current;
     },
     [id]
   );
+
+  // Dispara YA el guardado pendiente (si lo hay) y devuelve su promesa.
+  const flushPendingSave = useCallback(
+    (keepalive = false) => {
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+      }
+      const pending = pendingSaveRef.current;
+      if (!pending) return Promise.resolve();
+      pendingSaveRef.current = null;
+      return putSlide(pending.slideId, pending.html, keepalive);
+    },
+    [putSlide]
+  );
+
+  // Guarda el HTML editado (debounced). CLAVE para la fluidez: NO tocamos el
+  // estado de React mientras se edita — hacerlo re-renderizaba los 7 iframes de
+  // la tira en cada micro-cambio y era la principal fuente de jank. La tira se
+  // refresca al salir del modo edición.
+  const handleSlideHtmlChange = useCallback(
+    (slideId: string, newHtml: string) => {
+      liveEditsRef.current[slideId] = newHtml;
+      pendingSaveRef.current = { slideId, html: newHtml };
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      setSaveState("saving");
+      saveTimer.current = setTimeout(() => {
+        saveTimer.current = null;
+        const pending = pendingSaveRef.current;
+        if (!pending) return;
+        pendingSaveRef.current = null;
+        putSlide(pending.slideId, pending.html);
+      }, 600);
+    },
+    [putSlide]
+  );
+
+  // Si la página se cierra o recarga con un guardado pendiente, lo mandamos con
+  // keepalive: sin esto los últimos 600 ms de edición se perdían al navegar.
+  useEffect(() => {
+    const onPageHide = () => {
+      flushPendingSave(true);
+    };
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      // desmontaje por navegación interna: mismo flush, sin keepalive
+      flushPendingSave();
+    };
+  }, [flushPendingSave]);
   const [showFullscreen, setShowFullscreen] = useState(false);
   // Snapshot de láminas para el fullscreen. Se calcula al abrir fusionando las
   // ediciones en vivo, así "expandir" refleja el estado actual y no el guardado.
@@ -142,12 +197,22 @@ export default function CarouselEditorPage({ params }: PageProps) {
   // Al salir del modo edición, refrescamos el carrusel (actualiza la tira) y
   // descartamos las ediciones en vivo: el servidor ya es la fuente de verdad y
   // un snapshot viejo no debe pisar contenido regenerado después.
+  // El flush va PRIMERO y se espera: sin eso, el fetch le ganaba la carrera al
+  // PUT debounced y la vista recargaba la versión anterior de la lámina (el
+  // clásico "centré el logo, salí, y apareció movido").
   useEffect(() => {
     if (!editMode) {
-      liveEditsRef.current = {};
-      fetchCarousel();
+      let cancelled = false;
+      flushPendingSave().then(() => {
+        if (cancelled) return;
+        liveEditsRef.current = {};
+        fetchCarousel();
+      });
+      return () => {
+        cancelled = true;
+      };
     }
-  }, [editMode, fetchCarousel]);
+  }, [editMode, fetchCarousel, flushPendingSave]);
 
   // Initial data load
   useEffect(() => {
@@ -434,7 +499,13 @@ export default function CarouselEditorPage({ params }: PageProps) {
           {editMode && carousel.slides[activeSlide] ? (
             <VisualEditor
               key={carousel.slides[activeSlide].id}
-              html={carousel.slides[activeSlide].html}
+              // Prioriza la edición en vivo: al cambiar de lámina y volver (el
+              // editor se remonta), carousel.slides trae el HTML de ANTES de
+              // entrar al modo edición — montarlo pisaría lo recién editado.
+              html={
+                liveEditsRef.current[carousel.slides[activeSlide].id] ??
+                carousel.slides[activeSlide].html
+              }
               aspectRatio={carousel.aspectRatio}
               onChange={(newHtml) =>
                 handleSlideHtmlChange(carousel.slides[activeSlide].id, newHtml)
