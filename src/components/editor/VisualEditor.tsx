@@ -436,7 +436,8 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
               Doble clic cambia el texto; ahí podés <b>marcar una parte</b> y los cambios de
               tipografía se aplican solo a esa parte. Arrastrá para mover; en texto, las{" "}
               <b>esquinas</b> escalan la tipografía y los <b>laterales</b> ajustan el ancho.
-              El <b>punto rosa</b> rota el elemento.
+              El <b>círculo rosa con ↻</b> arriba del elemento lo rota: arrastralo en
+              la dirección del giro (imán cada 45°).
             </p>
           )}
 

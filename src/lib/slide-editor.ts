@@ -56,7 +56,11 @@ export const EDITOR_RUNTIME = String.raw`
   st.textContent='*{cursor:default}'
     +'[data-oc-ui]{pointer-events:none}'
     +'.oc-h{position:absolute;width:14px;height:14px;background:#fff;border:2px solid #4f7cff;border-radius:50%;pointer-events:auto;cursor:nwse-resize;z-index:3}'
-    +'.oc-rot{border-color:#ff3b7f;cursor:grab}'
+    +'.oc-rot{width:32px;height:32px;background:#ff3b7f;border-color:#fff;color:#fff;cursor:grab;display:flex;align-items:center;justify-content:center;font-size:20px;line-height:1;box-shadow:0 2px 8px rgba(0,0,0,.35);z-index:4}'
+    +'.oc-rot:active{cursor:grabbing}'
+    +'.oc-rotline{position:absolute;left:0;top:0;width:2px;background:#ff3b7f;opacity:.85;z-index:2}'
+    +'.oc-deg{position:absolute;left:0;top:0;background:#ff3b7f;color:#fff;font:600 13px/1.35 -apple-system,system-ui,sans-serif;padding:2px 9px;border-radius:6px;white-space:nowrap;pointer-events:none;z-index:2147483002;display:none;box-shadow:0 2px 8px rgba(0,0,0,.35)}'
+    +'.oc-rotating,.oc-rotating *{cursor:grabbing !important}'
     +'.oc-box{position:absolute;outline:2px solid #4f7cff;outline-offset:1px}'
     +'.oc-gl{position:absolute;background:#ff3b7f}';
   document.head.appendChild(st);
@@ -150,9 +154,9 @@ export const EDITOR_RUNTIME = String.raw`
 
   // ── overlay persistente: se crea al cambiar la selección y se REPOSICIONA
   //    (nunca se reconstruye) durante el arrastre → sin jank. ──────────────────
-  var boxes=[], handles=[];
+  var boxes=[], handles=[], rotLine=null;
   function paint(){
-    ui.innerHTML=''; boxes=[]; handles=[];
+    ui.innerHTML=''; boxes=[]; handles=[]; rotLine=null;
     sels.forEach(function(el){
       var r=el.getBoundingClientRect();
       var b=document.createElement('div'); b.className='oc-box';
@@ -185,11 +189,14 @@ export const EDITOR_RUNTIME = String.raw`
         h.addEventListener('mousedown', function(ev){ startResize(ev,c[0]); });
         ui.appendChild(h); handles.push({el:h,c:c[0]});
       });
-      // handle de rotación (rosa), separado del bbox para no tapar el elemento
+      // conector + handle de rotación (rosa con ↻), separado del bbox para no tapar
+      // el elemento. El círculo grande y el ícono lo hacen fácil de encontrar.
       var rp=rotPos(r);
+      var rl=document.createElement('div'); rl.className='oc-rotline';
+      ui.appendChild(rl); rotLine=rl; placeRotLine(r);
       var rh=document.createElement('div'); rh.className='oc-h oc-rot';
-      rh.title='Rotar';
-      rh.style.cssText+=';left:0;top:0;transform:translate('+(rp[0]-7)+'px,'+(rp[1]-7)+'px)';
+      rh.title='Arrastrá para rotar'; rh.textContent='↻';
+      rh.style.cssText+=';left:0;top:0;transform:translate('+(rp[0]-16)+'px,'+(rp[1]-16)+'px)';
       rh.addEventListener('mousedown', startRotate);
       ui.appendChild(rh); handles.push({el:rh,c:'rot'});
     }
@@ -198,6 +205,15 @@ export const EDITOR_RUNTIME = String.raw`
   function rotPos(r){
     var mx=(r.left+r.right)/2;
     return [mx, r.top>44 ? r.top-28 : r.bottom+28];
+  }
+  /** Traza el conector vertical entre el borde del elemento y el handle de rotación. */
+  function placeRotLine(r){
+    if(!rotLine) return;
+    var mx=(r.left+r.right)/2, my=(r.top+r.bottom)/2, rp=rotPos(r);
+    var edge = rp[1]<my ? r.top : r.bottom;   // el borde del que sale el conector
+    var top=Math.min(rp[1],edge), h=Math.abs(edge-rp[1]);
+    rotLine.style.height=h+'px';
+    rotLine.style.transform='translate('+(mx-1)+'px,'+top+'px)';
   }
   /** Reposiciona el overlay sumando un delta a los rects cacheados (barato). */
   function offsetBoxes(rects,dx,dy){
@@ -216,7 +232,9 @@ export const EDITOR_RUNTIME = String.raw`
     var pos={nw:[r.left,r.top],ne:[r.right,r.top],sw:[r.left,r.bottom],se:[r.right,r.bottom],
              n:[mx,r.top],s:[mx,r.bottom],w:[r.left,my],e:[r.right,my],rot:rotPos(r)};
     handles.forEach(function(h){ var p=pos[h.c]; if(!p) return;
-      h.el.style.transform='translate('+(p[0]-7)+'px,'+(p[1]-7)+'px)'; });
+      var o=h.c==='rot'?16:7;   // el handle de rotación es más grande (32px)
+      h.el.style.transform='translate('+(p[0]-o)+'px,'+(p[1]-o)+'px)'; });
+    placeRotLine(r);
   }
   function showHandles(v){ handles.forEach(function(h){ h.el.style.display=v?'block':'none'; }); }
   // capa de guías: se crea UNA vez y solo se muestra/oculta (sin churn de DOM)
@@ -226,6 +244,10 @@ export const EDITOR_RUNTIME = String.raw`
   gV.style.cssText='position:absolute;top:0;left:0;width:1px;height:'+H+'px;background:#ff3b7f;display:none';
   gH.style.cssText='position:absolute;left:0;top:0;height:1px;width:'+W+'px;background:#ff3b7f;display:none';
   gl.appendChild(gV); gl.appendChild(gH); document.body.appendChild(gl);
+  // Badge con los grados en vivo mientras se rota. Vive en la capa de guías (que
+  // nunca se reconstruye), así persiste durante todo el arrastre.
+  var degBadge=document.createElement('div'); degBadge.className='oc-deg'; degBadge.setAttribute('data-oc-ui','1');
+  gl.appendChild(degBadge);
   function guides(gx,gy){
     if(gx!=null){ gV.style.display='block'; gV.style.transform='translateX('+gx+'px)'; } else gV.style.display='none';
     if(gy!=null){ gH.style.display='block'; gH.style.transform='translateY('+gy+'px)'; } else gH.style.display='none';
@@ -434,7 +456,7 @@ export const EDITOR_RUNTIME = String.raw`
     // bajo el puntero (tras rotar suele ser "nada" → deseleccionaba). Lo tragamos.
     // Se auto-apaga en el próximo tick: si el navegador NO emite ese click
     // (targets distintos), el flag no puede comerse el siguiente clic real.
-    if(rot){ rot=null; squelchNext(); paint(); report(); serialize(); return; }
+    if(rot){ rot=null; squelchNext(); document.body.classList.remove('oc-rotating'); degBadge.style.display='none'; paint(); report(); serialize(); return; }
     if(rz){ rz=null; squelchNext(); paint(); report(); serialize(); return; }
     if(drag){ drag=null; squelchNext(); guides(); showHandles(true); paint(); report(); serialize(); }
   });
@@ -452,7 +474,8 @@ export const EDITOR_RUNTIME = String.raw`
     rot={el:el, cx:cx, cy:cy,
          a0:Math.atan2(e.clientY-cy, e.clientX-cx),
          r0:parseFloat(el.style.rotate)||0};
-    showHandles(false);
+    showHandles(false); if(rotLine) rotLine.style.display='none';
+    document.body.classList.add('oc-rotating');
     e.preventDefault(); e.stopPropagation();
   }
   // En SVG el origen de rotación por defecto es el (0,0) del view-box, no el
@@ -468,6 +491,11 @@ export const EDITOR_RUNTIME = String.raw`
     deg=((Math.round(deg*10)/10)%360+360)%360;
     rot.el.style.rotate=deg+'deg';
     syncOne();
+    // badge con los grados en vivo, centrado sobre el elemento
+    var br=rot.el.getBoundingClientRect();
+    degBadge.textContent=Math.round(deg)+'°';
+    degBadge.style.display='block';
+    degBadge.style.transform='translate('+(rot.cx-degBadge.offsetWidth/2)+'px,'+(br.top-36)+'px)';
   }
 
   function startResize(e,corner){
