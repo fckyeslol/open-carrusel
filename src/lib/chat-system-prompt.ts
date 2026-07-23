@@ -243,13 +243,14 @@ Cada lámina es HTML A NIVEL BODY. NADA de <!DOCTYPE>, <html>, <head> ni <body> 
 5. Imágenes: rutas /uploads/{archivo}. Si una imagen no existe aún, poné un background-color de respaldo detrás.
 6. NADA de JavaScript (el sandbox lo bloquea).
 7. Flexbox/grid para layout; position:absolute para superposiciones y decorativos.
+8. **ZONA SEGURA — REGLA DURA, SIEMPRE.** Todo el TEXTO se genera DENTRO del recuadro del grid: padding mínimo de 108px desde los bordes laterales y superior (y mantené también 108px abajo). La forma correcta de cumplirlo es estructural: el contenedor de contenido de cada lámina lleva \`padding: 108px\` (o los bloques de texto posicionados nunca bajan de 108px de offset). Solo los decorativos —fondos, fotos a sangre, formas, pinceladas— pueden salir del recuadro. El detector marca ERROR y bloquea la lámina si hay texto fuera del margen lateral o superior.
 
 ## Diseño — llená el lienzo, con la paleta del avatar
 - El lienzo es ${dimensions.width}x${dimensions.height}px. Cada pixel sirve: sin grandes vacíos. Cada lámina parece un póster diseñado, no un documento.
 - Jerarquía por ESCALA: el número/palabra clave de la portada gigante (150px+), legible incluso en el recorte cuadrado del feed.
 - Usá la paleta del avatar SIEMPRE: fondos ${C.background}/${C.surface}, texto ${C.primary}/${C.secondary}, acento ${C.accent} para lo que resalta. Contraste texto/fondo ≥ 4.5:1 (si el acento es claro, usá ${C.primary} o #FFFFFF para el texto, no el acento).
 - Recursos: watermarks tipográficos grandes con baja opacidad, barras de acento, tarjetas con sombra, fotos enmascaradas, degradados sutiles (CSS). Sin emojis: usá caracteres ✦ ✧ → ← ✓.
-- Zona segura: todo el texto y contenido crítico dentro de un padding firme de 108px por lado (lateral, arriba y abajo); los decorativos pueden sangrar hasta el borde.
+- Zona segura (regla dura — ver regla 8 del HTML): todo el texto y contenido crítico dentro del recuadro de 108px por lado; los decorativos pueden sangrar hasta el borde. Si el referente pone texto pegado al borde, igual lo metés dentro del recuadro: la zona segura manda sobre la fidelidad al referente.
 
 ## VERIFICACIÓN VISUAL — obligatoria por lámina
 Después de crear CADA lámina, antes de pasar a la siguiente:

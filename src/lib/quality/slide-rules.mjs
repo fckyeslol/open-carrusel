@@ -149,8 +149,10 @@ function dimensionesDelLienzo(html, aspectRatio, dimensiones) {
 }
 
 /**
- * Instagram superpone UI sobre los bordes de la lámina. El system prompt pide
- * 108px de margen para contenido crítico; esta regla lo verifica.
+ * Instagram superpone UI sobre los bordes de la lámina. El system prompt exige
+ * (regla dura) que TODO el texto viva dentro del recuadro del grid: 108px desde
+ * los bordes laterales y superior. Violarla en esos tres lados es ERROR y
+ * bloquea la lámina; el borde inferior queda en warning (firmas/CTA bajos).
  *
  * Alcance honesto: esto lee posicionamiento absoluto declarado, no layout
  * calculado. Detecta el caso frecuente (position:absolute con un offset chico);
@@ -177,14 +179,19 @@ function margenSeguro(html) {
     for (const offset of estilo.matchAll(/\b(top|bottom|left|right)\s*:\s*(-?\d+(?:\.\d+)?)px/gi)) {
       const valor = Number(offset[2]);
       if (valor >= MARGEN_SEGURO_PX) continue;
+      const lado = offset[1].toLowerCase();
+      // Regla dura en laterales y superior; abajo queda en warning porque las
+      // firmas/CTA a veces viven cerca del borde inferior por decisión.
+      const severidad = lado === 'bottom' ? 'warning' : 'error';
       hallazgos.push(
         hallazgo(
           'slide-safe-margin',
-          'Texto dentro del margen seguro',
-          'warning',
-          `${offset[1]}: ${valor}px deja el texto "${texto.slice(0, 40)}" dentro del ` +
-            `margen de ${MARGEN_SEGURO_PX}px, donde Instagram superpone su UI. ` +
-            `Los decorativos sí pueden sangrar; el texto no.`,
+          'Texto fuera del recuadro del grid',
+          severidad,
+          `${lado}: ${valor}px deja el texto "${texto.slice(0, 40)}" fuera del ` +
+            `recuadro del grid (padding firme de ${MARGEN_SEGURO_PX}px), donde ` +
+            `Instagram superpone su UI. El texto SIEMPRE se genera dentro del ` +
+            `recuadro; solo los decorativos pueden sangrar hasta el borde.`,
           offset[0],
         ),
       );
