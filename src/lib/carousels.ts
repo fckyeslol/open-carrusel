@@ -155,6 +155,8 @@ export async function updateSlide(
     if (slide.previousVersions.length > MAX_VERSIONS) {
       slide.previousVersions.shift();
     }
+    // Una edición nueva invalida el futuro: se descarta lo que se pudiera rehacer.
+    slide.redoVersions = [];
   }
 
   Object.assign(slide, updates);
@@ -215,8 +217,34 @@ export async function undoSlide(
   const slide = carousel.slides.find((s) => s.id === slideId);
   if (!slide || slide.previousVersions.length === 0) return null;
 
+  // El HTML actual se guarda en la pila de rehacer antes de retroceder.
+  if (!slide.redoVersions) slide.redoVersions = [];
+  slide.redoVersions.push(slide.html);
+  if (slide.redoVersions.length > MAX_VERSIONS) slide.redoVersions.shift();
+
   const previousHtml = slide.previousVersions.pop()!;
   slide.html = previousHtml;
+  carousel.updatedAt = now();
+  await save(data);
+  return slide;
+}
+
+export async function redoSlide(
+  carouselId: string,
+  slideId: string
+): Promise<Slide | null> {
+  const data = await load();
+  const carousel = data.carousels.find((c) => c.id === carouselId);
+  if (!carousel) return null;
+  const slide = carousel.slides.find((s) => s.id === slideId);
+  if (!slide || !slide.redoVersions || slide.redoVersions.length === 0) return null;
+
+  // El HTML actual vuelve a la pila de deshacer antes de reponer el siguiente.
+  slide.previousVersions.push(slide.html);
+  if (slide.previousVersions.length > MAX_VERSIONS) slide.previousVersions.shift();
+
+  const nextHtml = slide.redoVersions.pop()!;
+  slide.html = nextHtml;
   carousel.updatedAt = now();
   await save(data);
   return slide;

@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef, use } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Trash2, Grid3X3, Bookmark, Maximize2, Pencil, PanelLeft } from "lucide-react";
+import { Trash2, Grid3X3, Bookmark, Maximize2, Pencil, PanelLeft, Undo2, Redo2 } from "lucide-react";
 import { TopBar } from "@/components/layout/TopBar";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -33,6 +33,9 @@ export default function CarouselEditorPage({ params }: PageProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [showSafeZones, setShowSafeZones] = useState(false);
   const [editMode, setEditMode] = useState(false);
+  // Se incrementa al deshacer/rehacer para forzar el remonte del editor visual
+  // (que captura el HTML solo al montarse) y reflejar la versión restaurada.
+  const [editorNonce, setEditorNonce] = useState(0);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error" | "stale">("idle");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Espejo en vivo del HTML editado por lámina (slideId → html). Es un ref para
@@ -267,12 +270,64 @@ export default function CarouselEditorPage({ params }: PageProps) {
     });
   };
 
-  const handleUndoSlide = async (slideId: string) => {
-    const res = await fetch(`/api/carousels/${id}/slides/${slideId}/undo`, {
-      method: "POST",
-    });
-    if (res.ok) await fetchCarousel();
-  };
+  // Deshacer / rehacer sobre el historial persistido de una lámina.
+  // Flush primero: garantiza que el server tenga la última edición antes de
+  // mover el puntero del historial, así el Ctrl+Z retrocede desde el estado real.
+  const runSlideHistory = useCallback(
+    async (slideId: string, action: "undo" | "redo") => {
+      await flushPendingSave();
+      const res = await fetch(`/api/carousels/${id}/slides/${slideId}/${action}`, {
+        method: "POST",
+      });
+      if (!res.ok) return;
+      // La edición en vivo quedó obsoleta: el server es la fuente de verdad.
+      delete liveEditsRef.current[slideId];
+      setEditorNonce((n) => n + 1);
+      await fetchCarousel();
+    },
+    [id, flushPendingSave, fetchCarousel]
+  );
+
+  const handleUndoSlide = useCallback(
+    (slideId: string) => runSlideHistory(slideId, "undo"),
+    [runSlideHistory]
+  );
+
+  const handleRedoSlide = useCallback(
+    (slideId: string) => runSlideHistory(slideId, "redo"),
+    [runSlideHistory]
+  );
+
+  // Atajos globales de deshacer/rehacer sobre la lámina activa. En modo edición
+  // NO se enganchan: el editor visual maneja su propio Ctrl+Z a nivel de elemento.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (editMode || !carousel) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable))
+        return;
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod) return;
+      const key = e.key.toLowerCase();
+      const active = carousel.slides[activeSlide];
+      if (!active) return;
+      const wantRedo = key === "y" || (key === "z" && e.shiftKey);
+      const wantUndo = key === "z" && !e.shiftKey;
+      if (wantRedo) {
+        if ((active.redoVersions?.length ?? 0) > 0) {
+          e.preventDefault();
+          handleRedoSlide(active.id);
+        }
+      } else if (wantUndo) {
+        if (active.previousVersions.length > 0) {
+          e.preventDefault();
+          handleUndoSlide(active.id);
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [editMode, carousel, activeSlide, handleUndoSlide, handleRedoSlide]);
 
   const handleDeleteCarousel = useCallback(() => {
     if (!carousel) return;
@@ -422,6 +477,40 @@ export default function CarouselEditorPage({ params }: PageProps) {
 
             {editMode && saveState !== "idle" && <SaveState state={saveState} />}
 
+            <span aria-hidden="true" className="mx-1 h-5 w-px bg-border" />
+
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                const active = carousel.slides[activeSlide];
+                if (active) handleUndoSlide(active.id);
+              }}
+              // En modo edición el estado no se refresca en cada guardado (por
+              // rendimiento), así que el conteo puede estar viejo: dejamos deshacer
+              // siempre disponible ahí y el server decide si hay algo que deshacer.
+              disabled={!editMode && !carousel.slides[activeSlide]?.previousVersions.length}
+              className="text-muted-foreground"
+              aria-label="Deshacer"
+              title="Deshacer (Ctrl+Z)"
+            >
+              <Undo2 className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                const active = carousel.slides[activeSlide];
+                if (active) handleRedoSlide(active.id);
+              }}
+              disabled={!carousel.slides[activeSlide]?.redoVersions?.length}
+              className="text-muted-foreground"
+              aria-label="Rehacer"
+              title="Rehacer (Ctrl+Shift+Z)"
+            >
+              <Redo2 className="h-3.5 w-3.5" />
+            </Button>
+
             <div className="flex-1" />
             <Button
               variant="ghost"
@@ -498,7 +587,7 @@ export default function CarouselEditorPage({ params }: PageProps) {
           {/* Preview / Editor visual */}
           {editMode && carousel.slides[activeSlide] ? (
             <VisualEditor
-              key={carousel.slides[activeSlide].id}
+              key={`${carousel.slides[activeSlide].id}:${editorNonce}`}
               // Prioriza la edición en vivo: al cambiar de lámina y volver (el
               // editor se remonta), carousel.slides trae el HTML de ANTES de
               // entrar al modo edición — montarlo pisaría lo recién editado.

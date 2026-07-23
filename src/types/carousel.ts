@@ -3,7 +3,8 @@ export type AspectRatio = "1:1" | "4:5" | "9:16";
 export interface Slide {
   id: string;
   html: string;
-  previousVersions: string[];
+  previousVersions: string[]; // pila de deshacer (Ctrl+Z): versiones anteriores
+  redoVersions?: string[]; // pila de rehacer (Ctrl+Y): versiones deshechas por reponer
   order: number;
   notes: string;
 }
@@ -48,4 +49,4 @@ export const DIMENSIONS: Record<AspectRatio, { width: number; height: number }> 
 };
 
 export const MAX_SLIDES = 20;
-export const MAX_VERSIONS = 5;
+export const MAX_VERSIONS = 30;
