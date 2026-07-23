@@ -67,8 +67,13 @@ export const EDITOR_RUNTIME = String.raw`
 
   function post(m){ parent.postMessage(m,'*'); }
   function rootEl(){
+    // Primer hijo RENDERIZABLE del body: muchas láminas arrancan con <style> (o
+    // <link>) y colgar elementos ahí adentro los hace invisibles para siempre.
     var c=document.body.children;
-    for(var i=0;i<c.length;i++){ if(!c[i].hasAttribute('data-oc-ui') && c[i].tagName!=='SCRIPT') return c[i]; }
+    for(var i=0;i<c.length;i++){
+      var t=c[i].tagName;
+      if(!c[i].hasAttribute('data-oc-ui') && t!=='SCRIPT' && t!=='STYLE' && t!=='LINK') return c[i];
+    }
     return document.body;
   }
   function toHex(c){
@@ -819,11 +824,30 @@ export const EDITOR_RUNTIME = String.raw`
       else if(v==='hollow'){ el.style.webkitTextStroke='2px '+col; el.style.webkitTextFillColor='transparent'; }
       // 'none' deja todo reseteado
     }
+    // ── mayúsculas/minúsculas: transformamos el CONTENIDO (no text-transform CSS)
+    //    porque "sentence" (solo la inicial en mayúscula) no existe en CSS. El
+    //    TreeWalker respeta los <span>/<strong> internos: solo toca nodos de texto.
+    //    textTransform:'none' anula un uppercase que la lámina traiga por CSS. ────
+    else if(p==='textCase'){ // upper | lower | sentence
+      el.style.textTransform='none';
+      var needCap=(v==='sentence');
+      var tw=document.createTreeWalker(el,NodeFilter.SHOW_TEXT,null), tn;
+      while((tn=tw.nextNode())){
+        var s=tn.nodeValue;
+        if(v==='upper'){ tn.nodeValue=s.toUpperCase(); continue; }
+        s=s.toLowerCase();
+        if(needCap){ // primera LETRA de todo el elemento (saltando espacios/signos)
+          var mm=s.match(/[a-zà-öø-ÿñ]/);
+          if(mm){ s=s.slice(0,mm.index)+s.charAt(mm.index).toUpperCase()+s.slice(mm.index+1); needCap=false; }
+        }
+        tn.nodeValue=s;
+      }
+    }
   }
   // Tipografía con sentido a nivel de TRAMO. align/lineHeight son de bloque y
   // opacity/radius/rotate son del elemento: esos siempre van al elemento entero.
   var RANGE_PROPS={fontFamily:1,fontSize:1,color:1,fontWeight:1,bold:1,italic:1,
-                   letterSpacing:1,bg:1,textEffect:1};
+                   letterSpacing:1,bg:1,textEffect:1,textCase:1};
   function apply(m){
     if(!sels.length) return;
     var p=m.prop, v=m.value;

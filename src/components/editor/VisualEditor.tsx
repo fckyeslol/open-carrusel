@@ -574,6 +574,19 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
                       <AlignRight className="h-4 w-4" />
                     </Button>
                   </div>
+                  {/* Mayúsculas/minúsculas: reescribe el contenido (con un tramo
+                      marcado aplica solo al tramo, como el resto de tipografía). */}
+                  <div className="flex gap-1">
+                    <Button size="sm" variant="outline" className="flex-1" title="Todo en mayúsculas" onClick={() => applyProp("textCase", "upper")}>
+                      AA
+                    </Button>
+                    <Button size="sm" variant="outline" className="flex-1" title="Todo en minúsculas" onClick={() => applyProp("textCase", "lower")}>
+                      aa
+                    </Button>
+                    <Button size="sm" variant="outline" className="flex-1" title="Normal: mayúscula inicial, resto en minúscula" onClick={() => applyProp("textCase", "sentence")}>
+                      Aa
+                    </Button>
+                  </div>
                   <div className="flex gap-2">
                     <label className="flex-1">
                       <span className={labelCls}>Interletra</span>
