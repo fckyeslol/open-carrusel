@@ -14,6 +14,7 @@
  *   PREWAVE_TOKEN     (JWT de la diseñadora)
  *   PREWAVE_API_KEY   (opcional, solo ops)
  */
+import sharp from "sharp";
 import { readDataSafe, writeData } from "./data";
 
 const CONFIG_FILE = "prewave.json";
@@ -190,11 +191,73 @@ export interface CarouselSlideFile {
 }
 
 /**
- * Sube las láminas PNG del carrusel al endpoint de worker de Prewave
+ * El endpoint de worker limita el body multipart a 1MB. Las PNG a 1080×1350 pesan
+ * ~1MB CADA UNA, así que subir los PNG crudos revienta con 413 (verificado). Se
+ * re-codifican a JPEG antes de subir: a q88, 4 láminas dan ~0.3MB y una foto a
+ * sangre ~0.2MB, muy por debajo del tope. Presupuesto un poco bajo el 1MB real para
+ * dejar aire al boundary del multipart y a los nombres de campo.
+ */
+const UPLOAD_BUDGET_BYTES = 950_000;
+/**
+ * Escalones de calidad JPEG: se baja hasta entrar en el presupuesto. El último
+ * (45) existe porque los fondos con grano/textura comprimen pésimo: un carrusel
+ * de 10 láminas granuladas mide ~1.1MB aún a q55 (verificado con "10 Hábitos").
+ */
+const JPEG_QUALITY_STEPS = [88, 80, 72, 64, 55, 45] as const;
+
+/**
+ * Tope del endpoint de Prewave (MAX_SLIDES): más de 10 devuelve 422. Coincide con
+ * el máximo de Instagram, así que ante un referente más largo subimos 10.
+ */
+const MAX_UPLOAD_SLIDES = 10;
+
+/**
+ * Si el carrusel excede el tope, se suben las primeras 9 + la ÚLTIMA lámina: en
+ * los carruseles 30x la última es el cierre/CTA (workshop, DM) y perderla deja el
+ * carrusel sin remate. Las del medio son las menos costosas de sacrificar.
+ */
+function capSlidesForUpload(
+  files: readonly CarouselSlideFile[]
+): readonly CarouselSlideFile[] {
+  if (files.length <= MAX_UPLOAD_SLIDES) return files;
+  return [...files.slice(0, MAX_UPLOAD_SLIDES - 1), files[files.length - 1]];
+}
+
+/**
+ * Re-codifica las láminas a JPEG y baja la calidad hasta que el total entra en
+ * UPLOAD_BUDGET_BYTES. JPEG (no WebP) porque es el formato que el flujo de
+ * publicación (Metricool/Instagram) consume sin fricción. Devuelve las láminas
+ * renombradas `slide-0001.jpg`… para que el backend las ordene por nombre.
+ */
+async function compressSlidesForUpload(
+  files: readonly CarouselSlideFile[]
+): Promise<CarouselSlideFile[]> {
+  const capped = capSlidesForUpload(files);
+  let last: CarouselSlideFile[] = [];
+  for (const quality of JPEG_QUALITY_STEPS) {
+    last = await Promise.all(
+      capped.map(async (f, i) => ({
+        name: `slide-${String(i + 1).padStart(4, "0")}.jpg`,
+        buffer: new Uint8Array(
+          await sharp(Buffer.from(f.buffer)).jpeg({ quality }).toBuffer()
+        ),
+      }))
+    );
+    const total = last.reduce((n, f) => n + f.buffer.length, 0);
+    if (total <= UPLOAD_BUDGET_BYTES) return last;
+  }
+  // Ni al mínimo entra (carrusel enorme): subimos igual la mejor aproximación —
+  // que el endpoint decida (413) es más informativo que no intentar.
+  return last;
+}
+
+/**
+ * Sube las láminas del carrusel al endpoint de worker de Prewave
  * (POST /agent-jobs/:id/carousel), que las guarda en GCS, las siembra como media
  * del brief (publish_media_urls, en orden) y cierra el job (done). Reemplaza al
  * completeJob para jobs con brief. Se manda multipart con un `file` por lámina,
- * renombrado `slide-0001.png`… para que el backend las ordene por nombre.
+ * comprimida a JPEG (ver compressSlidesForUpload: el body tope es 1MB) y renombrada
+ * `slide-0001.jpg`… para que el backend las ordene por nombre.
  *
  * Lanza PrewaveError si el endpoint no está (404 = aún no desplegado) o el job no
  * tiene brief (422): el runner cae a completeJob con un link local en ese caso.
@@ -208,10 +271,10 @@ export async function uploadCarousel(
     throw new PrewaveError(401, "Prewave sin configurar: falta token o API key");
   }
 
+  const compressed = await compressSlidesForUpload(files);
   const form = new FormData();
-  files.forEach((f, i) => {
-    const ordered = `slide-${String(i + 1).padStart(4, "0")}.png`;
-    form.append("file", new Blob([f.buffer as unknown as BlobPart], { type: "image/png" }), ordered);
+  compressed.forEach((f) => {
+    form.append("file", new Blob([f.buffer as unknown as BlobPart], { type: "image/jpeg" }), f.name);
   });
 
   // No seteamos Content-Type: undici pone el multipart boundary solo.
