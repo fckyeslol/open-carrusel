@@ -73,11 +73,25 @@ function autoUpdate() {
     return;
   }
 
-  // Refuse to touch a dirty working tree so nobody's local edits are lost.
+  // A dirty working tree would block the update — and on a designer's machine
+  // nobody edits code on purpose (line endings, npm, or a stray write are the
+  // usual culprits), so refusing here left them stuck on an old version forever.
+  // Instead: set the edits aside with git stash (recoverable, never deleted)
+  // and keep updating. They come back with "git stash pop" if ever needed.
   const dirty = capture("git", ["status", "--porcelain", "--untracked-files=no"]);
   if (dirty) {
-    log("⚠️  Hay cambios locales sin guardar — no actualizo (abro con la versión actual).");
-    return;
+    log("⚠️  Encontré cambios locales sin guardar — los aparto para poder actualizar:");
+    for (const line of dirty.split("\n")) log("   " + line.trim());
+    const stash = spawnSync(
+      "git",
+      ["stash", "push", "-m", "apartado por launch.mjs antes de actualizar"],
+      { stdio: "ignore", shell: SHELL, timeout: 60000 },
+    );
+    if (stash.status !== 0) {
+      log("⚠️  No pude apartarlos — abro con la versión actual. Avisale a Mateo.");
+      return;
+    }
+    log('   (quedan guardados por si acaso: se recuperan con "git stash pop")');
   }
 
   // Fast-forward only: never rewrites history, never discards work. If the
