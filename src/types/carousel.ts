@@ -34,6 +34,7 @@ export interface Carousel {
   prewaveJobId?: string; // job de la cola agent_jobs del que nació (si vino de la cola)
   source?: "manual" | "queue"; // origen de la ingesta
   referenceUrl?: string; // URL del referente de Instagram
+  resizedFrom?: string; // id del carrusel original si este nació de "Generar otros tamaños"
   createdAt: string;
   updatedAt: string;
 }
@@ -47,6 +48,13 @@ export const DIMENSIONS: Record<AspectRatio, { width: number; height: number }> 
   "4:5": { width: 1080, height: 1350 },
   "9:16": { width: 1080, height: 1920 },
 };
+
+export const ASPECT_RATIOS: AspectRatio[] = ["1:1", "4:5", "9:16"];
+
+/** Los otros dos formatos, distintos al dado (para "Generar otros tamaños"). */
+export function otherAspectRatios(ratio: AspectRatio): AspectRatio[] {
+  return ASPECT_RATIOS.filter((r) => r !== ratio);
+}
 
 export const MAX_SLIDES = 20;
 export const MAX_VERSIONS = 30;

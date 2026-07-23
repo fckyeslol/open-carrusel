@@ -104,6 +104,52 @@ export async function duplicateCarousel(id: string): Promise<Carousel | null> {
   return duplicate;
 }
 
+/** Quita un sufijo de formato tipo " (9:16)" del nombre, para no encadenarlos. */
+function stripRatioSuffix(name: string): string {
+  return name.replace(/\s*\((?:1:1|4:5|9:16)\)\s*$/, "").trim();
+}
+
+/**
+ * Crea un carrusel HERMANO de `sourceId` en otro formato. Copia el contenido
+ * verbatim (mismo HTML de láminas, referencias, identidad y caption) pero con el
+ * `aspectRatio` destino, para que si la re-maquetación con IA falla igual quede
+ * algo utilizable. El re-flow del layout al lienzo nuevo lo hace después el
+ * runner de resize (IA). Enlaza al original con `resizedFrom`.
+ */
+export async function createResizedSibling(
+  sourceId: string,
+  targetRatio: AspectRatio
+): Promise<Carousel | null> {
+  const data = await load();
+  const source = data.carousels.find((c) => c.id === sourceId);
+  if (!source) return null;
+
+  const sibling: Carousel = {
+    ...source,
+    id: generateId(),
+    name: `${stripRatioSuffix(source.name)} (${targetRatio})`,
+    aspectRatio: targetRatio,
+    slides: source.slides.map((s) => ({
+      ...s,
+      id: generateId(),
+      previousVersions: [],
+      redoVersions: [],
+    })),
+    referenceImages: [...(source.referenceImages || [])],
+    chatSessionId: null,
+    isTemplate: false,
+    resizedFrom: sourceId,
+    // Un hermano de resize nunca hereda el vínculo con la cola: es un derivado local.
+    prewaveJobId: undefined,
+    createdAt: now(),
+    updatedAt: now(),
+  };
+
+  data.carousels.push(sibling);
+  await save(data);
+  return sibling;
+}
+
 export async function deleteCarousel(id: string): Promise<boolean> {
   const data = await load();
   const idx = data.carousels.findIndex((c) => c.id === id);

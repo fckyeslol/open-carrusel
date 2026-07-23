@@ -12,6 +12,7 @@ import { CarouselPreview } from "@/components/editor/CarouselPreview";
 import { VisualEditor } from "@/components/editor/VisualEditor";
 import { SlideFilmstrip } from "@/components/editor/SlideFilmstrip";
 import { AspectRatioSelector } from "@/components/editor/AspectRatioSelector";
+import { ResizeButton } from "@/components/editor/ResizeButton";
 import { ExportButton } from "@/components/editor/ExportButton";
 import { CaptionPanel } from "@/components/editor/CaptionPanel";
 import { FullscreenPreview } from "@/components/editor/FullscreenPreview";
@@ -460,6 +461,12 @@ export default function CarouselEditorPage({ params }: PageProps) {
             <AspectRatioSelector
               value={carousel.aspectRatio}
               onChange={handleAspectChange}
+            />
+
+            <ResizeButton
+              carouselId={id}
+              aspectRatio={carousel.aspectRatio}
+              slideCount={carousel.slides.length}
             />
 
             <span aria-hidden="true" className="mx-1 h-5 w-px bg-border" />
