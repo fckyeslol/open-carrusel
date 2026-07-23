@@ -80,6 +80,13 @@ interface Body {
    * visual (image→image): composición, persona, ambiente.
    */
   imageReference?: string;
+  /**
+   * Recorte de la referencia ANTES de subirla, en fracciones 0–1 del ancho/alto
+   * de la imagen (`{ left, top, width, height }`). Sirve para aislar la zona
+   * fotográfica de una lámina de referente y no pasarle a Soul el texto que
+   * tiene encima (el texto en la referencia se cuela en la generación).
+   */
+  referenceCrop?: { left?: number; top?: number; width?: number; height?: number };
   /** Si es true, además guarda la imagen en la biblioteca de fondos. */
   saveAsBackground?: boolean;
   /** Nombre para la biblioteca de fondos (si saveAsBackground). */
@@ -140,9 +147,46 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+    // Recorte opcional (fracciones 0–1) para aislar la zona fotográfica del
+    // referente antes de subirla — así Soul no ve el texto de la lámina.
+    let extractRegion: { left: number; top: number; width: number; height: number } | null = null;
+    if (body.referenceCrop !== undefined) {
+      const c = body.referenceCrop;
+      const frac = (v: unknown, fallback: number) =>
+        typeof v === "number" && Number.isFinite(v) ? Math.min(Math.max(v, 0), 1) : fallback;
+      const left = frac(c?.left, 0);
+      const top = frac(c?.top, 0);
+      const width = Math.min(frac(c?.width, 1), 1 - left);
+      const height = Math.min(frac(c?.height, 1), 1 - top);
+      if (width < 0.05 || height < 0.05) {
+        return NextResponse.json(
+          { error: "'referenceCrop' inválido: la zona recortada es demasiado pequeña (fracciones 0–1)." },
+          { status: 400 }
+        );
+      }
+      extractRegion = { left, top, width, height };
+    }
+
     try {
       const raw = await readFile(localPath);
-      imageReferenceBytes = await sharp(raw)
+      let pipeline = sharp(raw);
+      if (extractRegion) {
+        const meta = await pipeline.metadata();
+        const iw = meta.width ?? 0;
+        const ih = meta.height ?? 0;
+        if (iw > 0 && ih > 0) {
+          // Acotar en píxeles: el redondeo no puede empujar la zona fuera de la imagen.
+          const leftPx = Math.min(Math.round(extractRegion.left * iw), iw - 1);
+          const topPx = Math.min(Math.round(extractRegion.top * ih), ih - 1);
+          pipeline = pipeline.extract({
+            left: leftPx,
+            top: topPx,
+            width: Math.max(1, Math.min(Math.round(extractRegion.width * iw), iw - leftPx)),
+            height: Math.max(1, Math.min(Math.round(extractRegion.height * ih), ih - topPx)),
+          });
+        }
+      }
+      imageReferenceBytes = await pipeline
         .resize(MAX_REFERENCE_SIDE, MAX_REFERENCE_SIDE, {
           fit: "inside",
           withoutEnlargement: true,

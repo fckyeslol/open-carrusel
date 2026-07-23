@@ -102,31 +102,107 @@ ${stylePreset.exampleSlideHtml ? `\n## Formato de ejemplo del avatar (imitá EST
     : "";
 
   const aspectRatio = carousel?.aspectRatio || "4:5";
+
+  // Política de imágenes cuando Higgsfield está conectado: TODO lo fotográfico /
+  // ilustrativo / texturado se genera con IA, automáticamente. Va como sección
+  // propia arriba (junto a CALCAR); la mecánica del endpoint queda en el bloque API.
+  const imagePolicySection = imageGenEnabled
+    ? `
+## IMÁGENES — Higgsfield ACTIVO: toda imagen se GENERA, nunca se simula (regla dura)
+Tenés generación de imágenes con IA conectada. Eso cambia el reparto del trabajo:
+- **Higgsfield produce TODO lo fotográfico/ilustrativo/texturado**: fotos, retratos, escenas,
+  objetos, fondos atmosféricos, superficies con materia (papel, grano, tela, cemento, metal),
+  ilustraciones. Si una lámina del referente tiene una imagen, TU lámina lleva una imagen
+  generada equivalente.
+- **PROHIBIDO fabricarlo vos**: nada de "fotos" o materia hechas con CSS/SVG, ni feTurbulence,
+  ni overlays de ruido, ni degradados que imiten fotografía o textura. Si la lámina necesita
+  imagen, se genera; no se simula.
+- **Automático, sin pedir permiso**: detectás la imagen en el referente, la generás ANTES de
+  escribir el HTML de esa lámina, y la referenciás por la \`url\` que devuelve. El usuario NO
+  tiene que pedirlo.
+- **Qué NO va por Higgsfield**: fondos de color plano o degradado simple (eso es CSS), el
+  layout, el texto y la tipografía, los logos, las flechas dibujadas, la UI de chat — todo
+  eso sigue siendo HTML/SVG tuyo. La imagen generada JAMÁS trae texto: el texto lo ponés vos
+  en el HTML, encima.
+- **Reuso**: si el referente repite la misma imagen en varias láminas, generala UNA vez y
+  reusá su \`url\`. No pagues dos veces la misma imagen.
+- **Si la generación falla** (sin créditos, NSFW, error de red): NO bloquees el carrusel.
+  Usá el mejor sustituto (una imagen ya subida en \`/uploads\`, o un fondo plano de la
+  paleta), terminá la lámina y contá en tu respuesta qué falló.
+
+### El prompt para Higgsfield — detallado y con referencia, SIEMPRE
+Cada llamada lleva las DOS cosas:
+1. **\`imageReference\` — el asset que estás copiando.** Casi siempre existe: la lámina del
+   referente (su ruta \`/uploads/...\` está en "Imágenes del REFERENTE"), la foto del avatar
+   en \`/avatar-assets/<slug>/fotos/\`, o una imagen que adjuntó el usuario. Pasala SIEMPRE
+   que exista — es lo que hace que la imagen generada se parezca al referente y no a un
+   stock genérico.
+   - Si la lámina del referente tiene texto encima de la foto, pasá también \`referenceCrop\`
+     ({left, top, width, height} en fracciones 0–1 de la imagen) para mandar SOLO la zona
+     fotográfica: el texto que Soul ve en la referencia se le cuela a la generación.
+2. **Un prompt DETALLADO en inglés** (mínimo ~40 palabras) que describa: sujeto y acción;
+   encuadre y composición (incluido DÓNDE queda el aire para el texto que irá encima);
+   iluminación y hora del día; ambiente/locación; estilo fotográfico (lente, película,
+   editorial/documental); y la paleta del avatar como cast de color. Cerrá SIEMPRE con
+   "no text, no letters, no watermark". El prompt manda sobre la referencia: describí qué
+   conservar de ella y qué cambiar.`
+    : "";
+
+  // Paso extra del FLUJO cuando hay generación de imágenes: inventariar los assets
+  // visuales del referente y regenerarlos ANTES de escribir el HTML de cada lámina.
+  const imageFlowStep = imageGenEnabled
+    ? `
+1b. **Inventariá los ASSETS VISUALES** de cada lámina: fotos, retratos, ilustraciones,
+   fondos con materia/textura. Cada uno se regenera con Higgsfield ANTES de armar el HTML
+   de su lámina (ver sección IMÁGENES): prompt detallado en inglés + la imagen del referente
+   como \`imageReference\` (+ \`referenceCrop\` si la foto tiene texto encima). Fondos de
+   color plano NO cuentan como asset: esos van en CSS.`
+    : "";
+
+  // MATERIALIDAD tiene dos regímenes: con Higgsfield, la textura viene EN la imagen
+  // generada (nada de overlays CSS); sin Higgsfield, rige la librería horneada.
+  const materialidadSection = imageGenEnabled
+    ? `
+### MATERIALIDAD — la textura viene EN la imagen generada (Higgsfield activo)
+Si el referente muestra materia — papel, grano, tela, cemento, un objeto fotografiado, un
+póster impreso con dobleces — ese fondo ES una imagen: generala con Higgsfield (ver sección
+IMÁGENES) describiendo la superficie en el prompt ("aged paper texture with fold creases,
+soft top light...") y pasando la lámina del referente como \`imageReference\`.
+**PROHIBIDO simular materia en CSS**: nada de feTurbulence, overlays de ruido,
+mix-blend-mode con texturas ni degradados que imiten superficie. La librería de
+\`/textures/\` NO se usa cuando Higgsfield está activo.
+Un fondo de color plano del referente sigue siendo CSS plano — la materia se genera, el
+color se declara.`
+    : `
+### MATERIALIDAD — grano/textura SOLO si el usuario lo pide explícitamente
+**Por defecto: CERO grano.** No superpongas texturas de ruido, feTurbulence ni overlays granulados en ninguna lámina — aunque el referente parezca un objeto fotografiado, y NUNCA sobre una foto de fondo (el grano ensucia la foto y mata el resultado). Un fondo limpio siempre es el default. El efecto solo existe cuando el usuario lo pide explícitamente en el chat ("con grano", "textura de papel", "efecto impreso").
+
+**Cuando SÍ te lo pidan — usá la librería de texturas, NO generes grano con feTurbulence a mano.** Reinventar el grano con filtros SVG es caro, inconsistente y casi siempre sale flojo. Ya hay texturas horneadas a resolución completa listas para superponer:
+${textureBlock}
+Cómo aplicarlas: un div a pantalla completa (1080x1350) con la textura como \`background\`, \`background-size:cover\`, \`position:absolute; inset:0\`, y **\`mix-blend-mode:overlay\`**. Las texturas están centradas en gris 128, así que overlay oscurece y aclara preservando el color del fondo — la misma textura funciona sobre el rojo de una lámina y el navy de la siguiente. Ponela DETRÁS del texto (z-index menor) para que la tinta quede limpia encima.
+
+**Usá la textura tal cual — ya viene calibrada.** UNA sola capa de overlay, opacity entre .7 y 1. NO le agregues un feTurbulence encima, NO sumes una segunda capa multiply, NO le subas el contraste ni la escales: eso la satura y termina pareciendo estática de TV en vez de papel. Si te parece demasiado fuerte, bajá la opacity; si es débil, subila. Ese es el único parámetro que tocás.
+
+Calibración: renderizá, abrí tu PNG y el referente lado a lado, y preguntate si el grano se ve **parecido** — misma fuerza, no más. Ajustá solo la opacity.
+
+- **Dobleces de papel:** líneas de pliegue, no degradados difusos. Por cada doblez, DOS elementos pegados: una franja clara de 1-2px (el filo que refleja la luz) y al lado una franja oscura de 6-14px con blur suave (la sombra que cae). Un póster plegado en cuartos lleva una vertical al centro y dos horizontales a 1/3 y 2/3. Si el pliegue no proyecta sombra, se ve impreso, no plegado.
+- **Solo si ninguna textura de la librería sirve** (una superficie que no esté cubierta): recién ahí un feTurbulence propio — fractalNoise, baseFrequency un valor para moteado / dos valores dispares para fibra, saturate 0, sobre un rect a pantalla completa. Pero primero mirá si una de las de arriba ya empata.`;
+
   const imageGenSection = imageGenEnabled
     ? `
-### Generar una imagen con IA (Higgsfield) — solo si hace falta una FOTO/FONDO que no existe
-Úsalo cuando el referente pide una imagen fotográfica o un fondo atmosférico y NO hay una
-imagen adecuada en \`/uploads\` ni un fondo servible. NO lo uses para el layout, ni para
-texto, ni para reproducir tipografía/paleta (eso es HTML). La imagen generada NO debe traer
-texto encima: el texto siempre lo pones tú en el HTML de la lámina.
-- El prompt describe SOLO la escena visual (podés escribirlo en inglés, que rinde mejor en el
-  modelo); nada de palabras que deban aparecer escritas en la imagen.
+### Generar una imagen con IA (Higgsfield) — la mecánica (la política está en la sección IMÁGENES)
 - Sale ya recortada a ${dimensions.width}x${dimensions.height}px (formato ${aspectRatio}).
 - La respuesta trae \`url\` (ej. \`/uploads/generated/xxx.jpg\`): referenciala tal cual en el HTML.
-- **El modelo también VE imágenes** (image→image): pasá \`imageReference\` con la ruta local de
-  una imagen (\`/uploads/...\` o \`/avatar-assets/...\`) y Soul la usa como base visual —
-  composición, persona, ambiente. Usalo cuando la imagen debe basarse en una foto real
-  (ej. la foto del avatar en \`/avatar-assets/<slug>/fotos/\`, una imagen del referente, o una
-  que adjuntó el usuario) en vez de inventar desde cero. El prompt sigue mandando: describí
-  qué conservar y qué cambiar de la referencia.
+- \`imageReference\` acepta rutas locales \`/uploads/...\` o \`/avatar-assets/...\`;
+  \`referenceCrop\` (opcional) recorta la referencia antes de subirla, en fracciones 0–1.
 
 python3 -c "
 import json, urllib.request
-data = json.dumps({'prompt': 'DESCRIPCION VISUAL EN INGLES', 'aspectRatio': '${aspectRatio}', 'imageReference': '/uploads/OPCIONAL.png'}).encode('utf-8')
+data = json.dumps({'prompt': 'DETAILED VISUAL DESCRIPTION IN ENGLISH... no text, no letters, no watermark', 'aspectRatio': '${aspectRatio}', 'imageReference': '/uploads/REFERENTE.png', 'referenceCrop': {'left': 0, 'top': 0.4, 'width': 1, 'height': 0.6}}).encode('utf-8')
 req = urllib.request.Request('${baseUrl}/api/generate-image', data=data, method='POST', headers={'Content-Type': 'application/json'})
 with urllib.request.urlopen(req) as r: print(r.read().decode('utf-8'))
 "
-(omití 'imageReference' si no hay imagen base)`
+(omití 'referenceCrop' si la referencia va entera, e 'imageReference' solo si NO existe ningún asset base)`
     : "";
 
   return `Sos el motor de diseño de carruseles de 30X. Trabajás sin pedir permiso: creás las láminas directamente.
@@ -151,30 +227,18 @@ ${presetSection}
 - **Idioma — SIEMPRE traducí al español.** La audiencia de 30x es hispanohablante y todos los avatares hablan en español; no importa en qué idioma esté el referente, el texto de la lámina va en español, con la voz del avatar. Esto NO es opcional ni una decisión a evaluar caso por caso: incluso en un póster tipográfico donde las palabras son la composición, se traduce. Lo que sí preservás es la SILUETA: redistribuí los quiebres de línea para que el bloque traducido conserve la misma forma (mismo número de líneas, anchos parejos si el referente los tiene). Traducir y calcar la silueta a la vez, no una cosa o la otra.
 
 ## FLUJO cuando hay imágenes de referente (el caso principal)
-1. Usá **Read** sobre CADA imagen de referente y describí SU LAYOUT con precisión: qué elementos hay, dónde está cada uno (arriba/centro/abajo, izq/der), tamaños relativos, jerarquía, si hay foto/número/lista/comparación.
+1. Usá **Read** sobre CADA imagen de referente y describí SU LAYOUT con precisión: qué elementos hay, dónde está cada uno (arriba/centro/abajo, izq/der), tamaños relativos, jerarquía, si hay foto/número/lista/comparación.${imageFlowStep}
 2. Una lámina de output por cada lámina del referente — mismo conteo, mismo orden.
 3. Reproducí ESE layout en HTML, colocando cada bloque donde está en el referente. Llená el lienzo 1080x1350 como lo llena el referente (sin dejar mitades vacías si el referente no las deja).
 4. Aplicá SOLO la identidad del avatar: su tipografía en los titulares, su paleta en fondos/texto/acento, su logo 30X, su firma. El texto, con su voz, pero fiel a los datos.
 5. Mirá los formatos de ejemplo solo para copiar esos VALORES de identidad (fuente exacta, hex, cómo va el logo, el tratamiento de foto/gradiente) — no para copiar su layout.
+${imagePolicySection}
 
 ## CALCAR (cómo lograr que NO se vea "hecho por IA")
 No hagas TU diseño limpio. **Calcá** el referente como papel de calco: descomponé la imagen (posiciones exactas, tamaños, qué va grande/centrado, texturas, elementos hechos a mano) y reproducí CADA elemento tal cual, cambiando SOLO fuente y colores.
 - **NO agregues chrome que el referente no tenga.** Si el referente no tiene logo / kicker / firma / handle / número de página, tu lámina TAMPOCO. Nada de marcos de template.
-- Si el referente se ve "hecho a mano" (pinceladas, garabatos, formas irregulares), reproducí esos elementos — no los pases a formas limpias y geométricas. Ojo: el grano/ruido de fondo NO entra acá — se rige por la regla de MATERIALIDAD de abajo (solo si el usuario lo pide).
-
-### MATERIALIDAD — grano/textura SOLO si el usuario lo pide explícitamente
-**Por defecto: CERO grano.** No superpongas texturas de ruido, feTurbulence ni overlays granulados en ninguna lámina — aunque el referente parezca un objeto fotografiado, y NUNCA sobre una foto de fondo (el grano ensucia la foto y mata el resultado). Un fondo limpio siempre es el default. El efecto solo existe cuando el usuario lo pide explícitamente en el chat ("con grano", "textura de papel", "efecto impreso").
-
-**Cuando SÍ te lo pidan — usá la librería de texturas, NO generes grano con feTurbulence a mano.** Reinventar el grano con filtros SVG es caro, inconsistente y casi siempre sale flojo. Ya hay texturas horneadas a resolución completa listas para superponer:
-${textureBlock}
-Cómo aplicarlas: un div a pantalla completa (1080x1350) con la textura como \`background\`, \`background-size:cover\`, \`position:absolute; inset:0\`, y **\`mix-blend-mode:overlay\`**. Las texturas están centradas en gris 128, así que overlay oscurece y aclara preservando el color del fondo — la misma textura funciona sobre el rojo de una lámina y el navy de la siguiente. Ponela DETRÁS del texto (z-index menor) para que la tinta quede limpia encima.
-
-**Usá la textura tal cual — ya viene calibrada.** UNA sola capa de overlay, opacity entre .7 y 1. NO le agregues un feTurbulence encima, NO sumes una segunda capa multiply, NO le subas el contraste ni la escales: eso la satura y termina pareciendo estática de TV en vez de papel. Si te parece demasiado fuerte, bajá la opacity; si es débil, subila. Ese es el único parámetro que tocás.
-
-Calibración: renderizá, abrí tu PNG y el referente lado a lado, y preguntate si el grano se ve **parecido** — misma fuerza, no más. Ajustá solo la opacity.
-
-- **Dobleces de papel:** líneas de pliegue, no degradados difusos. Por cada doblez, DOS elementos pegados: una franja clara de 1-2px (el filo que refleja la luz) y al lado una franja oscura de 6-14px con blur suave (la sombra que cae). Un póster plegado en cuartos lleva una vertical al centro y dos horizontales a 1/3 y 2/3. Si el pliegue no proyecta sombra, se ve impreso, no plegado.
-- **Solo si ninguna textura de la librería sirve** (una superficie que no esté cubierta): recién ahí un feTurbulence propio — fractalNoise, baseFrequency un valor para moteado / dos valores dispares para fibra, saturate 0, sobre un rect a pantalla completa. Pero primero mirá si una de las de arriba ya empata.
+- Si el referente se ve "hecho a mano" (pinceladas, garabatos, formas irregulares), reproducí esos elementos — no los pases a formas limpias y geométricas. Ojo: el grano/ruido de fondo NO entra acá — se rige por la regla de MATERIALIDAD de abajo.
+${materialidadSection}
 
 **Kit de técnicas de calco** (estas SÍ siempre disponibles cuando el referente las muestre — no dependen de que pidan textura):
 - **Pincelada de borde rugoso** (para resaltar palabras/labels, en vez de un rectángulo limpio): definí una vez un filter con feTurbulence type=fractalNoise baseFrequency "0.015 0.13" numOctaves 2 result=n + feDisplacementMap in=SourceGraphic in2=n scale 34, y aplicá ese filter a un rect (rx 10, fill=COLOR) puesto detrás del texto.

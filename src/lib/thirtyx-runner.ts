@@ -30,6 +30,7 @@ import { getPreset, getPresetByAvatarSlug } from "./style-presets";
 import { exportAllSlides } from "./export-slides";
 import { isInstagramUrl } from "./instagram-url";
 import { claimJob, completeJob, failJob, uploadCarousel } from "./prewave";
+import { isHiggsfieldConfigured } from "./higgsfield";
 import {
   getAssignment,
   setStatus,
@@ -178,7 +179,15 @@ async function processAssignment(jobId: string): Promise<void> {
     const brand = await getBrand();
     const freshCarousel = await getCarousel(carousel.id);
     const stylePreset = await getPreset(preset.id);
-    const systemPrompt = buildSystemPrompt(brand, freshCarousel, stylePreset, localBase());
+    const systemPrompt = buildSystemPrompt(
+      brand,
+      freshCarousel,
+      stylePreset,
+      localBase(),
+      // Mismo criterio que /api/chat: si hay credenciales de Higgsfield, el agente
+      // regenera las imágenes del referente con IA también en el flujo headless.
+      await isHiggsfieldConfigured()
+    );
 
     const produced = await generateAllSlides(carousel.id, referenceCount, systemPrompt);
 
