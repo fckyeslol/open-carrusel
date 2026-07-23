@@ -7,8 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Section } from "@/components/ui/section";
 import { BackgroundPicker } from "./BackgroundPicker";
 import { SafeZoneOverlay } from "./SafeZoneOverlay";
+import { SHAPE_GALLERY, SHADOW_PRESETS, GRADIENT_PRESETS } from "./shape-gallery";
 import {
   Type,
+  Shapes,
   Image as ImageIcon,
   Bold,
   Italic,
@@ -71,6 +73,11 @@ interface Selection {
   opacity?: number;
   radius?: number;
   rotation?: number; // grados 0-359 (CSS 'rotate')
+  isShape?: boolean; // elemento de la librería de formas
+  isSvgShape?: boolean; // forma svg (silueta): el degradado va por <defs>
+  borderW?: number; // grosor del borde (divs/img) o trazo (svg)
+  borderStyle?: string; // solid | dashed | dotted | none
+  borderColor?: string;
   x?: number;
   y?: number;
   w?: number;
@@ -103,6 +110,10 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
   // Quitar fondo de la imagen seleccionada (corre en el server, /api/remove-bg)
   const [bgBusy, setBgBusy] = useState(false);
   const [bgError, setBgError] = useState<string | null>(null);
+  // Librería de formas (galería plegable) y degradado del elemento seleccionado.
+  // El degradado vive en estado local: el runtime no puede "leerlo" de vuelta.
+  const [shapesOpen, setShapesOpen] = useState(false);
+  const [grad, setGrad] = useState({ from: "#4f7cff", to: "#ff3b7f", angle: 135 });
   const { width: W, height: H } = DIMENSIONS[aspectRatio];
 
   // Capturamos el HTML inicial UNA vez: durante la edición el iframe es la fuente
@@ -327,6 +338,35 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
               }}
             />
           </div>
+          <Button
+            size="sm"
+            variant={shapesOpen ? "accent" : "outline"}
+            className="w-full"
+            onClick={() => setShapesOpen((v) => !v)}
+          >
+            <Shapes className="h-4 w-4" /> Formas
+          </Button>
+          {shapesOpen && (
+            <div className="rounded-md border border-border bg-background p-2">
+              <div className="grid grid-cols-5 gap-1">
+                {SHAPE_GALLERY.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    title={s.label}
+                    onClick={() => send({ oc: "addShape", kind: s.id })}
+                    className="flex h-9 items-center justify-center rounded-md border border-border text-foreground/70 transition-colors hover:bg-accent/10 hover:text-foreground"
+                  >
+                    {s.icon}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1.5 text-[10px] text-muted-foreground leading-snug">
+                La forma cae al centro. Color en <b>Relleno</b>; grosor y trazo
+                (continua/discontinua) en <b>Borde y trazo</b>.
+              </p>
+            </div>
+          )}
           <Button
             size="sm"
             variant="outline"
@@ -595,7 +635,7 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
                     para poder mover texto y caja por separado. */}
                 {!sel.isImage && (
                   <div className="block">
-                    <span className={labelCls}>Fondo del elemento</span>
+                    <span className={labelCls}>{sel.isShape ? "Relleno" : "Fondo del elemento"}</span>
                     <div className="mt-1 flex items-center gap-1.5">
                       <input
                         type="color"
@@ -630,6 +670,129 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
                     </div>
                   </div>
                 )}
+                {/* Degradado como relleno: presets de un clic + par de colores y ángulo.
+                    En formas svg el runtime inyecta <defs>; en cajas va al background. */}
+                {!sel.isImage && (
+                  <div className="block">
+                    <span className={labelCls}>Degradado</span>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {GRADIENT_PRESETS.map((g) => (
+                        <button
+                          key={`${g.from}-${g.to}`}
+                          type="button"
+                          className="h-7 w-7 rounded-md border border-border"
+                          style={{ background: `linear-gradient(${g.angle}deg, ${g.from}, ${g.to})` }}
+                          title={`${g.from} → ${g.to}`}
+                          onClick={() => {
+                            setGrad(g);
+                            applyProp("gradient", g);
+                          }}
+                        />
+                      ))}
+                    </div>
+                    <div className="mt-1.5 flex items-center gap-1.5">
+                      <input
+                        type="color"
+                        className="h-9 w-12 rounded-md border border-border bg-background"
+                        title="Color inicial"
+                        value={grad.from}
+                        onChange={(e) => {
+                          const g = { ...grad, from: e.target.value };
+                          setGrad(g);
+                          applyProp("gradient", g);
+                        }}
+                      />
+                      <input
+                        type="color"
+                        className="h-9 w-12 rounded-md border border-border bg-background"
+                        title="Color final"
+                        value={grad.to}
+                        onChange={(e) => {
+                          const g = { ...grad, to: e.target.value };
+                          setGrad(g);
+                          applyProp("gradient", g);
+                        }}
+                      />
+                      <input
+                        type="number"
+                        step={15}
+                        className="h-9 w-16 rounded-md border border-border bg-background px-2 text-sm"
+                        title="Ángulo (°)"
+                        value={grad.angle}
+                        onChange={(e) => {
+                          const g = { ...grad, angle: Number(e.target.value) };
+                          setGrad(g);
+                          applyProp("gradient", g);
+                        }}
+                      />
+                      <span className="text-[10px] text-muted-foreground">°</span>
+                    </div>
+                  </div>
+                )}
+                {/* Borde (cajas/imágenes/texto) o trazo (formas svg y líneas):
+                    grosor + continua/discontinua/punteada + color. */}
+                <div className="block">
+                  <span className={labelCls}>Borde y trazo</span>
+                  <div className="mt-1 flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      min={0}
+                      className="h-9 w-16 rounded-md border border-border bg-background px-2 text-sm"
+                      title="Grosor (px)"
+                      value={sel.borderW ?? 0}
+                      onChange={(e) => {
+                        const v = Math.max(0, Number(e.target.value));
+                        setSel({ ...sel, borderW: v });
+                        applyProp("borderW", v);
+                      }}
+                    />
+                    <select
+                      className="h-9 flex-1 rounded-md border border-border bg-background px-1 text-sm"
+                      value={
+                        ["solid", "dashed", "dotted", "none"].includes(sel.borderStyle || "")
+                          ? sel.borderStyle
+                          : "solid"
+                      }
+                      onChange={(e) => {
+                        setSel({ ...sel, borderStyle: e.target.value });
+                        applyProp("borderStyle", e.target.value);
+                      }}
+                    >
+                      <option value="solid">Continua</option>
+                      <option value="dashed">Discontinua</option>
+                      <option value="dotted">Punteada</option>
+                      <option value="none">Sin borde</option>
+                    </select>
+                    <input
+                      type="color"
+                      className="h-9 w-12 rounded-md border border-border bg-background"
+                      title="Color del borde"
+                      value={sel.borderColor || "#111827"}
+                      onChange={(e) => {
+                        setSel({ ...sel, borderColor: e.target.value });
+                        applyProp("borderColor", e.target.value);
+                      }}
+                    />
+                  </div>
+                </div>
+                {/* Sombras: 'Elevada' despega el elemento (se ve más arriba del fondo);
+                    'Puntos' agrega la capa halftone detrás como elemento aparte. */}
+                <div className="block">
+                  <span className={labelCls}>Sombra</span>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {SHADOW_PRESETS.map((sh) => (
+                      <Button
+                        key={sh.id}
+                        size="sm"
+                        variant="outline"
+                        title={sh.title}
+                        onClick={() => applyProp("shadow", sh.id)}
+                      >
+                        {sh.label}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
                 <label className="block">
                   <span className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                     Opacidad <span className="tabular-nums">{sel.opacity ?? 100}%</span>

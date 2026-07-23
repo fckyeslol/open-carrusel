@@ -40,10 +40,11 @@ export const EDITOR_FONTS = [
 
 /**
  * Runtime de edición inyectado en el iframe: superficie tipo Canva.
- * Selección inteligente (prefiere texto/imagen sobre decorativos), multi-selección,
- * grupos (agregar/sacar miembros), arrastre con transform + guías y snap, resize por
- * handles, edición de texto inline, copiar/pegar/duplicar, deshacer, orden de capas,
- * nudge con flechas. La UI vive en un overlay [data-oc-ui] que nunca se serializa.
+ * Selección inteligente (prefiere texto/imagen/formas sobre decorativos), multi-
+ * selección, grupos (agregar/sacar miembros), arrastre con transform + guías y snap,
+ * resize por handles, edición de texto inline, copiar/pegar/duplicar, deshacer, orden
+ * de capas, nudge con flechas, librería de formas (SHAPES) con borde/trazo, sombras
+ * y degradados. La UI vive en un overlay [data-oc-ui] que nunca se serializa.
  */
 export const EDITOR_RUNTIME = String.raw`
 (function(){
@@ -76,6 +77,8 @@ export const EDITOR_RUNTIME = String.raw`
     var m=c.match(/\d+/g); if(!m) return '#000000';
     return '#'+m.slice(0,3).map(function(n){return ('0'+parseInt(n).toString(16)).slice(-2);}).join('');
   }
+  /** ¿Es un <svg> raíz (una forma/flecha standalone)? Sus trazos van por stroke, no border. */
+  function isSvgRoot(el){ return !!el.tagName && el.tagName.toLowerCase()==='svg'; }
   // ── ¿es un elemento de texto editable? ───────────────────────────────────────
   // NO basta con children.length===0: un título multilínea lleva <br>, y el texto
   // con énfasis lleva <span>/<strong>/<em>. Contamos como texto a cualquier elemento
@@ -132,7 +135,9 @@ export const EDITOR_RUNTIME = String.raw`
       // svgHit cuenta como "tinta real": el punto tocó una forma dentro del svg,
       // así que un svg-overlay a lámina completa sigue siendo seleccionable.
       if(tooBig(el)){ if((el.tagName==='IMG'||svgHit)&&!bigImg) bigImg=el; continue; }
-      if(isTextEl(el) || el.tagName==='IMG') return el;
+      // Las formas de la librería son ciudadanas de primera: gana la de más arriba
+      // (elementsFromPoint viene ordenado top→bottom), igual que texto e imagen.
+      if(isTextEl(el) || el.tagName==='IMG' || (el.getAttribute&&el.getAttribute('data-oc-shape'))) return el;
       if(!first) first=el;
     }
     return first||bigImg;
@@ -223,7 +228,7 @@ export const EDITOR_RUNTIME = String.raw`
   function report(){
     if(!sels.length){ post({oc:'sel',none:true}); return; }
     var el=sels[0], cs=getComputedStyle(el), er=el.getBoundingClientRect();
-    var isText = isTextEl(el);
+    var isText = isTextEl(el), isSvg = isSvgRoot(el);
     // Con un tramo de texto marcado, la tipografía reportada es la DEL TRAMO:
     // así el panel muestra el peso/color/tamaño real de lo que se va a cambiar.
     var rh=rangeHost();
@@ -239,11 +244,19 @@ export const EDITOR_RUNTIME = String.raw`
       fontFamily:(ct.fontFamily||'').split(',')[0].replace(/['"]/g,'').trim(),
       fontSize:Math.round(parseFloat(ct.fontSize)||0),
       color:toHex(ct.color), fontWeight:ct.fontWeight,
-      bg:(ct.backgroundColor&&ct.backgroundColor!=='rgba(0, 0, 0, 0)'&&ct.backgroundColor!=='transparent')?toHex(ct.backgroundColor):'',
+      // En un svg raíz el "fondo" es el fill (viaja por color → fill:currentColor)
+      bg: isSvg ? toHex(cs.color)
+        : (ct.backgroundColor&&ct.backgroundColor!=='rgba(0, 0, 0, 0)'&&ct.backgroundColor!=='transparent')?toHex(ct.backgroundColor):'',
       italic:ct.fontStyle==='italic', align:cs.textAlign,
       opacity: Math.round((parseFloat(cs.opacity)||1)*100),
       rotation: Math.round(((parseFloat(el.style.rotate)||0)%360+360)%360),
       radius: Math.round(parseFloat(cs.borderTopLeftRadius)||0),
+      isShape: !!(el.getAttribute&&el.getAttribute('data-oc-shape')),
+      isSvgShape: isSvg,
+      // Borde (divs/imágenes/texto) o trazo (formas svg), unificados para el panel
+      borderW: isSvg ? Math.round(parseFloat(cs.strokeWidth)||0) : Math.round(parseFloat(cs.borderTopWidth)||0),
+      borderStyle: isSvg ? (cs.stroke==='none' ? 'none' : ((cs.strokeDasharray&&cs.strokeDasharray!=='none')?'dashed':'solid')) : cs.borderTopStyle,
+      borderColor: isSvg ? (cs.stroke==='none' ? '#111827' : toHex(cs.stroke)) : toHex(cs.borderTopColor),
       letterSpacing: ct.letterSpacing==='normal'?0:Math.round((parseFloat(ct.letterSpacing)||0)*10)/10,
       lineHeight: cs.lineHeight==='normal'?0:Math.round(((parseFloat(cs.lineHeight)||0)/(parseFloat(cs.fontSize)||1))*100)/100,
       x:Math.round(er.left), y:Math.round(er.top), w:Math.round(er.width), h:Math.round(er.height),
@@ -479,6 +492,9 @@ export const EDITOR_RUNTIME = String.raw`
         var ratio2=Math.max(0.15,(rz.w+wDelta)/Math.max(1,rz.w));
         rz.el.style.width=Math.max(20,Math.round(rz.w*ratio2))+'px';
         if(rz.el.tagName==='IMG') rz.el.style.height='auto';
+        // formas: el alto acompaña (un círculo sigue círculo); las líneas no tienen alto
+        else if(rz.el.getAttribute&&rz.el.getAttribute('data-oc-shape')&&!rz.el.getAttribute('data-oc-line'))
+          rz.el.style.height=Math.max(20,Math.round(rz.h*ratio2))+'px';
       } else if(c==='e'||c==='w'){ // lateral → ancho libre
         rz.el.style.width=Math.max(20,Math.round(rz.w+wDelta))+'px';
         if(rz.el.tagName==='IMG') rz.el.style.height='auto';
@@ -681,7 +697,25 @@ export const EDITOR_RUNTIME = String.raw`
     if(p==='fontFamily'){ el.style.fontFamily="'"+v+"'"; ensureFont(v); }
     else if(p==='fontSize'){ el.style.fontSize=v+'px'; }
     else if(p==='color'){ el.style.color=v; }
-    else if(p==='bg'){ el.style.background=v; }
+    else if(p==='bg'){
+      // svg raíz: el fill de las formas es fill:currentColor → recolorear = color.
+      // Si tenía degradado, volver a sólido = restaurar currentColor y sacar defs.
+      // Sombra de puntos: recolorear reconstruye el patrón (background lo pisaría).
+      if(isSvgRoot(el)){
+        if(el.getAttribute('data-oc-grad')){
+          el.removeAttribute('data-oc-grad');
+          var od=el.querySelector('defs[data-oc-defs]'); if(od) od.remove();
+          [].slice.call(el.children).forEach(function(k){
+            if(k.tagName.toLowerCase()!=='defs') k.setAttribute('fill','currentColor');
+          });
+        }
+        el.style.color=v;
+      }
+      else if(el.getAttribute&&el.getAttribute('data-oc-dots')){
+        el.style.backgroundImage='radial-gradient(circle, '+v+' 2.6px, transparent 3px)';
+      }
+      else el.style.background=v;
+    }
     else if(p==='bold'){ el.style.fontWeight=v?'700':'400'; }
     else if(p==='fontWeight'){ el.style.fontWeight=String(v); }
     else if(p==='italic'){ el.style.fontStyle=v?'italic':'normal'; }
@@ -691,6 +725,89 @@ export const EDITOR_RUNTIME = String.raw`
     else if(p==='radius'){ el.style.borderRadius=v+'px'; }
     else if(p==='letterSpacing'){ el.style.letterSpacing=v+'px'; }
     else if(p==='lineHeight'){ el.style.lineHeight=v; }
+    // ── borde/trazo unificado: divs e imágenes van por border, las líneas solo por
+    //    border-top (si no, los otros 3 lados aparecen con 3px "medium"), y los svg
+    //    raíz por stroke (que en SVG hereda del raíz a las formas hijas). ──────────
+    else if(p==='borderW'){
+      var bw=Math.max(0,parseFloat(v)||0);
+      if(isSvgRoot(el)){ el.style.strokeWidth=String(bw); if(bw&&getComputedStyle(el).stroke==='none') el.style.stroke='#111827'; }
+      else if(el.getAttribute&&el.getAttribute('data-oc-line')){ el.style.borderTopWidth=bw+'px'; }
+      else { el.style.borderWidth=bw+'px'; if(bw&&getComputedStyle(el).borderTopStyle==='none') el.style.borderStyle='solid'; }
+    }
+    else if(p==='borderStyle'){ // solid | dashed | dotted | none
+      if(isSvgRoot(el)){
+        if(v==='none'){ el.style.stroke='none'; }
+        else {
+          el.style.strokeDasharray = v==='dashed' ? '14 10' : (v==='dotted' ? '2 8' : 'none');
+          if(getComputedStyle(el).stroke==='none') el.style.stroke='#111827';
+          if(!parseFloat(el.style.strokeWidth)) el.style.strokeWidth='6';
+        }
+      }
+      else if(el.getAttribute&&el.getAttribute('data-oc-line')){ el.style.borderTopStyle=v; }
+      else {
+        el.style.borderStyle=v;
+        if(v!=='none' && !(parseFloat(getComputedStyle(el).borderTopWidth)||0)) el.style.borderWidth='4px';
+      }
+    }
+    else if(p==='borderColor'){
+      if(isSvgRoot(el)) el.style.stroke=v;
+      else if(el.getAttribute&&el.getAttribute('data-oc-line')) el.style.borderTopColor=v;
+      else el.style.borderColor=v;
+    }
+    // ── sombras: presets 100% CSS. En IMG (con transparencia) y formas svg usamos
+    //    drop-shadow (sigue la silueta real); en cajas/texto, box-shadow. 'float'
+    //    despega el elemento — se ve "más arriba" del fondo. 'dots' inserta una capa
+    //    de puntos halftone DETRÁS (elemento real: se mueve/recolorea/borra solo). ──
+    else if(p==='shadow'){
+      el.style.boxShadow=''; el.style.filter='';
+      if(v==='dots'){
+        var dr=el.getBoundingClientRect();
+        var dd=document.createElement('div');
+        dd.setAttribute('data-oc-shape','1'); dd.setAttribute('data-oc-dots','1');
+        dd.style.cssText='position:absolute;left:0;top:0;width:'+Math.round(dr.width)+'px;height:'+Math.round(dr.height)+'px'
+          +';background-image:radial-gradient(circle, #111827 2.6px, transparent 3px);background-size:16px 16px';
+        dd.style.borderRadius=getComputedStyle(el).borderRadius;
+        el.parentElement.insertBefore(dd, el);
+        if(getComputedStyle(el).position==='static') el.style.position='relative';
+        // corregir contra el ancestro posicionado real, con offset diagonal (18,18)
+        var ddr=dd.getBoundingClientRect();
+        dd.style.left=Math.round(dr.left-ddr.left+18)+'px';
+        dd.style.top=Math.round(dr.top-ddr.top+18)+'px';
+      } else {
+        var box={soft:'0 6px 18px rgba(0,0,0,.20)', medium:'0 12px 30px rgba(0,0,0,.28)', strong:'0 22px 48px rgba(0,0,0,.40)', float:'0 30px 46px -18px rgba(0,0,0,.45)'};
+        var drop={soft:'0 6px 10px rgba(0,0,0,.28)', medium:'0 12px 18px rgba(0,0,0,.32)', strong:'0 20px 28px rgba(0,0,0,.42)', float:'0 26px 22px rgba(0,0,0,.38)'};
+        if(box[v]){
+          if(el.tagName==='IMG'||isSvgRoot(el)) el.style.filter='drop-shadow('+drop[v]+')';
+          else el.style.boxShadow=box[v];
+        } // 'none' deja todo reseteado
+      }
+    }
+    // ── degradado como relleno: en divs/texto va directo al background; en un svg
+    //    raíz inyectamos <defs><linearGradient> y apuntamos el fill de las formas. ──
+    else if(p==='gradient'){
+      var ga=((parseFloat(v.angle)||0)%360+360)%360, gf=v.from||'#4f7cff', gt=v.to||'#ff3b7f';
+      if(isSvgRoot(el)){
+        var gid=el.getAttribute('data-oc-grad');
+        if(!gid){ gid='ocg'+Math.floor(Math.random()*1e9).toString(36); el.setAttribute('data-oc-grad',gid); }
+        var old=el.querySelector('defs[data-oc-defs]'); if(old) old.remove();
+        var NS='http://www.w3.org/2000/svg';
+        var defs=document.createElementNS(NS,'defs'); defs.setAttribute('data-oc-defs','1');
+        var lg=document.createElementNS(NS,'linearGradient');
+        lg.setAttribute('id',gid);
+        lg.setAttribute('x1','0'); lg.setAttribute('y1','0'); lg.setAttribute('x2','1'); lg.setAttribute('y2','0');
+        // CSS: 0deg apunta arriba y 90deg a la derecha; el vector base ya es 90deg
+        lg.setAttribute('gradientTransform','rotate('+(ga-90)+', 0.5, 0.5)');
+        var s1=document.createElementNS(NS,'stop'); s1.setAttribute('offset','0'); s1.setAttribute('stop-color',gf);
+        var s2=document.createElementNS(NS,'stop'); s2.setAttribute('offset','1'); s2.setAttribute('stop-color',gt);
+        lg.appendChild(s1); lg.appendChild(s2); defs.appendChild(lg);
+        el.insertBefore(defs, el.firstChild);
+        [].slice.call(el.children).forEach(function(k){
+          if(k.tagName.toLowerCase()!=='defs') k.setAttribute('fill','url(#'+gid+')');
+        });
+      } else {
+        el.style.background='linear-gradient('+ga+'deg, '+gf+', '+gt+')';
+      }
+    }
     else if(p==='textEffect'){
       // Efectos 100% CSS (render idéntico en preview y export, ambos Chromium).
       // Reseteamos siempre primero para que cambiar de efecto no acumule capas.
@@ -795,6 +912,49 @@ export const EDITOR_RUNTIME = String.raw`
     rootEl().appendChild(img);
     sels=[img]; paint(); report(); serialize();
   }
+  // ── librería de formas: divs para cajas/marcos/líneas (el trazo es border CSS)
+  //    y svg para siluetas (fill:currentColor → recolorear via style.color del raíz;
+  //    stroke/stroke-width/dasharray HEREDAN del raíz a los hijos → los controles de
+  //    trazo del panel funcionan sin tocar cada <polygon>). ──────────────────────
+  function svgShape(inner){
+    return '<svg data-oc-shape="1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none"'
+      +' style="width:300px;height:300px;color:#4f7cff;stroke:none;overflow:visible;display:block">'+inner+'</svg>';
+  }
+  var SHAPES={
+    square:'<div data-oc-shape="1" style="width:300px;height:300px;background:#4f7cff"></div>',
+    rounded:'<div data-oc-shape="1" style="width:300px;height:300px;background:#4f7cff;border-radius:28px"></div>',
+    circle:'<div data-oc-shape="1" style="width:300px;height:300px;background:#4f7cff;border-radius:50%"></div>',
+    pill:'<div data-oc-shape="1" style="width:380px;height:150px;background:#4f7cff;border-radius:999px"></div>',
+    frame:'<div data-oc-shape="1" style="width:300px;height:300px;border:6px solid #111827"></div>',
+    frameRounded:'<div data-oc-shape="1" style="width:300px;height:300px;border:6px solid #111827;border-radius:28px"></div>',
+    frameCircle:'<div data-oc-shape="1" style="width:300px;height:300px;border:6px solid #111827;border-radius:50%"></div>',
+    line:'<div data-oc-shape="1" data-oc-line="1" style="width:420px;height:0;border-top:5px solid #111827"></div>',
+    lineDashed:'<div data-oc-shape="1" data-oc-line="1" style="width:420px;height:0;border-top:5px dashed #111827"></div>',
+    lineDotted:'<div data-oc-shape="1" data-oc-line="1" style="width:420px;height:0;border-top:6px dotted #111827"></div>',
+    triangle:svgShape('<polygon points="50,4 96,92 4,92" fill="currentColor"/>'),
+    diamond:svgShape('<polygon points="50,2 98,50 50,98 2,50" fill="currentColor"/>'),
+    pentagon:svgShape('<polygon points="50,2 98,38 79,96 21,96 2,38" fill="currentColor"/>'),
+    hexagon:svgShape('<polygon points="25,5 75,5 98,50 75,95 25,95 2,50" fill="currentColor"/>'),
+    star:svgShape('<polygon points="50,2 61,35 98,35 68,57 79,92 50,70 21,92 32,57 2,35 39,35" fill="currentColor"/>'),
+    heart:svgShape('<path d="M50 91 C20 68 2 50 2 30 C2 14 14 4 27 4 C37 4 46 10 50 19 C54 10 63 4 73 4 C86 4 98 14 98 30 C98 50 80 68 50 91 Z" fill="currentColor"/>'),
+    arrow:svgShape('<polygon points="0,38 58,38 58,16 100,50 58,84 58,62 0,62" fill="currentColor"/>'),
+    cross:svgShape('<polygon points="35,2 65,2 65,35 98,35 98,65 65,65 65,98 35,98 35,65 2,65 2,35 35,35" fill="currentColor"/>'),
+    half:svgShape('<path d="M2 98 A48 48 0 0 1 98 98 Z" fill="currentColor"/>'),
+    bubble:svgShape('<path d="M14 4 h72 q12 0 12 12 v44 q0 12 -12 12 H46 L24 94 30 72 H14 Q2 72 2 60 V16 Q2 4 14 4 Z" fill="currentColor"/>')
+  };
+  function addShape(kind){
+    var h=SHAPES[kind]; if(!h) return;
+    snap();
+    var t=document.createElement('div'); t.innerHTML=h;
+    var el=t.firstElementChild; if(!el) return;
+    var sw=parseFloat(el.style.width)||300, sh=parseFloat(el.style.height)||0;
+    el.style.position='absolute';
+    el.style.left=Math.round((W-sw)/2)+'px';
+    el.style.top=Math.round((H-sh)/2)+'px';
+    el.style.zIndex='5';
+    rootEl().appendChild(el);
+    sels=[el]; paint(); report(); serialize();
+  }
   // Reemplaza la fuente de la imagen seleccionada (para regenerar con IA).
   function setImgSrc(url){
     if(!sels.length) return; var el=sels[0];
@@ -828,6 +988,7 @@ export const EDITOR_RUNTIME = String.raw`
     else if(m.oc==='paste') paste();
     else if(m.oc==='duplicate') duplicate();
     else if(m.oc==='addText') addText();
+    else if(m.oc==='addShape') addShape(m.kind);
     else if(m.oc==='addImage') addImage(m.url);
     else if(m.oc==='setImgSrc') setImgSrc(m.url);
     else if(m.oc==='setBg') setBg(m.value);
