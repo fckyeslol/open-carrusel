@@ -6,6 +6,7 @@ import { DIMENSIONS, type AspectRatio } from "@/types/carousel";
 import { Button } from "@/components/ui/button";
 import { Section } from "@/components/ui/section";
 import { BackgroundPicker } from "./BackgroundPicker";
+import { ColorInput } from "./ColorInput";
 import { SafeZoneOverlay } from "./SafeZoneOverlay";
 import { SHAPE_GALLERY, SHADOW_PRESETS, GRADIENT_PRESETS } from "./shape-gallery";
 import {
@@ -114,6 +115,7 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
   // El degradado vive en estado local: el runtime no puede "leerlo" de vuelta.
   const [shapesOpen, setShapesOpen] = useState(false);
   const [grad, setGrad] = useState({ from: "#4f7cff", to: "#ff3b7f", angle: 135 });
+  const [slideBg, setSlideBg] = useState("#F6F5F0"); // color plano del fondo del slide
   const { width: W, height: H } = DIMENSIONS[aspectRatio];
 
   // Capturamos el HTML inicial UNA vez: durante la edición el iframe es la fuente
@@ -516,25 +518,23 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
                       ))}
                     </select>
                   </label>
-                  <div className="flex gap-2">
-                    <label className="flex-1">
-                      <span className={labelCls}>Tamaño</span>
-                      <input
-                        type="number"
-                        className={inputCls}
-                        value={sel.fontSize || 0}
-                        onChange={(e) => applyProp("fontSize", Number(e.target.value))}
-                      />
-                    </label>
-                    <label>
-                      <span className={labelCls}>Color</span>
-                      <input
-                        type="color"
-                        className="mt-1 h-9 w-12 rounded-md border border-border bg-background"
-                        value={sel.color || "#000000"}
-                        onChange={(e) => applyProp("color", e.target.value)}
-                      />
-                    </label>
+                  <label className="block">
+                    <span className={labelCls}>Tamaño</span>
+                    <input
+                      type="number"
+                      className={inputCls}
+                      value={sel.fontSize || 0}
+                      onChange={(e) => applyProp("fontSize", Number(e.target.value))}
+                    />
+                  </label>
+                  <div className="block">
+                    <span className={labelCls}>Color</span>
+                    <ColorInput
+                      className="mt-1"
+                      title="Color del texto"
+                      value={sel.color || "#000000"}
+                      onChange={(hex) => applyProp("color", hex)}
+                    />
                   </div>
                   {/* Grosor manual: la fuente sirve solo los pesos que tiene; los que
                       no existen, el navegador los aproxima al más cercano. */}
@@ -650,19 +650,19 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
                   <div className="block">
                     <span className={labelCls}>{sel.isShape ? "Relleno" : "Fondo del elemento"}</span>
                     <div className="mt-1 flex items-center gap-1.5">
-                      <input
-                        type="color"
-                        className="h-9 w-12 rounded-md border border-border bg-background"
+                      <ColorInput
+                        className="flex-1"
+                        title={sel.isShape ? "Relleno" : "Fondo del elemento"}
                         value={sel.bg || "#ffffff"}
-                        onChange={(e) => {
-                          setSel({ ...sel, bg: e.target.value });
-                          applyProp("bg", e.target.value);
+                        onChange={(hex) => {
+                          setSel({ ...sel, bg: hex });
+                          applyProp("bg", hex);
                         }}
                       />
                       <Button
                         size="sm"
                         variant="outline"
-                        className="flex-1"
+                        className="shrink-0"
                         disabled={!sel.bg}
                         onClick={() => applyProp("bg", "transparent")}
                       >
@@ -703,42 +703,40 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
                         />
                       ))}
                     </div>
-                    <div className="mt-1.5 flex items-center gap-1.5">
-                      <input
-                        type="color"
-                        className="h-9 w-12 rounded-md border border-border bg-background"
+                    <div className="mt-1.5 space-y-1.5">
+                      <ColorInput
                         title="Color inicial"
                         value={grad.from}
-                        onChange={(e) => {
-                          const g = { ...grad, from: e.target.value };
+                        onChange={(hex) => {
+                          const g = { ...grad, from: hex };
                           setGrad(g);
                           applyProp("gradient", g);
                         }}
                       />
-                      <input
-                        type="color"
-                        className="h-9 w-12 rounded-md border border-border bg-background"
+                      <ColorInput
                         title="Color final"
                         value={grad.to}
-                        onChange={(e) => {
-                          const g = { ...grad, to: e.target.value };
+                        onChange={(hex) => {
+                          const g = { ...grad, to: hex };
                           setGrad(g);
                           applyProp("gradient", g);
                         }}
                       />
-                      <input
-                        type="number"
-                        step={15}
-                        className="h-9 w-16 rounded-md border border-border bg-background px-2 text-sm"
-                        title="Ángulo (°)"
-                        value={grad.angle}
-                        onChange={(e) => {
-                          const g = { ...grad, angle: Number(e.target.value) };
-                          setGrad(g);
-                          applyProp("gradient", g);
-                        }}
-                      />
-                      <span className="text-[10px] text-muted-foreground">°</span>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          step={15}
+                          className="h-9 w-16 rounded-md border border-border bg-background px-2 text-sm"
+                          title="Ángulo (°)"
+                          value={grad.angle}
+                          onChange={(e) => {
+                            const g = { ...grad, angle: Number(e.target.value) };
+                            setGrad(g);
+                            applyProp("gradient", g);
+                          }}
+                        />
+                        <span className="text-[10px] text-muted-foreground">°</span>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -776,17 +774,16 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
                       <option value="dotted">Punteada</option>
                       <option value="none">Sin borde</option>
                     </select>
-                    <input
-                      type="color"
-                      className="h-9 w-12 rounded-md border border-border bg-background"
-                      title="Color del borde"
-                      value={sel.borderColor || "#111827"}
-                      onChange={(e) => {
-                        setSel({ ...sel, borderColor: e.target.value });
-                        applyProp("borderColor", e.target.value);
-                      }}
-                    />
                   </div>
+                  <ColorInput
+                    className="mt-1.5"
+                    title="Color del borde"
+                    value={sel.borderColor || "#111827"}
+                    onChange={(hex) => {
+                      setSel({ ...sel, borderColor: hex });
+                      applyProp("borderColor", hex);
+                    }}
+                  />
                 </div>
                 {/* Sombras: 'Elevada' despega el elemento (se ve más arriba del fondo);
                     'Puntos' agrega la capa halftone detrás como elemento aparte. */}
@@ -976,13 +973,16 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
 
           {/* Fondo del slide */}
           <Section title="Fondo del slide" defaultOpen={!hasSel}>
+            <ColorInput
+              className="mb-2"
+              title="Color del fondo"
+              value={slideBg}
+              onChange={(hex) => {
+                setSlideBg(hex);
+                send({ oc: "setBg", value: hex });
+              }}
+            />
             <div className="flex items-center gap-2">
-              <input
-                type="color"
-                className="h-9 w-12 rounded-md border border-border"
-                defaultValue="#F6F5F0"
-                onChange={(e) => send({ oc: "setBg", value: e.target.value })}
-              />
               <div className="flex gap-1 flex-wrap">
                 {[
                   "linear-gradient(135deg,#2A2320,#C77E97)",
