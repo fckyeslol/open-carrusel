@@ -21,6 +21,8 @@
     "doctor": "node scripts/doctor.mjs",
     "prewave:check": "node scripts/check-prewave.mjs",
     "brand": "node scripts/switch-brand.mjs",
+    "handoff:export": "node scripts/export-handoff.mjs",
+    "handoff:import": "node scripts/import-handoff.mjs",
     "import:backgrounds": "node scripts/import-backgrounds.mjs",
     "higgsfield:check": "node scripts/higgsfield-check.mjs"
   },

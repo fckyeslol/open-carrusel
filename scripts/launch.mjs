@@ -129,6 +129,25 @@ function refreshAvatars() {
   }
 }
 
+// Importa los packs de handoff (30x/handoff/*): carruseles editables que Mateo
+// empacó y llegaron con el pull de arriba. Idempotente y nunca pisa trabajo
+// local (un carrusel ya existente se salta). No fatal: si falla, la app abre
+// igual y solo faltan los carruseles compartidos.
+function importHandoffs() {
+  const r = spawnSync("node", [path.join("scripts", "import-handoff.mjs")], {
+    encoding: "utf-8",
+    shell: SHELL,
+    timeout: 60000,
+  });
+  const out = (r.stdout || "").trim();
+  if (out) log(out);
+  if (r.status !== 0) {
+    log("⚠️  No se pudieron importar los carruseles compartidos — avisale a Mateo.");
+    const detail = (r.stderr || "").trim();
+    if (detail) log("   " + detail.split("\n").slice(-2).join("\n   "));
+  }
+}
+
 // Open the browser on /30x after a short delay, detached, so it happens while
 // the dev server is booting in the foreground.
 function openBrowserSoon() {
@@ -162,6 +181,7 @@ function main() {
 
   autoUpdate();
   refreshAvatars();
+  importHandoffs();
   log("");
 
   log(`🚀 Abriendo el programa... (${URL})`);
