@@ -107,17 +107,26 @@ export const EDITOR_RUNTIME = String.raw`
   }
 
   // ── selección inteligente: prefiere texto/imagen; si no hay, toma el decorativo ──
+  // Los elementos "tooBig" (contenedores de fondo) se saltan… pero una IMG grande
+  // (foto a lámina completa) debe poder seleccionarse como último recurso: si no,
+  // queda pegada para siempre (ni mover, ni enviar atrás, ni borrar).
   function candidateAt(x,y){
-    var list=document.elementsFromPoint(x,y)||[], first=null;
+    var list=document.elementsFromPoint(x,y)||[], first=null, bigImg=null;
     for(var i=0;i<list.length;i++){
-      var el=list[i];
+      var el=list[i], svgHit=false;
+      // Un clic sobre una flecha/forma SVG devuelve el <path>/<line> interno.
+      // Esos hijos ignoran left/top y su reorden no cambia capas: subimos
+      // siempre al <svg> raíz, que sí se mueve y se apila como un elemento normal.
+      if(el.ownerSVGElement){ el=el.ownerSVGElement; svgHit=true; }
       if(el===document.body||el===document.documentElement||el===rootEl()) continue;
       if(el.closest && el.closest('[data-oc-ui]')) continue;
-      if(tooBig(el)) continue;
+      // svgHit cuenta como "tinta real": el punto tocó una forma dentro del svg,
+      // así que un svg-overlay a lámina completa sigue siendo seleccionable.
+      if(tooBig(el)){ if((el.tagName==='IMG'||svgHit)&&!bigImg) bigImg=el; continue; }
       if(isTextEl(el) || el.tagName==='IMG') return el;
       if(!first) first=el;
     }
-    return first;
+    return first||bigImg;
   }
 
   // ── overlay persistente: se crea al cambiar la selección y se REPOSICIONA
@@ -194,6 +203,7 @@ export const EDITOR_RUNTIME = String.raw`
       fontFamily:(cs.fontFamily||'').split(',')[0].replace(/['"]/g,'').trim(),
       fontSize:Math.round(parseFloat(cs.fontSize)||0),
       color:toHex(cs.color), fontWeight:cs.fontWeight,
+      bg:(cs.backgroundColor&&cs.backgroundColor!=='rgba(0, 0, 0, 0)'&&cs.backgroundColor!=='transparent')?toHex(cs.backgroundColor):'',
       italic:cs.fontStyle==='italic', align:cs.textAlign,
       opacity: Math.round((parseFloat(cs.opacity)||1)*100),
       radius: Math.round(parseFloat(cs.borderTopLeftRadius)||0),
@@ -469,6 +479,33 @@ export const EDITOR_RUNTIME = String.raw`
     }
     paint(); report(); serialize();
   }
+  // ── capas: reordenar el DOM no alcanza — las láminas traen z-index explícitos
+  //    (p.ej. textos con z-index:5) y un posicionado siempre pinta sobre un
+  //    estático, así que "al frente/atrás" parecía no hacer nada. En cambio:
+  //    capturamos el orden VISUAL actual de los hermanos, movemos el elemento a
+  //    la punta que toca y reasignamos z-index secuencial (posicionando lo
+  //    estático con relative, que no altera el layout). Sin tocar el DOM. ──────
+  function restack(el,toFront){
+    var par=el.parentElement; if(!par) return;
+    var items=[], kids=par.children;
+    for(var i=0;i<kids.length;i++){
+      var k=kids[i];
+      if(k.hasAttribute && k.hasAttribute('data-oc-ui')) continue;
+      if(k.tagName==='SCRIPT'||k.tagName==='STYLE'||k.tagName==='LINK') continue;
+      var cs=getComputedStyle(k), z;
+      if(cs.position==='static') z=-0.5;   // estático: pinta bajo lo posicionado
+      else z=(cs.zIndex==='auto') ? 0 : (parseInt(cs.zIndex)||0);
+      items.push({el:k, z:z, i:i});
+    }
+    items.sort(function(a,b){ return (a.z-b.z) || (a.i-b.i); });  // orden visual hoy
+    var rest=[];
+    items.forEach(function(it){ if(it.el!==el) rest.push(it.el); });
+    var order = toFront ? rest.concat([el]) : [el].concat(rest);
+    order.forEach(function(k,idx){
+      if(getComputedStyle(k).position==='static') k.style.position='relative';
+      k.style.zIndex=String(idx+1);
+    });
+  }
   function apply(m){
     if(!sels.length) return;
     var p=m.prop, v=m.value;
@@ -479,6 +516,27 @@ export const EDITOR_RUNTIME = String.raw`
       else if(p==='fontSize'){ el.style.fontSize=v+'px'; }
       else if(p==='color'){ el.style.color=v; }
       else if(p==='bg'){ el.style.background=v; }
+      else if(p==='splitBg'){
+        // "Sacar el texto de la caja": el resaltado es el background del MISMO
+        // elemento. Lo copiamos a un div independiente insertado justo detrás
+        // (mismo padre, antes en el DOM → pinta debajo) y el texto queda libre.
+        var scs=getComputedStyle(el);
+        if(scs.backgroundColor!=='rgba(0, 0, 0, 0)'||scs.backgroundImage!=='none'){
+          var rr=el.getBoundingClientRect();
+          var bx=document.createElement('div');
+          bx.style.cssText='position:absolute;left:0;top:0;width:'+Math.round(rr.width)+'px;height:'+Math.round(rr.height)+'px';
+          bx.style.backgroundColor=scs.backgroundColor;
+          if(scs.backgroundImage!=='none') bx.style.backgroundImage=scs.backgroundImage;
+          bx.style.borderRadius=scs.borderRadius;
+          el.parentElement.insertBefore(bx, el);
+          // El ancestro posicionado del div puede no estar en (0,0): medimos dónde
+          // cayó y corregimos left/top con la diferencia contra el rect del texto.
+          var brr=bx.getBoundingClientRect();
+          bx.style.left=Math.round(rr.left-brr.left)+'px';
+          bx.style.top=Math.round(rr.top-brr.top)+'px';
+          el.style.background='transparent';
+        }
+      }
       else if(p==='bold'){ el.style.fontWeight=v?'700':'400'; }
       else if(p==='fontWeight'){ el.style.fontWeight=String(v); }
       else if(p==='italic'){ el.style.fontStyle=v?'italic':'normal'; }
@@ -502,8 +560,8 @@ export const EDITOR_RUNTIME = String.raw`
       else if(p==='y'){ moveTo(el, null, v); }
       else if(p==='w'){ promoteAbsolute(el); el.style.width=Math.max(1,v)+'px'; if(el.tagName==='IMG') el.style.height='auto'; }
       else if(p==='h'){ promoteAbsolute(el); el.style.height=Math.max(1,v)+'px'; }
-      else if(p==='front'){ el.parentElement && el.parentElement.appendChild(el); }
-      else if(p==='back'){ el.parentElement && el.parentElement.insertBefore(el, el.parentElement.firstChild); }
+      else if(p==='front'){ restack(el,true); }
+      else if(p==='back'){ restack(el,false); }
       else if(p==='remove'){ el.remove(); }
     });
     if(p==='remove') sels=[];
