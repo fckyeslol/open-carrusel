@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import { Upload, X, Copy, Check, Image as ImageIcon, ChevronDown, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IMAGE_ACCEPT } from "@/lib/upload-formats";
 import type { ReferenceImage } from "@/types/carousel";
 
 interface ReferenceImagesProps {
@@ -84,7 +85,7 @@ export function ReferenceImages({
   const handlePick = useCallback(() => {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = "image/png,image/jpeg,image/webp";
+    input.accept = IMAGE_ACCEPT;
     input.multiple = true;
     // Agregarlo al DOM: un <input> desprendido puede no disparar 'change' de forma
     // confiable en algunos navegadores. Se remueve apenas termina.

@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import { Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IMAGE_ACCEPT, IMAGE_FORMATS_LABEL } from "@/lib/upload-formats";
 
 interface LogoUploadProps {
   value: string | null;
@@ -74,7 +75,7 @@ export function LogoUpload({ value, onChange }: LogoUploadProps) {
           onClick={() => {
             const input = document.createElement("input");
             input.type = "file";
-            input.accept = "image/png,image/jpeg,image/webp";
+            input.accept = IMAGE_ACCEPT;
             input.onchange = (e) => {
               const file = (e.target as HTMLInputElement).files?.[0];
               if (file) handleUpload(file);
@@ -99,7 +100,7 @@ export function LogoUpload({ value, onChange }: LogoUploadProps) {
                   Drop your logo here
                 </span>
                 <span className="text-xs text-muted-foreground block">
-                  PNG, JPG, or WebP (max 10MB)
+                  {IMAGE_FORMATS_LABEL} (max 10MB)
                 </span>
               </div>
             </div>

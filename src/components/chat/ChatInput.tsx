@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback } from "react";
 import { Send, Square, Paperclip, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IMAGE_ACCEPT } from "@/lib/upload-formats";
 
 export interface ChatAttachment {
   url: string;
@@ -70,7 +71,7 @@ export function ChatInput({ onSend, isStreaming, disabled, textareaRef: external
   const handlePickFiles = useCallback(() => {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = "image/png,image/jpeg,image/webp";
+    input.accept = IMAGE_ACCEPT;
     input.multiple = true;
     input.style.display = "none";
     document.body.appendChild(input);

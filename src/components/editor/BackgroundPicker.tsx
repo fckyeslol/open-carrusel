@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Plus, X, Ban, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { RASTER_IMAGE_ACCEPT } from "@/lib/upload-formats";
 import type { Background } from "@/types/background";
 
 /** Valor CSS que aplica un fondo a sangre, centrado y recortado sin deformar. */
@@ -129,7 +130,7 @@ export function BackgroundPicker({ onApply }: BackgroundPickerProps) {
         <input
           ref={fileRef}
           type="file"
-          accept="image/png,image/jpeg,image/webp"
+          accept={RASTER_IMAGE_ACCEPT}
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];

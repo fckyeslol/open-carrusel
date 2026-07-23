@@ -7,28 +7,43 @@ import { generateId } from "@/lib/utils";
 const UPLOAD_DIR = path.resolve(process.cwd(), "public/uploads");
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
-// Magic bytes for allowed image types
+// Magic bytes for allowed image types (all decodable by Sharp)
 const MAGIC_BYTES: Record<string, number[][]> = {
   png: [[0x89, 0x50, 0x4e, 0x47]],
   jpg: [
     [0xff, 0xd8, 0xff],
   ],
   webp: [[0x52, 0x49, 0x46, 0x46]], // RIFF header
+  gif: [[0x47, 0x49, 0x46, 0x38]], // GIF8
+  tiff: [
+    [0x49, 0x49, 0x2a, 0x00], // little-endian
+    [0x4d, 0x4d, 0x00, 0x2a], // big-endian
+  ],
 };
 
 // Font file magic bytes
 const FONT_MAGIC: Record<string, number[][]> = {
-  woff2: [[0x77, 0x4f, 0x46, 0x32]],
+  woff2: [[0x77, 0x4f, 0x46, 0x32]], // wOF2
+  woff: [[0x77, 0x4f, 0x46, 0x46]], // wOFF
   ttf: [[0x00, 0x01, 0x00, 0x00]],
+  otf: [[0x4f, 0x54, 0x54, 0x4f]], // OTTO
 };
 
 function matchesMagic(buffer: Uint8Array, magic: number[]): boolean {
   return magic.every((byte, i) => buffer[i] === byte);
 }
 
+// AVIF es ISO-BMFF: "ftyp" en bytes 4-7 y brand "avif"/"avis" en 8-11
+function isAvif(buffer: Uint8Array): boolean {
+  if (buffer.length < 12) return false;
+  const tag = String.fromCharCode(...buffer.subarray(4, 12));
+  return tag.startsWith("ftyp") && (tag.endsWith("avif") || tag.endsWith("avis"));
+}
+
 function detectType(
   buffer: Uint8Array
 ): "image" | "font" | null {
+  if (isAvif(buffer)) return "image";
   for (const patterns of Object.values(MAGIC_BYTES)) {
     for (const pattern of patterns) {
       if (matchesMagic(buffer, pattern)) return "image";
@@ -40,6 +55,14 @@ function detectType(
     }
   }
   return null;
+}
+
+// Extensión con la que guardar una fuente, derivada de sus magic bytes
+function fontExtFor(buffer: Uint8Array): string {
+  for (const [name, patterns] of Object.entries(FONT_MAGIC)) {
+    if (patterns.some((p) => matchesMagic(buffer, p))) return `.${name}`;
+  }
+  return ".ttf";
 }
 
 export async function POST(request: Request) {
@@ -96,7 +119,7 @@ export async function POST(request: Request) {
     const fileType = detectType(buffer);
     if (!fileType) {
       return NextResponse.json(
-        { error: "Unsupported file type. Allowed: PNG, JPG, WebP, WOFF2, TTF" },
+        { error: "Unsupported file type. Allowed: PNG, JPG, WebP, GIF, AVIF, TIFF, SVG, WOFF2, WOFF, TTF, OTF" },
         { status: 400 }
       );
     }
@@ -106,7 +129,7 @@ export async function POST(request: Request) {
 
     if (fileType === "font") {
       // Save fonts directly — no Sharp processing
-      const fontExt = ext === ".woff2" ? ".woff2" : ".ttf";
+      const fontExt = fontExtFor(buffer);
       const fontDir = path.join(UPLOAD_DIR, "fonts");
       await mkdir(fontDir, { recursive: true });
       const filename = `${id}${fontExt}`;
