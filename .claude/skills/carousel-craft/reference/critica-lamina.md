@@ -83,6 +83,10 @@ Lo único que cambia respecto del referente es *nuestra* identidad.
   referente se siente "bien" porque es el que estabas mirando.
 - ¿La tipografía es la del ADN?
 - ¿La firma y el tratamiento son los del avatar?
+- ¿La marca "30x" aparece tipeada como texto? Va SIEMPRE con el logo SVG
+  (`/30x/logo-light.svg` fondo oscuro, `/30x/logo-dark.svg` fondo claro,
+  `/30x/logo-accent.svg` X lima), nunca en texto plano — ni en la firma ni
+  dentro de un titular. El hallazgo `slide-brand-as-text` mide exactamente esto.
 
 Los hallazgos `design-system-color` y `design-system-font` de `slide-check` miden
 exactamente esto. No bloquean porque un color fuera de paleta puede ser legítimo

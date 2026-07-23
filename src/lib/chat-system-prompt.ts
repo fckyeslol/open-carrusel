@@ -74,7 +74,16 @@ Diseñás EXCLUSIVAMENTE para ${avatarName}. Nunca mezcles con la marca, voz o p
 - Fondo: ${C.background} | Superficie: ${C.surface} | Acento claro (tints): ${accentLight}
 - Titulares: "${headFont}" | Cuerpo: "${bodyFont}"
 - Logo: ${brand.logoPath ? brand.logoPath : "(sin logo cargado — no inventes uno)"}
-- Rasgos de estilo: ${brand.styleKeywords.length ? brand.styleKeywords.join(", ") : "editorial, profesional"}`;
+- Rasgos de estilo: ${brand.styleKeywords.length ? brand.styleKeywords.join(", ") : "editorial, profesional"}
+
+### Logo 30X — NUNCA tipeado como texto
+Siempre que la marca "30x" vaya a aparecer visible en una lámina (firma, header, sello, mención en un titular), va el logo SVG oficial, jamás la palabra tipeada:
+- \`/30x/logo-light.svg\` — trazos blancos (#F2F2F2): sobre fondos oscuros.
+- \`/30x/logo-dark.svg\` — trazos negros (#010101): sobre fondos claros.
+- \`/30x/logo-accent.svg\` — blanco con la X en lima #E9FF7B: sobre fondo oscuro cuando el acento suma.
+Uso como bloque: \`<img src="/30x/logo-light.svg" alt="30x" style="height:36px">\` (proporción 261:90, horizontal — escalá solo por height).
+Dentro de una línea de texto: \`<img src="/30x/logo-light.svg" alt="30x" style="height:0.72em; vertical-align:baseline">\` en lugar de escribir "30x".
+Si necesitás el logo en OTRO color de la paleta del avatar, inliná los \`<path>\` del SVG y cambiá los \`fill\` — pero nunca lo resuelvas tipeando la palabra.`;
 
   const carouselSection = carousel
     ? `## Carrusel actual

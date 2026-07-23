@@ -280,6 +280,41 @@ function bloqueDesflecado(html) {
 }
 
 /**
+ * La marca "30x" nunca va tipeada: siempre es el logo SVG oficial
+ * (/30x/logo-light.svg, /30x/logo-dark.svg o /30x/logo-accent.svg).
+ *
+ * Se juzga solo el TEXTO visible: al quitar etiquetas desaparecen los atributos,
+ * así que ni src="/30x/logo-*.svg" ni alt="30x" cuentan como hallazgo.
+ */
+function marcaTipeada(html) {
+  const textoVisible = html
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ');
+
+  const hallazgos = [];
+  for (const m of textoVisible.matchAll(/\b30\s?[xX]\b/g)) {
+    const contexto = textoVisible
+      .slice(Math.max(0, m.index - 25), m.index + m[0].length + 25)
+      .replace(/\s+/g, ' ')
+      .trim();
+    hallazgos.push(
+      hallazgo(
+        'slide-brand-as-text',
+        'Marca 30x tipeada como texto',
+        'warning',
+        `"${m[0]}" aparece como texto plano ("…${contexto}…"). La marca va SIEMPRE con el ` +
+          `logo SVG, nunca tipeada: <img src="/30x/logo-light.svg"> sobre fondo oscuro, ` +
+          `logo-dark.svg sobre fondo claro, logo-accent.svg (X lima) cuando el acento suma. ` +
+          `Inline en una frase: height:0.72em + vertical-align:baseline.`,
+        contexto,
+      ),
+    );
+  }
+  return hallazgos;
+}
+
+/**
  * Corre todas las reglas 30x sobre el fragmento crudo de la lámina.
  *
  * @param {string} html          HTML a nivel body, tal como se guarda
@@ -301,6 +336,7 @@ export function correrReglas30x(
     ...referenciasDeImagen(html),
     ...dimensionesDelLienzo(html, aspectRatio, dimensiones),
     ...margenSeguro(html),
+    ...marcaTipeada(html),
     ...bloqueDesflecado(html),
     ...fuentesResolubles({ familiasDeclaradas, familiasConocidas }),
   ];
