@@ -1,7 +1,14 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["sharp", "archiver", "puppeteer"],
+  serverExternalPackages: [
+    "sharp",
+    "archiver",
+    "puppeteer",
+    // Quitar fondo: modelo ONNX + binarios nativos — no se pueden bundlear
+    "@imgly/background-removal-node",
+    "onnxruntime-node",
+  ],
   async headers() {
     return [
       {

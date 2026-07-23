@@ -32,6 +32,7 @@ import {
   AlignVerticalDistributeCenter,
   Sparkles,
   RefreshCw,
+  Eraser,
 } from "lucide-react";
 
 const FONTS = EDITOR_FONTS;
@@ -53,8 +54,11 @@ interface Selection {
   none?: boolean;
   isText?: boolean;
   isImage?: boolean;
+  src?: string; // src de la imagen seleccionada (para "Quitar fondo")
   tag?: string;
   text?: string;
+  /** Hay un tramo de texto marcado: la tipografía se aplica solo a ese tramo. */
+  range?: boolean;
   fontFamily?: string;
   fontSize?: number;
   color?: string;
@@ -66,6 +70,7 @@ interface Selection {
   lineHeight?: number;
   opacity?: number;
   radius?: number;
+  rotation?: number; // grados 0-359 (CSS 'rotate')
   x?: number;
   y?: number;
   w?: number;
@@ -95,6 +100,9 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  // Quitar fondo de la imagen seleccionada (corre en el server, /api/remove-bg)
+  const [bgBusy, setBgBusy] = useState(false);
+  const [bgError, setBgError] = useState<string | null>(null);
   const { width: W, height: H } = DIMENSIONS[aspectRatio];
 
   // Capturamos el HTML inicial UNA vez: durante la edición el iframe es la fuente
@@ -116,18 +124,6 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
     measure();
     return () => obs.disconnect();
   }, [W, H]);
-
-  // recibir mensajes del iframe
-  useEffect(() => {
-    const onMsg = (e: MessageEvent) => {
-      const m = e.data;
-      if (!m || !m.oc) return;
-      if (m.oc === "sel") setSel(m as Selection);
-      else if (m.oc === "html") onChange(m.html);
-    };
-    window.addEventListener("message", onMsg);
-    return () => window.removeEventListener("message", onMsg);
-  }, [onChange]);
 
   const send = useCallback((msg: Record<string, unknown>) => {
     iframeRef.current?.contentWindow?.postMessage({ oc: msg.oc, ...msg }, "*");
@@ -161,6 +157,38 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
     [send]
   );
 
+  // recibir mensajes del iframe
+  useEffect(() => {
+    const onMsg = (e: MessageEvent) => {
+      const m = e.data;
+      if (!m || !m.oc) return;
+      if (m.oc === "sel") setSel(m as Selection);
+      else if (m.oc === "html") onChange(m.html);
+      // Ctrl+V con el foco DENTRO del iframe: el runtime nos manda el File
+      // del portapapeles y acá se sube + inserta como cualquier otra imagen.
+      else if (m.oc === "pasteImage" && m.file instanceof File) onUpload(m.file);
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, [onChange, onUpload]);
+
+  // Ctrl+V con el foco FUERA del iframe (panel de propiedades, etc.): si el
+  // portapapeles trae una imagen y no se está escribiendo en un campo, va a la lámina.
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      const file = Array.from(e.clipboardData?.files ?? []).find((f) =>
+        f.type.startsWith("image/")
+      );
+      if (!file) return;
+      e.preventDefault();
+      onUpload(file);
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [onUpload]);
+
   // Genera una imagen con IA y devuelve su URL absoluta (o null si falló).
   const generateImage = useCallback(
     async (prompt: string): Promise<string | null> => {
@@ -185,6 +213,30 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
     },
     [aspectRatio]
   );
+
+  // Quita el fondo de la imagen seleccionada: el server genera un PNG nuevo con
+  // transparencia y acá se reemplaza el src (la original queda en /uploads por si
+  // se quiere deshacer con Ctrl+Z).
+  const removeBg = useCallback(async () => {
+    if (!sel.src) return;
+    setBgBusy(true);
+    setBgError(null);
+    try {
+      const res = await fetch("/api/remove-bg", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: sel.src }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
+      if (!data.url) throw new Error("El servidor no devolvió la URL");
+      send({ oc: "setImgSrc", url: new URL(data.url, window.location.origin).href });
+    } catch (e) {
+      setBgError((e as Error).message);
+    } finally {
+      setBgBusy(false);
+    }
+  }, [sel.src, send]);
 
   const runAi = useCallback(async () => {
     const p = aiPrompt.trim();
@@ -339,8 +391,10 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
           {!hasSel && (
             <p className="py-4 text-xs text-muted-foreground leading-relaxed">
               Clic en un elemento para editarlo. <b>Shift+clic</b> para seleccionar varios.
-              Doble clic cambia el texto. Arrastrá para mover; en texto, las <b>esquinas</b>{" "}
-              escalan la tipografía y los <b>laterales</b> ajustan el ancho.
+              Doble clic cambia el texto; ahí podés <b>marcar una parte</b> y los cambios de
+              tipografía se aplican solo a esa parte. Arrastrá para mover; en texto, las{" "}
+              <b>esquinas</b> escalan la tipografía y los <b>laterales</b> ajustan el ancho.
+              El <b>punto rosa</b> rota el elemento.
             </p>
           )}
 
@@ -367,11 +421,32 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
                   >
                     <RefreshCw className="h-4 w-4" /> Regenerar con IA
                   </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="w-full"
+                    onClick={removeBg}
+                    disabled={bgBusy || !sel.src}
+                  >
+                    <Eraser className="h-4 w-4" />{" "}
+                    {bgBusy ? "Quitando fondo… (~10-30 s)" : "Quitar fondo"}
+                  </Button>
+                  {bgBusy && (
+                    <p className="text-[10px] text-muted-foreground leading-relaxed">
+                      La primera vez tarda más: se descarga el modelo de IA local.
+                    </p>
+                  )}
+                  {bgError && <p className="text-xs text-red-600">{bgError}</p>}
                 </Section>
               )}
 
               {sel.isText && (
                 <Section title="Texto" defaultOpen>
+                  {sel.range && (
+                    <p className="rounded-md bg-accent/10 px-2 py-1.5 text-[10px] font-medium text-accent leading-snug">
+                      Texto marcado: la tipografía se aplica solo a esa parte.
+                    </p>
+                  )}
                   <label className="block">
                     <textarea
                       className="w-full rounded-md border border-border bg-background p-2 text-sm resize-none"
@@ -607,6 +682,20 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
                       </label>
                     ))}
                   </div>
+                  <label className="block">
+                    <span className={labelCls}>Giro (°)</span>
+                    <input
+                      type="number"
+                      step={1}
+                      className={inputCls}
+                      value={sel.rotation ?? 0}
+                      onChange={(e) => {
+                        const v = Number(e.target.value);
+                        setSel({ ...sel, rotation: v });
+                        applyProp("rotate", v);
+                      }}
+                    />
+                  </label>
                 </Section>
               )}
 

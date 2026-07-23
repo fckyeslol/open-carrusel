@@ -47,7 +47,7 @@ export const EDITOR_FONTS = [
  */
 export const EDITOR_RUNTIME = String.raw`
 (function(){
-  var sels=[], drag=null, rz=null, clip=[], hist=[], HMAX=60;
+  var sels=[], drag=null, rz=null, rot=null, squelch=false, clip=[], hist=[], HMAX=60;
   var W=document.body.clientWidth||1080, H=document.body.clientHeight||1350;
   var baseTf=new WeakMap(), delta=new WeakMap();
 
@@ -55,6 +55,7 @@ export const EDITOR_RUNTIME = String.raw`
   st.textContent='*{cursor:default}'
     +'[data-oc-ui]{pointer-events:none}'
     +'.oc-h{position:absolute;width:14px;height:14px;background:#fff;border:2px solid #4f7cff;border-radius:50%;pointer-events:auto;cursor:nwse-resize;z-index:3}'
+    +'.oc-rot{border-color:#ff3b7f;cursor:grab}'
     +'.oc-box{position:absolute;outline:2px solid #4f7cff;outline-offset:1px}'
     +'.oc-gl{position:absolute;background:#ff3b7f}';
   document.head.appendChild(st);
@@ -152,13 +153,30 @@ export const EDITOR_RUNTIME = String.raw`
               ['sw',r.left,r.bottom,'nesw'],['se',r.right,r.bottom,'nwse'],
               ['w',r.left,my,'ew'],['e',r.right,my,'ew']];
       if(!isTxt){ hs.push(['n',mx,r.top,'ns']); hs.push(['s',mx,r.bottom,'ns']); }
+      // Elementos "flacos" (una flecha SVG horizontal, una línea): los 6-8 handles
+      // taparían TODO el cuerpo y cada mousedown caería en un resize en vez del
+      // arrastre. Dejamos solo los del eje largo; el resto del cuerpo queda libre.
+      if(r.height<28) hs=hs.filter(function(c){ return c[0]==='w'||c[0]==='e'; });
+      else if(r.width<28) hs=hs.filter(function(c){ return c[0]==='n'||c[0]==='s'; });
       hs.forEach(function(c){
         var h=document.createElement('div'); h.className='oc-h';
         h.style.cssText+=';left:0;top:0;cursor:'+c[3]+'-resize;transform:translate('+(c[1]-7)+'px,'+(c[2]-7)+'px)';
         h.addEventListener('mousedown', function(ev){ startResize(ev,c[0]); });
         ui.appendChild(h); handles.push({el:h,c:c[0]});
       });
+      // handle de rotación (rosa), separado del bbox para no tapar el elemento
+      var rp=rotPos(r);
+      var rh=document.createElement('div'); rh.className='oc-h oc-rot';
+      rh.title='Rotar';
+      rh.style.cssText+=';left:0;top:0;transform:translate('+(rp[0]-7)+'px,'+(rp[1]-7)+'px)';
+      rh.addEventListener('mousedown', startRotate);
+      ui.appendChild(rh); handles.push({el:rh,c:'rot'});
     }
+  }
+  /** Dónde vive el handle de rotación: arriba del bbox, o abajo si no hay lugar. */
+  function rotPos(r){
+    var mx=(r.left+r.right)/2;
+    return [mx, r.top>44 ? r.top-28 : r.bottom+28];
   }
   /** Reposiciona el overlay sumando un delta a los rects cacheados (barato). */
   function offsetBoxes(rects,dx,dy){
@@ -175,7 +193,7 @@ export const EDITOR_RUNTIME = String.raw`
     boxes[0].style.transform='translate('+r.left+'px,'+r.top+'px)';
     var mx=(r.left+r.right)/2, my=(r.top+r.bottom)/2;
     var pos={nw:[r.left,r.top],ne:[r.right,r.top],sw:[r.left,r.bottom],se:[r.right,r.bottom],
-             n:[mx,r.top],s:[mx,r.bottom],w:[r.left,my],e:[r.right,my]};
+             n:[mx,r.top],s:[mx,r.bottom],w:[r.left,my],e:[r.right,my],rot:rotPos(r)};
     handles.forEach(function(h){ var p=pos[h.c]; if(!p) return;
       h.el.style.transform='translate('+(p[0]-7)+'px,'+(p[1]-7)+'px)'; });
   }
@@ -195,30 +213,89 @@ export const EDITOR_RUNTIME = String.raw`
     if(!sels.length){ post({oc:'sel',none:true}); return; }
     var el=sels[0], cs=getComputedStyle(el), er=el.getBoundingClientRect();
     var isText = isTextEl(el);
+    // Con un tramo de texto marcado, la tipografía reportada es la DEL TRAMO:
+    // así el panel muestra el peso/color/tamaño real de lo que se va a cambiar.
+    var rh=rangeHost();
+    var ct=rh?getComputedStyle(rh):cs;
+    hadRange=!!rh;   // el panel queda al día: la próxima transición sí reporta
     post({oc:'sel', count:sels.length,
       grouped: !!(el.getAttribute && el.getAttribute('data-oc-g')),
       tag:el.tagName.toLowerCase(), isText:isText,
       isImage: el.tagName==='IMG',
+      src: el.tagName==='IMG' ? (el.getAttribute('src')||'') : '',
       text: isText ? readText(el) : '',
-      fontFamily:(cs.fontFamily||'').split(',')[0].replace(/['"]/g,'').trim(),
-      fontSize:Math.round(parseFloat(cs.fontSize)||0),
-      color:toHex(cs.color), fontWeight:cs.fontWeight,
-      bg:(cs.backgroundColor&&cs.backgroundColor!=='rgba(0, 0, 0, 0)'&&cs.backgroundColor!=='transparent')?toHex(cs.backgroundColor):'',
-      italic:cs.fontStyle==='italic', align:cs.textAlign,
+      range: !!rh,
+      fontFamily:(ct.fontFamily||'').split(',')[0].replace(/['"]/g,'').trim(),
+      fontSize:Math.round(parseFloat(ct.fontSize)||0),
+      color:toHex(ct.color), fontWeight:ct.fontWeight,
+      bg:(ct.backgroundColor&&ct.backgroundColor!=='rgba(0, 0, 0, 0)'&&ct.backgroundColor!=='transparent')?toHex(ct.backgroundColor):'',
+      italic:ct.fontStyle==='italic', align:cs.textAlign,
       opacity: Math.round((parseFloat(cs.opacity)||1)*100),
+      rotation: Math.round(((parseFloat(el.style.rotate)||0)%360+360)%360),
       radius: Math.round(parseFloat(cs.borderTopLeftRadius)||0),
-      letterSpacing: cs.letterSpacing==='normal'?0:Math.round((parseFloat(cs.letterSpacing)||0)*10)/10,
+      letterSpacing: ct.letterSpacing==='normal'?0:Math.round((parseFloat(ct.letterSpacing)||0)*10)/10,
       lineHeight: cs.lineHeight==='normal'?0:Math.round(((parseFloat(cs.lineHeight)||0)/(parseFloat(cs.fontSize)||1))*100)/100,
       x:Math.round(er.left), y:Math.round(er.top), w:Math.round(er.width), h:Math.round(er.height),
       canUndo: hist.length>0});
   }
-  function clearSel(){ sels=[]; paint(); guides(); report(); }
+  function clearSel(){ sels=[]; savedRange=null; paint(); guides(); report(); }
   function select(el, additive, solo){
     if(!el){ if(!additive) clearSel(); return; }
     var ms = solo ? [el] : members(el);
     if(additive){ ms.forEach(function(m){ if(sels.indexOf(m)<0) sels.push(m); }); }
     else sels=ms.slice();
     paint(); report();
+  }
+
+  // ── selección PARCIAL de texto: si el usuario marca un tramo dentro del texto
+  //    (en edición inline con doble clic), los cambios de tipografía se aplican
+  //    SOLO a ese tramo envolviéndolo en un <span>. Guardamos el rango porque al
+  //    clicar el panel el iframe pierde el foco, pero el rango sigue vivo en este
+  //    documento (cada documento mantiene su propia selección). ─────────────────
+  var savedRange=null, hadRange=false;
+  document.addEventListener('selectionchange', function(){
+    var s=document.getSelection(); if(!s||!s.rangeCount) return;
+    var r=s.getRangeAt(0), el=sels[0];
+    var inEl = el && isTextEl(el) && el.contains(r.commonAncestorContainer);
+    if(!r.collapsed && inEl) savedRange=r.cloneRange();
+    // colapsar el caret DENTRO de la edición = el usuario des-marcó a propósito.
+    // (Un colapso por mutación de DOM llega con contenteditable ya apagado y no borra.)
+    else if(r.collapsed && inEl && el.getAttribute('contenteditable')==='true') savedRange=null;
+    // avisar al panel solo en la transición (marcó / des-marcó), no en cada pixel
+    var has=!!savedRange;
+    if(has!==hadRange){ hadRange=has; report(); }
+  });
+  function activeRange(){
+    if(!savedRange || savedRange.collapsed) return null;
+    if(sels.length!==1 || !isTextEl(sels[0])) return null;
+    if(!document.contains(savedRange.commonAncestorContainer)){ savedRange=null; return null; }
+    if(!sels[0].contains(savedRange.commonAncestorContainer)) return null;
+    return savedRange;
+  }
+  function rangeHost(){
+    var r=activeRange(); if(!r) return null;
+    var c=r.commonAncestorContainer;
+    return c.nodeType===1 ? c : c.parentElement;
+  }
+  // Devuelve el <span> que envuelve el tramo marcado (creándolo si hace falta).
+  // Si el rango ya cubre exacto un inline existente (nuestro span de un cambio
+  // anterior, o un <strong>/<em> del HTML), lo reutilizamos: sin spans anidados.
+  function rangeSpan(){
+    var r=activeRange(); if(!r) return null;
+    var host=rangeHost();
+    if(host && host!==sels[0] && (host.getAttribute('data-oc-rs')||INLINE_TAGS[host.tagName])
+       && r.toString()===host.textContent) return host;
+    var span=document.createElement('span');
+    span.setAttribute('data-oc-rs','1');
+    try{ r.surroundContents(span); }
+    catch(err){ // el rango cruza el borde de una etiqueta: extraer e insertar
+      span.appendChild(r.extractContents()); r.insertNode(span); }
+    // re-apuntar rango y selección visual al span → los cambios encadenados
+    // (peso + color + tamaño…) caen todos en el mismo tramo
+    savedRange=document.createRange(); savedRange.selectNodeContents(span);
+    var ds=document.getSelection();
+    if(ds){ try{ ds.removeAllRanges(); ds.addRange(savedRange.cloneRange()); }catch(e2){} }
+    return span;
   }
 
   // ── historial ────────────────────────────────────────────────────────────────
@@ -238,17 +315,22 @@ export const EDITOR_RUNTIME = String.raw`
 
   document.addEventListener('click', function(e){
     e.preventDefault(); e.stopPropagation();
+    if(squelch){ squelch=false; return; }   // click sintético al soltar un drag/resize/rotación
     select(candidateAt(e.clientX,e.clientY), e.shiftKey, e.altKey);
   }, true);
 
   // ── arrastre con transform + snap ────────────────────────────────────────────
   document.addEventListener('mousedown', function(e){
-    if(rz||!sels.length) return;
+    if(rz||rot||!sels.length) return;
     var x=e.clientX,y=e.clientY;
+    // Zona de agarre con mínimo 28px por eje: un elemento flaco (flecha de 6px de
+    // alto) era imposible de "pescar" con el rect exacto.
     var hit=sels.some(function(el){ var r=el.getBoundingClientRect();
-      return x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom; });
+      var px=Math.max(0,(28-r.width)/2), py=Math.max(0,(28-r.height)/2);
+      return x>=r.left-px&&x<=r.right+px&&y>=r.top-py&&y<=r.bottom+py; });
     if(!hit) return;
     if(sels[0].getAttribute('contenteditable')==='true') return;
+    savedRange=null;   // agarrar el elemento entero = adiós al tramo marcado
     snap();
     sels.forEach(makeMovable);
     // rects cacheados: durante el arrastre NO se vuelve a medir (cero reflows)
@@ -292,6 +374,7 @@ export const EDITOR_RUNTIME = String.raw`
     raf=0;
     if(!pend) return;
     var x=pend.x, y=pend.y; pend=null;
+    if(rot){ doRotate(x,y); return; }
     if(rz){ doResize(x,y); return; }
     if(!drag||!sels.length) return;
     var dx=x-drag.sx, dy=y-drag.sy;
@@ -307,15 +390,42 @@ export const EDITOR_RUNTIME = String.raw`
     guides(gx,gy);
   }
   window.addEventListener('mousemove', function(e){
-    if(!drag&&!rz) return;
+    if(!drag&&!rz&&!rot) return;
     pend={x:e.clientX,y:e.clientY};
     if(!raf) raf=requestAnimationFrame(flush);
   });
   window.addEventListener('mouseup', function(){
     if(raf){ cancelAnimationFrame(raf); raf=0; pend=null; }
-    if(rz){ rz=null; paint(); report(); serialize(); return; }
-    if(drag){ drag=null; guides(); showHandles(true); paint(); report(); serialize(); }
+    // squelch: el click que dispara este mouseup re-seleccionaría lo que quede
+    // bajo el puntero (tras rotar suele ser "nada" → deseleccionaba). Lo tragamos.
+    if(rot){ rot=null; squelch=true; paint(); report(); serialize(); return; }
+    if(rz){ rz=null; squelch=true; paint(); report(); serialize(); return; }
+    if(drag){ drag=null; squelch=true; guides(); showHandles(true); paint(); report(); serialize(); }
   });
+
+  // ── rotación: handle rosa → CSS 'rotate' (propiedad independiente de transform,
+  //    así el arrastre con translate y promoteAbsolute no la pisan) ─────────────
+  function startRotate(e){
+    if(sels.length!==1) return;
+    drag=null;
+    var el=sels[0], r=el.getBoundingClientRect();
+    snap();
+    var cx=(r.left+r.right)/2, cy=(r.top+r.bottom)/2;
+    rot={el:el, cx:cx, cy:cy,
+         a0:Math.atan2(e.clientY-cy, e.clientX-cx),
+         r0:parseFloat(el.style.rotate)||0};
+    showHandles(false);
+    e.preventDefault(); e.stopPropagation();
+  }
+  function doRotate(x,y){
+    var a=Math.atan2(y-rot.cy, x-rot.cx);
+    var deg=rot.r0+(a-rot.a0)*180/Math.PI;
+    var s=Math.round(deg/45)*45;          // imán en 0/45/90/…
+    if(Math.abs(deg-s)<4) deg=s;
+    deg=((Math.round(deg*10)/10)%360+360)%360;
+    rot.el.style.rotate=deg+'deg';
+    syncOne();
+  }
 
   function startResize(e,corner){
     if(sels.length!==1) return;
@@ -371,7 +481,8 @@ export const EDITOR_RUNTIME = String.raw`
     if(mod && e.key.toLowerCase()==='z'){ e.preventDefault(); undo(); return; }
     if(ed) return;
     if(mod && e.key.toLowerCase()==='c'){ e.preventDefault(); copy(); return; }
-    if(mod && e.key.toLowerCase()==='v'){ e.preventDefault(); paste(); return; }
+    // Ctrl+V NO se intercepta acá: dejamos que dispare el evento 'paste' nativo,
+    // que sabe mirar el portapapeles del SISTEMA (imágenes) además del interno.
     if(mod && e.key.toLowerCase()==='d'){ e.preventDefault(); duplicate(); return; }
     if((e.key==='Delete'||e.key==='Backspace') && sels.length){ e.preventDefault(); apply({prop:'remove'}); return; }
     if(e.key.indexOf('Arrow')===0 && sels.length){
@@ -389,7 +500,26 @@ export const EDITOR_RUNTIME = String.raw`
     }
   }, true);
 
-  function copy(){ clip=sels.map(function(el){ return el.outerHTML; }); post({oc:'toast',msg:sels.length+' copiado(s)'}); }
+  // ── pegado: una imagen del portapapeles del sistema (captura de pantalla,
+  //    "copiar imagen" en otra app) se manda al padre para subirla e insertarla.
+  //    Sin imagen, cae al portapapeles interno (elementos copiados con Ctrl+C). ──
+  document.addEventListener('paste', function(e){
+    if(document.querySelector('[contenteditable="true"]')) return; // edición inline: pegado nativo de texto
+    var files=(e.clipboardData&&e.clipboardData.files)?[].slice.call(e.clipboardData.files):[];
+    var img=null;
+    for(var i=0;i<files.length;i++){ if(files[i].type.indexOf('image/')===0){ img=files[i]; break; } }
+    e.preventDefault();
+    if(img){ post({oc:'pasteImage', file:img}); return; }
+    paste();
+  }, true);
+
+  function copy(){
+    clip=sels.map(function(el){ return el.outerHTML; });
+    // Pisamos el portapapeles del sistema (mejor esfuerzo): sin esto, un
+    // screenshot viejo le ganaría al elemento recién copiado en el Ctrl+V.
+    try{ if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(' ').catch(function(){}); }catch(err){}
+    post({oc:'toast',msg:sels.length+' copiado(s)'});
+  }
   function paste(){
     if(!clip.length) return;
     snap();
@@ -506,16 +636,50 @@ export const EDITOR_RUNTIME = String.raw`
       k.style.zIndex=String(idx+1);
     });
   }
+  // Estilos "puros" que sirven igual sobre el elemento completo o sobre un <span>
+  // de tramo (selección parcial). Los props estructurales (text, splitBg, x/y/w/h,
+  // capas, remove) siguen viviendo en apply().
+  function styleEl(el,p,v){
+    if(p==='fontFamily'){ el.style.fontFamily="'"+v+"'"; ensureFont(v); }
+    else if(p==='fontSize'){ el.style.fontSize=v+'px'; }
+    else if(p==='color'){ el.style.color=v; }
+    else if(p==='bg'){ el.style.background=v; }
+    else if(p==='bold'){ el.style.fontWeight=v?'700':'400'; }
+    else if(p==='fontWeight'){ el.style.fontWeight=String(v); }
+    else if(p==='italic'){ el.style.fontStyle=v?'italic':'normal'; }
+    else if(p==='align'){ el.style.textAlign=v; }
+    else if(p==='opacity'){ el.style.opacity=(v/100); }
+    else if(p==='rotate'){ el.style.rotate=((parseFloat(v)||0)%360+360)%360+'deg'; }
+    else if(p==='radius'){ el.style.borderRadius=v+'px'; }
+    else if(p==='letterSpacing'){ el.style.letterSpacing=v+'px'; }
+    else if(p==='lineHeight'){ el.style.lineHeight=v; }
+    else if(p==='textEffect'){
+      // Efectos 100% CSS (render idéntico en preview y export, ambos Chromium).
+      // Reseteamos siempre primero para que cambiar de efecto no acumule capas.
+      var col=getComputedStyle(el).color;
+      el.style.textShadow=''; el.style.webkitTextStroke=''; el.style.webkitTextFillColor='';
+      if(v==='shadow'){ el.style.textShadow='3px 4px 8px rgba(0,0,0,.35)'; }
+      else if(v==='neon'){ el.style.textShadow='0 0 5px '+col+',0 0 15px '+col+',0 0 32px '+col; }
+      else if(v==='outline'){ el.style.webkitTextStroke='2px '+col; }
+      else if(v==='hollow'){ el.style.webkitTextStroke='2px '+col; el.style.webkitTextFillColor='transparent'; }
+      // 'none' deja todo reseteado
+    }
+  }
+  // Tipografía con sentido a nivel de TRAMO. align/lineHeight son de bloque y
+  // opacity/radius/rotate son del elemento: esos siempre van al elemento entero.
+  var RANGE_PROPS={fontFamily:1,fontSize:1,color:1,fontWeight:1,bold:1,italic:1,
+                   letterSpacing:1,bg:1,textEffect:1};
   function apply(m){
     if(!sels.length) return;
     var p=m.prop, v=m.value;
     if(p!=='text') snap();
+    // Con un tramo de texto marcado, la tipografía va SOLO a ese tramo.
+    if(RANGE_PROPS[p] && activeRange()){
+      var sp=rangeSpan();
+      if(sp){ styleEl(sp,p,v); paint(); report(); serialize(); return; }
+    }
     sels.forEach(function(el){
       if(p==='text'){ el.innerHTML=String(v).split('\n').map(esc).join('<br>'); }
-      else if(p==='fontFamily'){ el.style.fontFamily="'"+v+"'"; ensureFont(v); }
-      else if(p==='fontSize'){ el.style.fontSize=v+'px'; }
-      else if(p==='color'){ el.style.color=v; }
-      else if(p==='bg'){ el.style.background=v; }
       else if(p==='splitBg'){
         // "Sacar el texto de la caja": el resaltado es el background del MISMO
         // elemento. Lo copiamos a un div independiente insertado justo detrás
@@ -537,25 +701,6 @@ export const EDITOR_RUNTIME = String.raw`
           el.style.background='transparent';
         }
       }
-      else if(p==='bold'){ el.style.fontWeight=v?'700':'400'; }
-      else if(p==='fontWeight'){ el.style.fontWeight=String(v); }
-      else if(p==='italic'){ el.style.fontStyle=v?'italic':'normal'; }
-      else if(p==='align'){ el.style.textAlign=v; }
-      else if(p==='opacity'){ el.style.opacity=(v/100); }
-      else if(p==='radius'){ el.style.borderRadius=v+'px'; }
-      else if(p==='letterSpacing'){ el.style.letterSpacing=v+'px'; }
-      else if(p==='lineHeight'){ el.style.lineHeight=v; }
-      else if(p==='textEffect'){
-        // Efectos 100% CSS (render idéntico en preview y export, ambos Chromium).
-        // Reseteamos siempre primero para que cambiar de efecto no acumule capas.
-        var col=getComputedStyle(el).color;
-        el.style.textShadow=''; el.style.webkitTextStroke=''; el.style.webkitTextFillColor='';
-        if(v==='shadow'){ el.style.textShadow='3px 4px 8px rgba(0,0,0,.35)'; }
-        else if(v==='neon'){ el.style.textShadow='0 0 5px '+col+',0 0 15px '+col+',0 0 32px '+col; }
-        else if(v==='outline'){ el.style.webkitTextStroke='2px '+col; }
-        else if(v==='hollow'){ el.style.webkitTextStroke='2px '+col; el.style.webkitTextFillColor='transparent'; }
-        // 'none' deja todo reseteado
-      }
       else if(p==='x'){ moveTo(el, v, null); }
       else if(p==='y'){ moveTo(el, null, v); }
       else if(p==='w'){ promoteAbsolute(el); el.style.width=Math.max(1,v)+'px'; if(el.tagName==='IMG') el.style.height='auto'; }
@@ -563,6 +708,7 @@ export const EDITOR_RUNTIME = String.raw`
       else if(p==='front'){ restack(el,true); }
       else if(p==='back'){ restack(el,false); }
       else if(p==='remove'){ el.remove(); }
+      else styleEl(el,p,v);
     });
     if(p==='remove') sels=[];
     paint(); report(); serialize();
