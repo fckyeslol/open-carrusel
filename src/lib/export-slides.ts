@@ -110,7 +110,7 @@ async function inlineImages(html: string): Promise<string> {
 /**
  * Build the self-contained HTML for a slide, ready to render in Puppeteer.
  *
- * Es el paso compartido por TODOS los exports (PNG, PPTX, …): inlina las imágenes
+ * Es el paso compartido por TODOS los exports: inlina las imágenes
  * y el CSS de fuentes en base64 y envuelve con `wrapSlideHtml`, de modo que la
  * página no depende de ninguna URL externa ni base URL al hacer `setContent`.
  */

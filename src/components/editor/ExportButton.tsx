@@ -6,10 +6,23 @@ import { Button } from "@/components/ui/button";
 
 interface ExportButtonProps {
   carouselId: string;
+  carouselName: string;
   slideCount: number;
 }
 
-export function ExportButton({ carouselId, slideCount }: ExportButtonProps) {
+/** Pausa entre descargas para que el navegador no bloquee los .png en ráfaga. */
+const DOWNLOAD_GAP_MS = 400;
+
+/**
+ * Exporta el carrusel como archivos PNG sueltos (uno por lámina), nunca ZIP.
+ * En carruseles de varias láminas el navegador puede pedir permiso para
+ * "descargar varios archivos" — se acepta una vez y quedan todos en Descargas.
+ */
+export function ExportButton({
+  carouselId,
+  carouselName,
+  slideCount,
+}: ExportButtonProps) {
   const [exporting, setExporting] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [done, setDone] = useState(false);
@@ -20,65 +33,36 @@ export function ExportButton({ carouselId, slideCount }: ExportButtonProps) {
     setDone(false);
     setProgress({ current: 0, total: slideCount });
 
+    const safeName =
+      carouselName.replace(/[^a-zA-Z0-9-_]/g, "_") || carouselId;
+
     try {
-      const response = await fetch(`/api/carousels/${carouselId}/export`, {
-        method: "POST",
-      });
+      for (let slide = 1; slide <= slideCount; slide++) {
+        const response = await fetch(
+          `/api/carousels/${carouselId}/export?slide=${slide}`,
+          { method: "POST" }
+        );
 
-      if (!response.ok) {
-        throw new Error("Export failed");
-      }
-
-      // Check if it's SSE (progress) or direct blob (ZIP)
-      const contentType = response.headers.get("Content-Type");
-      if (contentType?.includes("text/event-stream")) {
-        // SSE progress mode
-        const reader = response.body?.getReader();
-        if (!reader) return;
-
-        const decoder = new TextDecoder();
-        let buffer = "";
-
-        while (true) {
-          const { done: streamDone, value } = await reader.read();
-          if (streamDone) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() ?? "";
-
-          for (const line of lines) {
-            if (line.startsWith("data: ")) {
-              try {
-                const data = JSON.parse(line.slice(6));
-                if (data.current && data.total) {
-                  setProgress({ current: data.current, total: data.total });
-                }
-                if (data.downloadUrl) {
-                  // Trigger download
-                  const a = document.createElement("a");
-                  a.href = data.downloadUrl;
-                  a.download = `carousel-${carouselId}.zip`;
-                  a.click();
-                  setDone(true);
-                }
-              } catch {
-                // skip
-              }
-            }
-          }
+        if (!response.ok) {
+          throw new Error(`Export failed on slide ${slide}`);
         }
-      } else {
-        // Direct ZIP download
+
         const blob = await response.blob();
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `carousel-${carouselId}.zip`;
+        a.download = `${safeName}-slide-${slide}.png`;
         a.click();
         URL.revokeObjectURL(url);
-        setDone(true);
+
+        setProgress({ current: slide, total: slideCount });
+
+        if (slide < slideCount) {
+          await new Promise((resolve) => setTimeout(resolve, DOWNLOAD_GAP_MS));
+        }
       }
+
+      setDone(true);
     } catch (error) {
       console.error("Export error:", error);
     } finally {
@@ -108,12 +92,12 @@ export function ExportButton({ carouselId, slideCount }: ExportButtonProps) {
         ) : done ? (
           <>
             <Check className="h-4 w-4" />
-            <span>Downloaded!</span>
+            <span>¡Descargado!</span>
           </>
         ) : (
           <>
             <Download className="h-4 w-4" />
-            <span>Export PNG</span>
+            <span>Exportar PNG</span>
           </>
         )}
       </span>

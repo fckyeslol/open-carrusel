@@ -40,10 +40,11 @@ All at localhost:3000:
 - `PUT /api/carousels/[id]/slides` — Reorder slides (body: { slideIds: [...] })
 - `POST /api/carousels/[id]/slides/[slideId]/undo` — Undo slide change
 - `POST /api/carousels/[id]/slides/[slideId]/review` — Render slide to PNG + run the quality detector
-- `POST /api/carousels/[id]/export` — Export all slides to PNG ZIP
+- `POST /api/carousels/[id]/export?slide=N` — Export one slide as direct PNG (2160px wide, 1-based index; defaults to slide 1). The UI downloads every slide as a separate .png — there is no ZIP export
 - `GET/PUT /api/brand` — Brand configuration
 - `GET/POST /api/templates` — Templates
 - `POST /api/upload` — Image upload (PNG/JPG/WebP only, max 10MB)
+- `POST /api/remove-bg` — Remove background from an /uploads/ image (local ONNX model, returns new transparent PNG)
 - `GET /api/fonts` — Google Fonts list
 - `GET /avatar-assets/{slug}/{kind}/{file}` — Serve per-avatar brand assets from `30x/avatars/`
 

@@ -1,14 +1,20 @@
 import { NextResponse } from "next/server";
-import archiver from "archiver";
 import { getCarousel } from "@/lib/carousels";
-import { exportAllSlides } from "@/lib/export-slides";
+import { exportSlide } from "@/lib/export-slides";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
+/**
+ * Exporta UNA lámina como PNG directo (nunca ZIP).
+ *
+ * `?slide=N` (1-based) elige la lámina; sin parámetro exporta la primera.
+ * Para bajar el carrusel completo el cliente llama una vez por lámina —
+ * así el usuario recibe archivos .png de una, sin descomprimir nada.
+ */
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
@@ -22,45 +28,36 @@ export async function POST(
     return NextResponse.json({ error: "No slides to export" }, { status: 400 });
   }
 
+  const slideParam = new URL(request.url).searchParams.get("slide");
+  const slideNumber = slideParam ? Number.parseInt(slideParam, 10) : 1;
+
+  if (
+    !Number.isInteger(slideNumber) ||
+    slideNumber < 1 ||
+    slideNumber > carousel.slides.length
+  ) {
+    return NextResponse.json(
+      {
+        error: `Invalid slide number "${slideParam}" — carousel has ${carousel.slides.length} slide(s)`,
+      },
+      { status: 400 }
+    );
+  }
+
   try {
-    // Export all slides to PNG buffers
-    const pngBuffers = await exportAllSlides(
-      carousel.slides,
+    const buffer = await exportSlide(
+      carousel.slides[slideNumber - 1],
       carousel.aspectRatio
     );
 
-    // Build ZIP archive and collect all data
-    const zipBuffer = await new Promise<Buffer>((resolve, reject) => {
-      const archive = archiver("zip", { zlib: { level: 5 } });
-      const chunks: Buffer[] = [];
+    const safeName =
+      carousel.name.replace(/[^a-zA-Z0-9-_]/g, "_") || carousel.id;
 
-      archive.on("data", (chunk: Buffer) => {
-        chunks.push(chunk);
-      });
-
-      archive.on("end", () => {
-        resolve(Buffer.concat(chunks));
-      });
-
-      archive.on("error", (err) => {
-        reject(err);
-      });
-
-      try {
-        for (const { name, buffer } of pngBuffers) {
-          archive.append(buffer, { name });
-        }
-        archive.finalize();
-      } catch (err) {
-        archive.destroy();
-        reject(err);
-      }
-    });
-
-    return new Response(new Uint8Array(zipBuffer), {
+    return new Response(new Uint8Array(buffer), {
       headers: {
-        "Content-Type": "application/zip",
-        "Content-Disposition": `attachment; filename="carousel-${carousel.name.replace(/[^a-zA-Z0-9-_]/g, "_")}.zip"`,
+        "Content-Type": "image/png",
+        "Content-Disposition": `attachment; filename="${safeName}-slide-${slideNumber}.png"`,
+        "X-Slide-Count": String(carousel.slides.length),
       },
     });
   } catch (error) {

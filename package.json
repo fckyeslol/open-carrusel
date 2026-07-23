@@ -33,7 +33,6 @@
     "@imgly/background-removal-node": "^1.4.5",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-slot": "^1.2.4",
-    "archiver": "^7.0.1",
     "async-mutex": "^0.5.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -44,7 +43,6 @@
     "htmlparser2": "^12.0.0",
     "lucide-react": "^1.8.0",
     "next": "16.2.3",
-    "pptxgenjs": "^4.0.1",
     "puppeteer": "^24.40.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
@@ -53,7 +51,6 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
-    "@types/archiver": "^7.0.0",
     "@types/cross-spawn": "^6.0.6",
     "@types/node": "^20",
     "@types/react": "^19",
