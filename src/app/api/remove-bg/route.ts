@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server";
-import { readFile, writeFile, mkdir } from "fs/promises";
+import { readFile, mkdir, stat } from "fs/promises";
+import { execFile } from "child_process";
+import { promisify } from "util";
 import path from "path";
 import { generateId } from "@/lib/utils";
 
+const execFileAsync = promisify(execFile);
+
 const UPLOAD_DIR = path.resolve(process.cwd(), "public/uploads");
+const WORKER_PATH = path.resolve(process.cwd(), "scripts/remove-bg-worker.mjs");
+/** El modelo ONNX en CPU puede tardar; más que esto es que algo se colgó. */
+const WORKER_TIMEOUT_MS = 180_000;
 
 /** El detector de @imgly exige el MIME real del Blob: lo sacamos de los magic bytes. */
 function sniffMime(buf: Buffer): string | null {
@@ -69,19 +76,41 @@ export async function POST(request: Request) {
       );
     }
 
-    // Import dinámico: el paquete (~80MB con el modelo) solo se carga la primera
-    // vez que alguien quita un fondo, no en cada arranque del server.
-    const { removeBackground } = await import("@imgly/background-removal-node");
-    const result = await removeBackground(
-      new Blob([new Uint8Array(input)], { type: mime }),
-      { output: { format: "image/png", quality: 1 } }
-    );
-    const output = Buffer.from(await result.arrayBuffer());
-
+    // El quitado de fondo corre en un PROCESO HIJO aislado (ver el porqué en
+    // scripts/remove-bg-worker.mjs): el sharp nativo de @imgly choca con el
+    // sharp de Next.js si se cargan en el mismo proceso y el server muere con
+    // segfault. Aislado, un crash del modelo solo tumba al worker.
     await mkdir(UPLOAD_DIR, { recursive: true });
     const id = generateId();
     const filename = `${id}.png`;
-    await writeFile(path.join(UPLOAD_DIR, filename), output);
+    const outputPath = path.join(UPLOAD_DIR, filename);
+
+    try {
+      await execFileAsync(
+        process.execPath,
+        [WORKER_PATH, filePath, outputPath, mime],
+        { timeout: WORKER_TIMEOUT_MS, windowsHide: true }
+      );
+    } catch (workerError) {
+      const stderr =
+        workerError && typeof workerError === "object" && "stderr" in workerError
+          ? String(workerError.stderr)
+          : "";
+      console.error("Remove-bg worker falló:", stderr || workerError);
+      return NextResponse.json(
+        { error: "No se pudo quitar el fondo. Probá de nuevo." },
+        { status: 500 }
+      );
+    }
+
+    // El worker devuelve 0 solo si escribió el PNG; igual verificamos.
+    const written = await stat(outputPath).catch(() => null);
+    if (!written || written.size === 0) {
+      return NextResponse.json(
+        { error: "No se pudo quitar el fondo. Probá de nuevo." },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({ id, url: `/uploads/${filename}`, type: "image" });
   } catch (error) {
