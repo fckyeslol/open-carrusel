@@ -111,14 +111,22 @@ export const EDITOR_RUNTIME = String.raw`
   // Los elementos "tooBig" (contenedores de fondo) se saltan… pero una IMG grande
   // (foto a lámina completa) debe poder seleccionarse como último recurso: si no,
   // queda pegada para siempre (ni mover, ni enviar atrás, ni borrar).
-  function candidateAt(x,y){
+  function candidateAt(x,y,sub){
     var list=document.elementsFromPoint(x,y)||[], first=null, bigImg=null;
     for(var i=0;i<list.length;i++){
       var el=list[i], svgHit=false;
       // Un clic sobre una flecha/forma SVG devuelve el <path>/<line> interno.
-      // Esos hijos ignoran left/top y su reorden no cambia capas: subimos
-      // siempre al <svg> raíz, que sí se mueve y se apila como un elemento normal.
-      if(el.ownerSVGElement){ el=el.ownerSVGElement; svgHit=true; }
+      // Si el svg raíz es un elemento normal (una flecha = su propio svg) subimos
+      // al raíz, que se mueve y apila como cualquier elemento. Pero si el raíz es
+      // un OVERLAY a lámina completa con varias flechas adentro (o con Alt
+      // apretado), seleccionamos la forma top-level clickeada — si no, todas las
+      // flechas quedarían soldadas en un solo bloque.
+      if(el.ownerSVGElement){
+        var root=el; while(root.ownerSVGElement) root=root.ownerSVGElement;
+        var top=el; while(top.parentNode && top.parentNode!==root) top=top.parentNode;
+        el=(sub||tooBig(root)) ? top : root;
+        svgHit=true;
+      }
       if(el===document.body||el===document.documentElement||el===rootEl()) continue;
       if(el.closest && el.closest('[data-oc-ui]')) continue;
       // svgHit cuenta como "tinta real": el punto tocó una forma dentro del svg,
@@ -158,6 +166,9 @@ export const EDITOR_RUNTIME = String.raw`
       // arrastre. Dejamos solo los del eje largo; el resto del cuerpo queda libre.
       if(r.height<28) hs=hs.filter(function(c){ return c[0]==='w'||c[0]==='e'; });
       else if(r.width<28) hs=hs.filter(function(c){ return c[0]==='n'||c[0]==='s'; });
+      // Forma dentro de un svg: width/height CSS no la redimensionan → sin
+      // handles de resize (mover, rotar y borrar sí funcionan).
+      if(el0.ownerSVGElement) hs=[];
       hs.forEach(function(c){
         var h=document.createElement('div'); h.className='oc-h';
         h.style.cssText+=';left:0;top:0;cursor:'+c[3]+'-resize;transform:translate('+(c[1]-7)+'px,'+(c[2]-7)+'px)';
@@ -316,7 +327,7 @@ export const EDITOR_RUNTIME = String.raw`
   document.addEventListener('click', function(e){
     e.preventDefault(); e.stopPropagation();
     if(squelch){ squelch=false; return; }   // click sintético al soltar un drag/resize/rotación
-    select(candidateAt(e.clientX,e.clientY), e.shiftKey, e.altKey);
+    select(candidateAt(e.clientX,e.clientY,e.altKey), e.shiftKey, e.altKey);
   }, true);
 
   // ── arrastre con transform + snap ────────────────────────────────────────────
@@ -348,7 +359,12 @@ export const EDITOR_RUNTIME = String.raw`
   function makeMovable(el){
     if(mode.has(el)) return;
     var cs=getComputedStyle(el);
-    if(cs.display==='inline'){
+    if(el.ownerSVGElement){
+      // Formas DENTRO de un svg: left/top no les aplican jamás, pero el transform
+      // CSS sí (Chromium). Van siempre por transform, ignorando su display.
+      mode.set(el,'transform');
+      if(!baseTf.has(el)) baseTf.set(el, el.style.transform||'');
+    } else if(cs.display==='inline'){
       mode.set(el,'offset');
       if(cs.position==='static') el.style.position='relative';
       baseOff.set(el,[parseFloat(el.style.left)||0, parseFloat(el.style.top)||0]);
@@ -398,10 +414,13 @@ export const EDITOR_RUNTIME = String.raw`
     if(raf){ cancelAnimationFrame(raf); raf=0; pend=null; }
     // squelch: el click que dispara este mouseup re-seleccionaría lo que quede
     // bajo el puntero (tras rotar suele ser "nada" → deseleccionaba). Lo tragamos.
-    if(rot){ rot=null; squelch=true; paint(); report(); serialize(); return; }
-    if(rz){ rz=null; squelch=true; paint(); report(); serialize(); return; }
-    if(drag){ drag=null; squelch=true; guides(); showHandles(true); paint(); report(); serialize(); }
+    // Se auto-apaga en el próximo tick: si el navegador NO emite ese click
+    // (targets distintos), el flag no puede comerse el siguiente clic real.
+    if(rot){ rot=null; squelchNext(); paint(); report(); serialize(); return; }
+    if(rz){ rz=null; squelchNext(); paint(); report(); serialize(); return; }
+    if(drag){ drag=null; squelchNext(); guides(); showHandles(true); paint(); report(); serialize(); }
   });
+  function squelchNext(){ squelch=true; setTimeout(function(){ squelch=false; },0); }
 
   // ── rotación: handle rosa → CSS 'rotate' (propiedad independiente de transform,
   //    así el arrastre con translate y promoteAbsolute no la pisan) ─────────────
@@ -410,12 +429,18 @@ export const EDITOR_RUNTIME = String.raw`
     drag=null;
     var el=sels[0], r=el.getBoundingClientRect();
     snap();
+    prepSvgRotate(el);
     var cx=(r.left+r.right)/2, cy=(r.top+r.bottom)/2;
     rot={el:el, cx:cx, cy:cy,
          a0:Math.atan2(e.clientY-cy, e.clientX-cx),
          r0:parseFloat(el.style.rotate)||0};
     showHandles(false);
     e.preventDefault(); e.stopPropagation();
+  }
+  // En SVG el origen de rotación por defecto es el (0,0) del view-box, no el
+  // centro de la forma: sin esto, rotar una flecha la haría orbitar la esquina.
+  function prepSvgRotate(el){
+    if(el.ownerSVGElement){ el.style.transformBox='fill-box'; el.style.transformOrigin='center'; }
   }
   function doRotate(x,y){
     var a=Math.atan2(y-rot.cy, x-rot.cx);
@@ -550,6 +575,7 @@ export const EDITOR_RUNTIME = String.raw`
   //    posicionado, preservando la posición visual. Así hay coordenadas de verdad.
   //    No tocamos el arrastre (sigue con transform); esto solo corre bajo demanda. ─
   function promoteAbsolute(el){
+    if(el.ownerSVGElement) return;   // formas svg: position/left/top no existen
     if(el.getAttribute('data-oc-abs')) return;
     var er=el.getBoundingClientRect();
     el.style.position='absolute';
@@ -561,6 +587,12 @@ export const EDITOR_RUNTIME = String.raw`
     el.setAttribute('data-oc-abs','1');
   }
   function moveTo(el,x,y){   // x,y en coordenadas de lienzo (origen 0,0)
+    if(el.ownerSVGElement){  // forma svg: mover vía transform, no left/top
+      makeMovable(el);
+      var r=el.getBoundingClientRect(), d=delta.get(el)||[0,0];
+      applyT(el, d[0]+(x!=null?x-r.left:0), d[1]+(y!=null?y-r.top:0));
+      return;
+    }
     promoteAbsolute(el);
     var op=el.offsetParent||document.body, opr=op.getBoundingClientRect();
     if(x!=null) el.style.left=Math.round(x-opr.left)+'px';
@@ -617,6 +649,12 @@ export const EDITOR_RUNTIME = String.raw`
   //    estático con relative, que no altera el layout). Sin tocar el DOM. ──────
   function restack(el,toFront){
     var par=el.parentElement; if(!par) return;
+    if(el.ownerSVGElement){
+      // Dentro de un svg no hay z-index: manda el orden del DOM.
+      if(toFront) par.appendChild(el);
+      else par.insertBefore(el, par.firstElementChild);
+      return;
+    }
     var items=[], kids=par.children;
     for(var i=0;i<kids.length;i++){
       var k=kids[i];
@@ -649,7 +687,7 @@ export const EDITOR_RUNTIME = String.raw`
     else if(p==='italic'){ el.style.fontStyle=v?'italic':'normal'; }
     else if(p==='align'){ el.style.textAlign=v; }
     else if(p==='opacity'){ el.style.opacity=(v/100); }
-    else if(p==='rotate'){ el.style.rotate=((parseFloat(v)||0)%360+360)%360+'deg'; }
+    else if(p==='rotate'){ prepSvgRotate(el); el.style.rotate=((parseFloat(v)||0)%360+360)%360+'deg'; }
     else if(p==='radius'){ el.style.borderRadius=v+'px'; }
     else if(p==='letterSpacing'){ el.style.letterSpacing=v+'px'; }
     else if(p==='lineHeight'){ el.style.lineHeight=v; }
