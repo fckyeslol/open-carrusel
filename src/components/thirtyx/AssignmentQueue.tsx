@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { SectionLabel } from "@/components/thirtyx/SectionLabel";
+import { AssignmentThumb } from "@/components/thirtyx/AssignmentThumb";
 import { cn } from "@/lib/utils";
 
 /** Asignación tal como la expone POST /api/thirtyx/sync. */
@@ -192,53 +193,62 @@ export function AssignmentQueue() {
                       isActive(a.status) ? "border-accent/40" : "border-border"
                     )}
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <a
-                        href={a.referenceUrl || "#"}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground underline-offset-2 hover:text-accent-strong hover:underline"
-                      >
-                        {(a.referenceUrl || "").replace(/^https?:\/\/(www\.)?/, "")}
-                      </a>
-                      <StatusBadge status={a.status} />
+                    <div className="flex gap-3">
+                      <AssignmentThumb
+                        carouselId={a.carouselId}
+                        isActive={isActive(a.status)}
+                      />
+
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-3">
+                          <a
+                            href={a.referenceUrl || "#"}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground underline-offset-2 hover:text-accent-strong hover:underline"
+                          >
+                            {(a.referenceUrl || "").replace(/^https?:\/\/(www\.)?/, "")}
+                          </a>
+                          <StatusBadge status={a.status} />
+                        </div>
+
+                        {a.status === "failed" && (
+                          <div className="mt-3">
+                            {a.error && (
+                              <p className="mb-2 line-clamp-3 text-xs text-destructive">{a.error}</p>
+                            )}
+                            <Button size="sm" variant="outline" onClick={() => retry(a.jobId)}>
+                              Reintentar
+                            </Button>
+                          </div>
+                        )}
+
+                        {a.status === "blocked" && (
+                          <div className="mt-3">
+                            {a.error && (
+                              <p className="mb-2 line-clamp-3 text-xs text-muted-foreground">{a.error}</p>
+                            )}
+                            <Button size="sm" variant="outline" onClick={() => retry(a.jobId)}>
+                              Reintentar
+                            </Button>
+                          </div>
+                        )}
+
+                        {(a.status === "done" || a.status === "delivered") && a.carouselId && (
+                          <div className="mt-3 flex items-center gap-3">
+                            <Link
+                              href={`/carousel/${a.carouselId}`}
+                              className="text-xs font-medium text-accent-strong underline-offset-2 hover:underline"
+                            >
+                              Abrir para QA →
+                            </Link>
+                            <span className="ml-auto text-[11px] text-muted-foreground">
+                              Entregá desde Prewave
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     </div>
-
-                    {a.status === "failed" && (
-                      <div className="mt-3">
-                        {a.error && (
-                          <p className="mb-2 line-clamp-3 text-xs text-destructive">{a.error}</p>
-                        )}
-                        <Button size="sm" variant="outline" onClick={() => retry(a.jobId)}>
-                          Reintentar
-                        </Button>
-                      </div>
-                    )}
-
-                    {a.status === "blocked" && (
-                      <div className="mt-3">
-                        {a.error && (
-                          <p className="mb-2 line-clamp-3 text-xs text-muted-foreground">{a.error}</p>
-                        )}
-                        <Button size="sm" variant="outline" onClick={() => retry(a.jobId)}>
-                          Reintentar
-                        </Button>
-                      </div>
-                    )}
-
-                    {(a.status === "done" || a.status === "delivered") && a.carouselId && (
-                      <div className="mt-3 flex items-center gap-3">
-                        <Link
-                          href={`/carousel/${a.carouselId}`}
-                          className="text-xs font-medium text-accent-strong underline-offset-2 hover:underline"
-                        >
-                          Abrir para QA →
-                        </Link>
-                        <span className="ml-auto text-[11px] text-muted-foreground">
-                          Entregá desde Prewave
-                        </span>
-                      </div>
-                    )}
                   </li>
                 ))}
               </ul>
