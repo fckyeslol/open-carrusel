@@ -22,7 +22,7 @@
 import path from "path";
 import { mkdir, writeFile } from "fs/promises";
 import { mkdirSync } from "fs";
-import { ingestReference, buildGenerationMessage, buildContinuationMessage } from "./thirtyx";
+import { ingestReference, buildGenerationMessage, buildContinuationMessage, IngestError } from "./thirtyx";
 import { spawnClaude } from "./generate-headless";
 import { buildSystemPrompt } from "./chat-system-prompt";
 import { getBrand } from "./brand";
@@ -268,6 +268,18 @@ async function processAssignment(jobId: string): Promise<void> {
       });
     }
   } catch (e) {
+    // Un fallo de la etapa "preset" (avatar sin ADN local o no listo) NO es un fallo
+    // real de generación: es la MISMA condición que atrapa el preflight, solo que
+    // apareció tarde por una carrera transitoria — import-avatars reescribió
+    // style-presets.json entre el preflight y la ingesta (import/rename), o una lectura
+    // ESTALE/-116 del volumen GCS FUSE hizo que readDataSafe devolviera presets vacíos.
+    // Tratalo como el preflight: dejalo `blocked` (retriable, se auto-recupera en el
+    // próximo sync cuando el preset esté) y NO lo marques failed ni lo escribas en
+    // Prewave, para no ensuciar el board ni forzar un "Reintentar" a mano.
+    if (e instanceof IngestError && e.stage === "preset") {
+      await setStatus(jobId, "blocked", { error: (e as Error).message });
+      return;
+    }
     const msg = (e as Error).message || "Error desconocido en la generación";
     await setStatus(jobId, "failed", { error: msg });
     await writeback(() => failJob(jobId, msg, designerToken));

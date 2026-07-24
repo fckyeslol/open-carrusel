@@ -46,6 +46,14 @@ export async function POST(request: NextRequest) {
         enqueued++;
       }
     }
+    // Auto-recuperación: re-encolá los `blocked` (avatar sin preset local). Si su ADN
+    // ya se importó — o el bloqueo fue una lectura transitoria de GCS FUSE — el runner
+    // los reintenta solo, sin que la diseñadora toque "Reintentar". preflightBlockReason
+    // es barato e idempotente: si el preset sigue faltando, se re-bloquea sin reclamar
+    // ni tocar Prewave. Los `failed` (fallos reales) NO se re-encolan: se reintentan a mano.
+    for (const a of await listAssignmentsForDesigner(user.id)) {
+      if (a.status === "blocked") getRunner().enqueue(a.jobId);
+    }
   } catch (e) {
     const status = e instanceof PrewaveError ? e.status : 500;
     return NextResponse.json(
