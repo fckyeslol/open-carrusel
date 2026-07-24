@@ -1,0 +1,19 @@
+# Proxy TLS del modo hosteado. DOMAIN viene del environment del contenedor.
+{$DOMAIN} {
+	reverse_proxy app:3000 {
+		# SSE del chat: sin buffering para que los tokens fluyan en vivo.
+		flush_interval -1
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+
+	# Las láminas exportan PNGs grandes y los uploads aceptan hasta 10MB.
+	request_body {
+		max_size 32MB
+	}
+}

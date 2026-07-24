@@ -1,0 +1,43 @@
+# Open Carrusel — modo hosteado (app + Caddy con TLS automático).
+#
+#   1. Copiá .env.hosted.example a .env.hosted y completalo
+#   2. docker compose -f docker-compose.hosted.yml up -d --build
+#   3. node scripts/users.mjs add <usuaria>   (dentro del contenedor, ver guía)
+#
+# La app NO expone puertos al host: todo el tráfico externo entra por Caddy
+# (443), que es quien agrega TLS. El puerto 3000 solo existe en la red interna.
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env.hosted
+    volumes:
+      # Datos vivos (carruseles, usuarias, presets) — NUNCA van en la imagen.
+      - ./data:/app/data
+      # Imágenes subidas y assets de avatares.
+      - ./public/uploads:/app/public/uploads
+      - ./30x/avatars:/app/30x/avatars
+      # Sesiones del Claude CLI (para --resume entre mensajes del chat).
+      - claude-home:/root/.claude
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Dominio público de la app (ej: carruseles.30x.com). Caddy emite el
+      # certificado TLS solo con esto — sin config extra.
+      DOMAIN: ${DOMAIN:-localhost}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  claude-home:
+  caddy-data:
+  caddy-config:

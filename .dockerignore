@@ -1,0 +1,16 @@
+# Lo que NO va dentro de la imagen (se instala/genera adentro o son datos vivos).
+node_modules
+.next
+.git
+.env*
+!.env.hosted.example
+
+# Datos y assets con estado: montados como volúmenes, nunca horneados.
+data
+public/uploads
+
+# Basura de desarrollo.
+*.log
+.DS_Store
+.playwright-mcp
+scratchpad

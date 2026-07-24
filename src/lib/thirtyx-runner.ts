@@ -21,6 +21,7 @@
  */
 import path from "path";
 import { mkdir, writeFile } from "fs/promises";
+import { mkdirSync } from "fs";
 import { ingestReference, buildGenerationMessage, buildContinuationMessage } from "./thirtyx";
 import { spawnClaude } from "./generate-headless";
 import { buildSystemPrompt } from "./chat-system-prompt";
@@ -30,6 +31,7 @@ import { getPreset, getPresetByAvatarSlug } from "./style-presets";
 import { exportAllSlides } from "./export-slides";
 import { isInstagramUrl } from "./instagram-url";
 import { claimJob, completeJob, failJob, uploadCarousel } from "./prewave";
+import { getInternalApiToken, isHostedMode } from "./hosted";
 import { isHiggsfieldConfigured } from "./higgsfield";
 import {
   getAssignment,
@@ -96,6 +98,7 @@ async function generateAllSlides(
       systemPrompt,
       sessionId,
       cwd: process.cwd(),
+      env: runnerSpawnEnv(),
     });
     if (gen.exitCode && gen.exitCode !== 0) {
       throw new Error(
@@ -123,6 +126,27 @@ async function generateAllSlides(
 /** Base loopback donde el curl de Claude escribe las láminas (mismo server local). */
 function localBase(): string {
   return `http://127.0.0.1:${process.env.PORT || "3000"}`;
+}
+
+/**
+ * Modo hosteado: los jobs de la cola no tienen usuaria logueada, así que el
+ * runner usa un token de worker dedicado (CLAUDE_RUNNER_OAUTH_TOKEN — un
+ * `claude setup-token` de la cuenta que quieras que pague la cola). Sin él,
+ * hereda la auth local del server (modo local: comportamiento de siempre).
+ */
+function runnerSpawnEnv(): Record<string, string> | undefined {
+  const token = process.env.CLAUDE_RUNNER_OAUTH_TOKEN;
+  if (!token) return undefined;
+  // Config dir propio del worker: mismas razones que en /api/chat — que unas
+  // credenciales globales del server nunca pisen el token del worker.
+  const configDir = path.resolve(process.cwd(), "data", "claude-config", "_runner");
+  mkdirSync(configDir, { recursive: true });
+  return { CLAUDE_CODE_OAUTH_TOKEN: token, CLAUDE_CONFIG_DIR: configDir };
+}
+
+/** Token interno para que el subproceso pase el proxy de auth (modo hosteado). */
+function runnerInternalToken(): string | undefined {
+  return isHostedMode() ? getInternalApiToken() : undefined;
 }
 
 interface Runner {
@@ -186,7 +210,8 @@ async function processAssignment(jobId: string): Promise<void> {
       localBase(),
       // Mismo criterio que /api/chat: si hay credenciales de Higgsfield, el agente
       // regenera las imágenes del referente con IA también en el flujo headless.
-      await isHiggsfieldConfigured()
+      await isHiggsfieldConfigured(),
+      runnerInternalToken()
     );
 
     const produced = await generateAllSlides(carousel.id, referenceCount, systemPrompt);

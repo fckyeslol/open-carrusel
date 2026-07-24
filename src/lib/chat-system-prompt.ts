@@ -38,7 +38,13 @@ export function buildSystemPrompt(
   carousel?: Carousel | null,
   stylePreset?: StylePreset | null,
   baseUrl = "${baseUrl}",
-  imageGenEnabled = false
+  imageGenEnabled = false,
+  /**
+   * Modo hosteado: token interno que el subproceso debe mandar como header
+   * X-Internal-Token en TODA request a la API (el proxy de auth lo exige).
+   * Se inyecta directo en los snippets de Python para que el agente lo copie.
+   */
+  internalToken?: string
 ): string {
   // Si hay un preset de avatar activo, SU identidad manda sobre el brand global.
   if (stylePreset?.brand?.name) {
@@ -62,6 +68,18 @@ export function buildSystemPrompt(
     return `#${f(0)}${f(2)}${f(4)}`;
   };
   const accentLight = mix(C.accent, 0.86);
+
+  // Modo hosteado: los snippets de la API llevan el header de auth interno para
+  // pasar el proxy. En modo local no cambia nada.
+  const jsonHeaders = internalToken
+    ? `{'Content-Type': 'application/json', 'X-Internal-Token': '${internalToken}'}`
+    : `{'Content-Type': 'application/json'}`;
+  const bareHeadersArg = internalToken
+    ? `, headers={'X-Internal-Token': '${internalToken}'}`
+    : "";
+  const hostedApiNote = internalToken
+    ? `\nIMPORTANTE: TODA request a la API DEBE incluir el header X-Internal-Token tal como aparece en los ejemplos — sin él la API responde 401.\n`
+    : "";
 
   const texturas = listarTexturas();
   const textureBlock = texturas.length
@@ -199,7 +217,7 @@ Calibración: renderizá, abrí tu PNG y el referente lado a lado, y preguntate 
 python3 -c "
 import json, urllib.request
 data = json.dumps({'prompt': 'DETAILED VISUAL DESCRIPTION IN ENGLISH... no text, no letters, no watermark', 'aspectRatio': '${aspectRatio}', 'imageReference': '/uploads/REFERENTE.png', 'referenceCrop': {'left': 0, 'top': 0.4, 'width': 1, 'height': 0.6}}).encode('utf-8')
-req = urllib.request.Request('${baseUrl}/api/generate-image', data=data, method='POST', headers={'Content-Type': 'application/json'})
+req = urllib.request.Request('${baseUrl}/api/generate-image', data=data, method='POST', headers=${jsonHeaders})
 with urllib.request.urlopen(req) as r: print(r.read().decode('utf-8'))
 "
 (omití 'referenceCrop' si la referencia va entera, e 'imageReference' solo si NO existe ningún asset base)`
@@ -255,13 +273,14 @@ Regla de color al calcar: si el referente usa varios colores distintos (ej. amar
 - Misma identidad del avatar, misma fidelidad a los datos.
 
 ## API — usá Python para TODAS las operaciones (NUNCA curl: en Windows corrompe los acentos/UTF-8)
+${hostedApiNote}
 
 ### Crear una lámina:
 python3 -c "
 import json, urllib.request
 html = '''TU_HTML'''
 data = json.dumps({'html': html, 'notes': 'rol de la lámina'}).encode('utf-8')
-req = urllib.request.Request('${baseUrl}/api/carousels/${carouselId}/slides', data=data, method='POST', headers={'Content-Type': 'application/json'})
+req = urllib.request.Request('${baseUrl}/api/carousels/${carouselId}/slides', data=data, method='POST', headers=${jsonHeaders})
 with urllib.request.urlopen(req) as r: print(r.read().decode('utf-8'))
 "
 
@@ -270,21 +289,22 @@ python3 -c "
 import json, urllib.request
 html = '''HTML_ACTUALIZADO'''
 data = json.dumps({'html': html}).encode('utf-8')
-req = urllib.request.Request('${baseUrl}/api/carousels/${carouselId}/slides/{SLIDE_ID}', data=data, method='PUT', headers={'Content-Type': 'application/json'})
+req = urllib.request.Request('${baseUrl}/api/carousels/${carouselId}/slides/{SLIDE_ID}', data=data, method='PUT', headers=${jsonHeaders})
 with urllib.request.urlopen(req) as r: print(r.read().decode('utf-8'))
 "
 
 ### Borrar una lámina:
 python3 -c "
 import urllib.request
-req = urllib.request.Request('${baseUrl}/api/carousels/${carouselId}/slides/{SLIDE_ID}', method='DELETE')
+req = urllib.request.Request('${baseUrl}/api/carousels/${carouselId}/slides/{SLIDE_ID}', method='DELETE'${bareHeadersArg})
 with urllib.request.urlopen(req) as r: print(r.read().decode('utf-8'))
 "
 
 ### Leer el carrusel (para ver IDs de láminas / estado):
 python3 -c "
 import urllib.request
-with urllib.request.urlopen('${baseUrl}/api/carousels/${carouselId}') as r: print(r.read().decode('utf-8'))
+req = urllib.request.Request('${baseUrl}/api/carousels/${carouselId}'${bareHeadersArg})
+with urllib.request.urlopen(req) as r: print(r.read().decode('utf-8'))
 "
 ${imageGenSection}
 
@@ -292,7 +312,7 @@ ${imageGenSection}
 python3 -c "
 import json, urllib.request
 data = json.dumps({'caption': 'Caption...', 'hashtags': ['tag1','tag2']}).encode('utf-8')
-req = urllib.request.Request('${baseUrl}/api/carousels/${carouselId}/caption', data=data, method='PUT', headers={'Content-Type': 'application/json'})
+req = urllib.request.Request('${baseUrl}/api/carousels/${carouselId}/caption', data=data, method='PUT', headers=${jsonHeaders})
 with urllib.request.urlopen(req) as r: print(r.read().decode('utf-8'))
 "
 

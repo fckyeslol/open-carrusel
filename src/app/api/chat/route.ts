@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { stat } from "fs/promises";
+import { mkdir, stat } from "fs/promises";
 import path from "path";
 import { isClaudeAvailable } from "@/lib/claude-path";
 import { spawnClaude, ClaudeSpawnError } from "@/lib/generate-headless";
@@ -8,6 +8,9 @@ import { getBrand } from "@/lib/brand";
 import { getCarousel } from "@/lib/carousels";
 import { getPreset } from "@/lib/style-presets";
 import { isHiggsfieldConfigured } from "@/lib/higgsfield";
+import { getInternalApiToken, isHostedMode } from "@/lib/hosted";
+import { getSessionUser } from "@/lib/auth";
+import { getClaudeToken } from "@/lib/users";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -68,6 +71,36 @@ export async function POST(request: NextRequest) {
 
   const { message, sessionId, carouselId, stylePresetId, attachments } = body;
 
+  // Modo hosteado: la generación corre con el token de Claude de la usuaria
+  // logueada (su seat del Team paga su consumo). Sin token configurado no se
+  // puede generar — mejor un error claro acá que un spawn que falla en inglés.
+  let spawnEnv: Record<string, string> | undefined;
+  let internalToken: string | undefined;
+  if (isHostedMode()) {
+    const user = await getSessionUser(request);
+    if (!user) {
+      return NextResponse.json({ error: "No autenticada" }, { status: 401 });
+    }
+    const claudeToken = await getClaudeToken(user.id);
+    if (!claudeToken) {
+      return NextResponse.json(
+        {
+          error:
+            "Todavía no conectaste tu Claude. Andá a tu cuenta, corré `claude setup-token` en tu compu y pegá el token.",
+        },
+        { status: 409 }
+      );
+    }
+    // CLAUDE_CONFIG_DIR aislado por usuaria: (1) si el server tuviera un
+    // `claude login` global, esas credenciales NO pisan el token de la usuaria
+    // (el CLI prefiere credenciales guardadas sobre el env), y (2) las sesiones
+    // de chat de cada una quedan separadas.
+    const configDir = path.resolve(process.cwd(), "data", "claude-config", user.id);
+    await mkdir(configDir, { recursive: true });
+    spawnEnv = { CLAUDE_CODE_OAUTH_TOKEN: claudeToken, CLAUDE_CONFIG_DIR: configDir };
+    internalToken = getInternalApiToken();
+  }
+
   // Adjuntos: validar y resolver a rutas absolutas ANTES de validar el mensaje,
   // porque un mensaje solo-imágenes es válido.
   const attachmentPaths: string[] = [];
@@ -112,14 +145,19 @@ export async function POST(request: NextRequest) {
   // Preferir el preset pedido; si no vino, usar el del carrusel (avatar 30x asociado).
   const effectivePresetId = stylePresetId || carousel?.stylePresetId || null;
   const stylePreset = effectivePresetId ? await getPreset(effectivePresetId) : null;
+  // En modo hosteado el subproceso corre EN el server: siempre loopback (el host
+  // del request es el dominio público, que no le sirve al Python del agente).
   const host = request.headers.get("host") || "localhost:3000";
-  const baseUrl = `http://${host}`;
+  const baseUrl = isHostedMode()
+    ? `http://127.0.0.1:${process.env.PORT || "3000"}`
+    : `http://${host}`;
   const systemPrompt = buildSystemPrompt(
     brand,
     carousel,
     stylePreset,
     baseUrl,
-    await isHiggsfieldConfigured()
+    await isHiggsfieldConfigured(),
+    internalToken
   );
 
   const abortController = new AbortController();
@@ -141,6 +179,7 @@ export async function POST(request: NextRequest) {
         sessionId,
         cwd: process.cwd(),
         signal: abortController.signal,
+        env: spawnEnv,
         onToken: (text) =>
           enqueue(`data: ${JSON.stringify({ type: "token", text })}\n\n`),
         onResult: (text) =>

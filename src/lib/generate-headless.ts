@@ -27,6 +27,12 @@ export interface SpawnClaudeOptions {
   timeoutMs?: number;
   allowedTools?: readonly string[];
   signal?: AbortSignal;
+  /**
+   * Variables de entorno EXTRA para el subproceso (se mezclan sobre process.env).
+   * En modo hosteado acá viaja CLAUDE_CODE_OAUTH_TOKEN de la usuaria dueña de la
+   * generación, para que el consumo salga de SU seat (Team/Max) y no del server.
+   */
+  env?: Record<string, string>;
   /** Streaming hooks (la ruta de chat los cablea a SSE; el runner los ignora). */
   onToken?: (text: string) => void;
   onResult?: (text: string) => void;
@@ -118,6 +124,8 @@ export function spawnClaude(opts: SpawnClaudeOptions): Promise<SpawnClaudeResult
         cwd: opts.cwd ?? process.cwd(),
         signal: opts.signal,
         stdio: ["pipe", "pipe", "pipe"],
+        // Solo construir un env custom si hay overrides: heredar es el caso normal.
+        ...(opts.env ? { env: { ...process.env, ...opts.env } } : {}),
       });
       child.stdin?.end(); // no le mandamos input al subproceso
     } catch (err) {

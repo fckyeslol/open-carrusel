@@ -19,6 +19,15 @@ const slideId = segundo && !segundo.startsWith("--") ? segundo : null;
 
 const BASE = process.env.OC_BASE_URL || "http://localhost:3000";
 
+/**
+ * Modo hosteado: el server exige el header X-Internal-Token en cada request.
+ * El subproceso hereda INTERNAL_API_TOKEN del env del server, así que este
+ * script funciona igual en local (sin token) y hosteado (con token).
+ */
+const CABECERAS_INTERNAS = process.env.INTERNAL_API_TOKEN
+  ? { "X-Internal-Token": process.env.INTERNAL_API_TOKEN }
+  : {};
+
 if (!carouselId) {
   console.error("Falta el carouselId.\n  node scripts/slide-check.mjs <carouselId> [slideId]");
   process.exit(1);
@@ -26,8 +35,11 @@ if (!carouselId) {
 
 const ICONO = { error: "✗", warning: "!", advisory: "~", info: "·" };
 
-async function pedirJson(url, opciones) {
-  const res = await fetch(url, opciones);
+async function pedirJson(url, opciones = {}) {
+  const res = await fetch(url, {
+    ...opciones,
+    headers: { ...CABECERAS_INTERNAS, ...(opciones.headers || {}) },
+  });
   const texto = await res.text();
   let cuerpo;
   try {
