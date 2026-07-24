@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { addSlide, reorderSlides, getCarousel } from "@/lib/carousels";
+import { addSlide, addBlankSlide, reorderSlides, getCarousel } from "@/lib/carousels";
 
 export async function POST(
   request: Request,
@@ -8,7 +8,23 @@ export async function POST(
   const { id } = await params;
   try {
     const body = await request.json();
-    const { html, notes } = body as { html?: string; notes?: string };
+    const { html, notes, blank } = body as {
+      html?: string;
+      notes?: string;
+      blank?: boolean;
+    };
+
+    // Lámina en blanco: no requiere HTML, el server aporta el lienzo vacío.
+    if (blank) {
+      const slide = await addBlankSlide(id, notes);
+      if (!slide) {
+        return NextResponse.json(
+          { error: "Carousel not found or max slides reached" },
+          { status: 400 }
+        );
+      }
+      return NextResponse.json(slide, { status: 201 });
+    }
 
     if (!html || typeof html !== "string") {
       return NextResponse.json(

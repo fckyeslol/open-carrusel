@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { Check, Copy as CopyIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { PaletteColor } from "@/lib/adn-palette";
 
 /** Normaliza '#abc', '#aabbcc' o 'rgb(r,g,b)' a '#aabbcc'; null si no es un color reconocible. */
 export function toHex(value: string | null | undefined): string | null {
@@ -29,13 +30,15 @@ interface ColorInputProps {
   onChange: (hex: string) => void;
   title?: string;
   className?: string;
+  /** Muestras de un clic (paleta del ADN del avatar). Se pintan bajo el campo. */
+  swatches?: PaletteColor[];
 }
 
 /**
  * Selector de color con campo HEX editable: el cuadrito abre el picker nativo
  * y el texto permite copiar el HEX o pegar uno (con o sin '#', 3 o 6 dígitos).
  */
-export function ColorInput({ value, onChange, title, className }: ColorInputProps) {
+export function ColorInput({ value, onChange, title, className, swatches }: ColorInputProps) {
   const hex = toHex(value) ?? "#000000";
   // Mientras se escribe, mostramos el borrador; al salir volvemos al valor real.
   const [draft, setDraft] = useState<string | null>(null);
@@ -60,7 +63,8 @@ export function ColorInput({ value, onChange, title, className }: ColorInputProp
   };
 
   return (
-    <div className={cn("flex items-center gap-1.5", className)}>
+    <div className={cn("space-y-1.5", className)}>
+      <div className="flex items-center gap-1.5">
       <div className="relative h-9 w-10 shrink-0" title={title}>
         <input
           type="color"
@@ -95,6 +99,33 @@ export function ColorInput({ value, onChange, title, className }: ColorInputProp
       >
         {copied ? <Check className="h-3.5 w-3.5 text-green-600" /> : <CopyIcon className="h-3.5 w-3.5" />}
       </button>
+      </div>
+      {swatches && swatches.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1">
+          {swatches.map((s) => {
+            const swHex = s.hex.toLowerCase();
+            const active = hex === swHex;
+            return (
+              <button
+                key={swHex}
+                type="button"
+                onClick={() => {
+                  setDraft(null);
+                  onChange(swHex);
+                }}
+                title={`${s.name} · ${swHex.toUpperCase()}`}
+                aria-label={`${s.name} ${swHex}`}
+                aria-pressed={active}
+                className={cn(
+                  "h-6 w-6 shrink-0 rounded-md border transition-transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-foreground/40",
+                  active ? "border-foreground ring-2 ring-foreground/60" : "border-border"
+                )}
+                style={{ backgroundColor: swHex }}
+              />
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

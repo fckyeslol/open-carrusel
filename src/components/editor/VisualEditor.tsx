@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Section } from "@/components/ui/section";
 import { BackgroundPicker } from "./BackgroundPicker";
 import { ColorInput } from "./ColorInput";
+import type { PaletteColor } from "@/lib/adn-palette";
 import { SafeZoneOverlay } from "./SafeZoneOverlay";
 import { SHAPE_GALLERY, SHADOW_PRESETS, GRADIENT_PRESETS } from "./shape-gallery";
 import {
@@ -117,9 +118,11 @@ interface VisualEditorProps {
   aspectRatio: AspectRatio;
   onChange: (html: string) => void; // se llama con el HTML serializado tras cada edición
   showSafeZones?: boolean;
+  /** Paleta del ADN del avatar activo: muestras de un clic en los selectores de color. */
+  palette?: PaletteColor[];
 }
 
-export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = false }: VisualEditorProps) {
+export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = false, palette }: VisualEditorProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [sel, setSel] = useState<Selection>({ none: true });
@@ -676,6 +679,7 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
                       className="mt-1"
                       title="Color del texto"
                       value={sel.color || "#000000"}
+                      swatches={palette}
                       onChange={(hex) => applyProp("color", hex)}
                     />
                   </div>
@@ -797,6 +801,7 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
                         className="flex-1"
                         title={sel.isShape ? "Relleno" : "Fondo del elemento"}
                         value={sel.bg || "#ffffff"}
+                        swatches={palette}
                         onChange={(hex) => {
                           setSel({ ...sel, bg: hex });
                           applyProp("bg", hex);
@@ -850,6 +855,7 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
                       <ColorInput
                         title="Color inicial"
                         value={grad.from}
+                        swatches={palette}
                         onChange={(hex) => {
                           const g = { ...grad, from: hex };
                           setGrad(g);
@@ -859,6 +865,7 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
                       <ColorInput
                         title="Color final"
                         value={grad.to}
+                        swatches={palette}
                         onChange={(hex) => {
                           const g = { ...grad, to: hex };
                           setGrad(g);
@@ -922,6 +929,7 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
                     className="mt-1.5"
                     title="Color del borde"
                     value={sel.borderColor || "#111827"}
+                    swatches={palette}
                     onChange={(hex) => {
                       setSel({ ...sel, borderColor: hex });
                       applyProp("borderColor", hex);
@@ -1120,6 +1128,7 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
               className="mb-2"
               title="Color del fondo"
               value={slideBg}
+              swatches={palette}
               onChange={(hex) => {
                 setSlideBg(hex);
                 send({ oc: "setBg", value: hex });

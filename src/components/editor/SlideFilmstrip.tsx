@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, Trash2, Undo2, GripVertical } from "lucide-react";
+import { Plus, Trash2, Undo2, GripVertical, Copy } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -28,7 +28,8 @@ interface SlideFilmstripProps {
   onActiveChange: (index: number) => void;
   onDeleteSlide?: (slideId: string) => void;
   onUndoSlide?: (slideId: string) => void;
-  onAddSlideRequest?: () => void;
+  onDuplicateSlide?: (slideId: string) => void;
+  onAddBlankSlide?: () => void;
   onReorderSlides?: (slideIds: string[]) => void;
   isGenerating?: boolean;
 }
@@ -43,6 +44,7 @@ function SortableSlideThumb({
   onSelect,
   onDelete,
   onUndo,
+  onDuplicate,
 }: {
   slide: Slide;
   index: number;
@@ -53,6 +55,7 @@ function SortableSlideThumb({
   onSelect: () => void;
   onDelete?: () => void;
   onUndo?: () => void;
+  onDuplicate?: () => void;
 }) {
   const {
     attributes,
@@ -105,6 +108,20 @@ function SortableSlideThumb({
 
       {/* Hover actions */}
       <div className="absolute -top-1 -right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+        {onDuplicate && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-5 w-5 bg-white shadow-sm border border-border rounded-full"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDuplicate();
+            }}
+            aria-label={`Duplicar lámina ${index + 1}`}
+          >
+            <Copy className="h-2.5 w-2.5" />
+          </Button>
+        )}
         {onUndo && slide.previousVersions.length > 0 && (
           <Button
             variant="ghost"
@@ -150,7 +167,8 @@ export function SlideFilmstrip({
   onActiveChange,
   onDeleteSlide,
   onUndoSlide,
-  onAddSlideRequest,
+  onDuplicateSlide,
+  onAddBlankSlide,
   onReorderSlides,
   isGenerating,
 }: SlideFilmstripProps) {
@@ -213,6 +231,11 @@ export function SlideFilmstrip({
                 onSelect={() => onActiveChange(index)}
                 onDelete={onDeleteSlide ? () => onDeleteSlide(slide.id) : undefined}
                 onUndo={onUndoSlide ? () => onUndoSlide(slide.id) : undefined}
+                onDuplicate={
+                  onDuplicateSlide && slides.length < MAX_SLIDES
+                    ? () => onDuplicateSlide(slide.id)
+                    : undefined
+                }
               />
             ))}
           </SortableContext>
@@ -230,14 +253,16 @@ export function SlideFilmstrip({
           </div>
         )}
 
-        {slides.length < MAX_SLIDES && !isGenerating && (
+        {onAddBlankSlide && slides.length < MAX_SLIDES && !isGenerating && (
           <button
-            onClick={onAddSlideRequest}
-            className="shrink-0 rounded-lg border-2 border-dashed border-border flex items-center justify-center hover:border-muted-foreground/50 hover:bg-muted/50 transition-colors cursor-pointer"
+            onClick={onAddBlankSlide}
+            className="shrink-0 rounded-lg border-2 border-dashed border-border flex flex-col items-center justify-center gap-1 hover:border-muted-foreground/50 hover:bg-muted/50 transition-colors cursor-pointer"
             style={{ width: thumbWidth, height: thumbHeight }}
-            aria-label="Add slide via AI"
+            aria-label="Agregar lámina en blanco"
+            title="Agregar lámina en blanco"
           >
             <Plus className="h-4 w-4 text-muted-foreground" />
+            <span className="text-[8px] text-muted-foreground font-medium">En blanco</span>
           </button>
         )}
       </div>

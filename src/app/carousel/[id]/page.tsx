@@ -18,6 +18,8 @@ import { CaptionPanel } from "@/components/editor/CaptionPanel";
 import { FullscreenPreview } from "@/components/editor/FullscreenPreview";
 import { SaveState } from "@/components/editor/SaveState";
 import type { Carousel, AspectRatio, Slide } from "@/types/carousel";
+import type { StylePreset } from "@/types/style-preset";
+import { paletteFromBrandColors, type PaletteColor } from "@/lib/adn-palette";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -27,6 +29,8 @@ export default function CarouselEditorPage({ params }: PageProps) {
   const { id } = use(params);
   const router = useRouter();
   const [carousel, setCarousel] = useState<Carousel | null>(null);
+  // Paleta del ADN del avatar activo: muestras de un clic en el editor visual.
+  const [palette, setPalette] = useState<PaletteColor[]>([]);
   const [notFound, setNotFound] = useState(false);
   const [activeSlide, setActiveSlide] = useState(0);
   const [claudeAvailable, setClaudeAvailable] = useState(true);
@@ -172,7 +176,7 @@ export default function CarouselEditorPage({ params }: PageProps) {
   // Ref for focusing chat input when + button is clicked
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const fetchCarousel = useCallback(async () => {
+  const fetchCarousel = useCallback(async (focusSlideId?: string) => {
     try {
       const res = await fetch(`/api/carousels/${id}`);
       if (res.status === 404) {
@@ -182,8 +186,15 @@ export default function CarouselEditorPage({ params }: PageProps) {
       if (res.ok) {
         const data = await res.json();
         setCarousel((prev) => {
-          // If new slides were added during generation, jump to the latest slide
-          if (prev && data.slides.length > prev.slides.length) {
+          // Si se pidió enfocar una lámina concreta (agregar/duplicar), saltamos
+          // a ella en vez de al final: una duplicada se inserta en el medio.
+          const focusIdx = focusSlideId
+            ? data.slides.findIndex((s: Slide) => s.id === focusSlideId)
+            : -1;
+          if (focusIdx !== -1) {
+            setActiveSlide(focusIdx);
+          } else if (prev && data.slides.length > prev.slides.length) {
+            // If new slides were added during generation, jump to the latest slide
             setActiveSlide(data.slides.length - 1);
           } else {
             setActiveSlide((prevIdx) =>
@@ -197,6 +208,34 @@ export default function CarouselEditorPage({ params }: PageProps) {
       // ignore network errors
     }
   }, [id]);
+
+  // Paleta del ADN: buscamos el preset del avatar de este carrusel y derivamos
+  // sus 5 colores para ofrecerlos como muestras en el editor. Si no hay preset
+  // (carrusel suelto sin avatar), el editor simplemente no muestra swatches.
+  const stylePresetId = carousel?.stylePresetId;
+  useEffect(() => {
+    if (!stylePresetId) {
+      setPalette([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/style-presets");
+        if (!res.ok) return;
+        const data = await res.json();
+        const preset = (data.presets as StylePreset[] | undefined)?.find(
+          (p) => p.id === stylePresetId
+        );
+        if (!cancelled) setPalette(paletteFromBrandColors(preset?.brand?.colors));
+      } catch {
+        // Sin paleta el editor sigue funcionando; no es un error bloqueante.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [stylePresetId]);
 
   // Al salir del modo edición, refrescamos el carrusel (actualiza la tira) y
   // descartamos las ediciones en vivo: el servidor ya es la fuente de verdad y
@@ -364,13 +403,31 @@ export default function CarouselEditorPage({ params }: PageProps) {
     [id, fetchCarousel]
   );
 
-  const handleAddSlideRequest = useCallback(() => {
-    setChatOpen(true);
-    // Focus chat input after a tick (to let panel render)
-    setTimeout(() => {
-      chatInputRef.current?.focus();
-    }, 100);
-  }, []);
+  const handleAddBlankSlide = useCallback(async () => {
+    const res = await fetch(`/api/carousels/${id}/slides`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ blank: true }),
+    });
+    if (res.ok) {
+      const slide: Slide = await res.json();
+      await fetchCarousel(slide.id);
+    }
+  }, [id, fetchCarousel]);
+
+  const handleDuplicateSlide = useCallback(
+    async (slideId: string) => {
+      const res = await fetch(
+        `/api/carousels/${id}/slides/${slideId}/duplicate`,
+        { method: "POST" }
+      );
+      if (res.ok) {
+        const slide: Slide = await res.json();
+        await fetchCarousel(slide.id);
+      }
+    },
+    [id, fetchCarousel]
+  );
 
   if (notFound) {
     return (
@@ -608,6 +665,7 @@ export default function CarouselEditorPage({ params }: PageProps) {
                 handleSlideHtmlChange(carousel.slides[activeSlide].id, newHtml)
               }
               showSafeZones={showSafeZones}
+              palette={palette}
             />
           ) : (
             <CarouselPreview
@@ -635,7 +693,8 @@ export default function CarouselEditorPage({ params }: PageProps) {
         onActiveChange={setActiveSlide}
         onDeleteSlide={handleDeleteSlide}
         onUndoSlide={handleUndoSlide}
-        onAddSlideRequest={handleAddSlideRequest}
+        onDuplicateSlide={handleDuplicateSlide}
+        onAddBlankSlide={handleAddBlankSlide}
         onReorderSlides={handleReorderSlides}
         isGenerating={isGenerating}
       />
