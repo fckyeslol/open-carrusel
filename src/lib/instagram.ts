@@ -243,25 +243,17 @@ async function extractImageUrls(page: Page, postUrl: string): Promise<ExtractRes
 /**
  * Baja una imagen del CDN de Instagram y devuelve sus bytes, o null si falla.
  *
- * Estrategia: navegar el navegador DIRECTO a la URL de la imagen (page.goto) y
- * tomar el buffer de la respuesta. Al ser una navegación de nivel superior no
- * aplica CORS (un fetch a fbcdn.net desde el origen instagram.com lo bloquea) y
- * el CDN sirve la imagen sin el 403 que devolvía el fetch pelado de Node. Si la
- * navegación falla, se intenta un fetch de Node con Referer como último recurso.
+ * Estrategia: fetch directo de Node PRIMERO (no pasa por el proxy — el CDN no
+ * bloquea IPs de datacenter, así que ahorramos banda del proxy residencial), y si
+ * ese falla, navegación del navegador como fallback (que sí sale por el proxy).
  */
 async function downloadImageBytes(imgPage: Page, src: string): Promise<Buffer | null> {
-  // 1) Navegación directa a la imagen (sin CORS, con red del navegador).
-  try {
-    const resp = await imgPage.goto(src, { waitUntil: "networkidle2", timeout: 30000 });
-    if (resp?.ok()) {
-      const buf = await resp.buffer();
-      if (buf.length > 0) return buf;
-    }
-  } catch {
-    // navegación caída; seguimos con el fallback
-  }
-
-  // 2) Fallback: fetch de Node con Referer de instagram.com.
+  // 1) PRIMARIO: fetch directo de Node — NO pasa por el proxy. Las imágenes de las
+  //    láminas viven en el CDN de Instagram (fbcdn/cdninstagram), que sirve a
+  //    cualquier IP (incluida la de datacenter de Cloud Run); solo el HTML del post
+  //    está bloqueado. Bajarlas directas ahorra la banda (metered) del proxy
+  //    residencial. Validamos magic bytes antes de aceptar: si el CDN devolviera un
+  //    200 que no es imagen, cae al navegador en vez de guardar basura.
   try {
     const res = await fetch(src, {
       headers: {
@@ -271,12 +263,28 @@ async function downloadImageBytes(imgPage: Page, src: string): Promise<Buffer | 
         Accept: "image/avif,image/webp,image/png,image/jpeg,*/*",
       },
     });
-    if (!res.ok) return null;
-    const buf = Buffer.from(await res.arrayBuffer());
-    return buf.length > 0 ? buf : null;
+    if (res.ok) {
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length > 0 && detectImageExt(buf)) return buf;
+    }
   } catch {
-    return null;
+    // fetch caído; seguimos con el fallback del navegador
   }
+
+  // 2) FALLBACK: navegación del navegador (que SÍ sale por el proxy si está
+  //    configurado). Como navegación de nivel superior no aplica CORS y el CDN la
+  //    sirve sin el 403 que a veces daba un fetch pelado. Solo se usa si el fetch
+  //    directo falló, así que el proxy casi nunca toca las imágenes.
+  try {
+    const resp = await imgPage.goto(src, { waitUntil: "networkidle2", timeout: 30000 });
+    if (resp?.ok()) {
+      const buf = await resp.buffer();
+      if (buf.length > 0) return buf;
+    }
+  } catch {
+    // navegación caída
+  }
+  return null;
 }
 
 /** Detecta el formato por magic bytes. Instagram sirve WebP casi siempre hoy. */
