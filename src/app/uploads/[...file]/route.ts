@@ -32,6 +32,14 @@ const CONTENT_TYPES: Record<string, string> = {
   ".jpeg": "image/jpeg",
   ".webp": "image/webp",
   ".gif": "image/gif",
+  // /api/upload también guarda SVGs (logos, en uploads/icons/) y fuentes
+  // (uploads/fonts/); sin estas entradas la ruta devolvía 404 en producción y
+  // el logo quedaba como un cuadrado blanco dentro de la lámina.
+  ".svg": "image/svg+xml",
+  ".woff2": "font/woff2",
+  ".woff": "font/woff",
+  ".ttf": "font/ttf",
+  ".otf": "font/otf",
 };
 
 export async function GET(
@@ -62,12 +70,17 @@ export async function GET(
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
     const data = await readFile(resolved);
-    return new NextResponse(new Uint8Array(data), {
-      headers: {
-        "Content-Type": contentType,
-        "Cache-Control": "public, max-age=300",
-      },
-    });
+    const headers: Record<string, string> = {
+      "Content-Type": contentType,
+      "Cache-Control": "public, max-age=300",
+      "X-Content-Type-Options": "nosniff",
+    };
+    // El SVG se sanitiza al subirse, pero si alguien lo abre como documento
+    // esto garantiza que no ejecute scripts.
+    if (contentType === "image/svg+xml") {
+      headers["Content-Security-Policy"] = "script-src 'none'";
+    }
+    return new NextResponse(new Uint8Array(data), { headers });
   } catch {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }

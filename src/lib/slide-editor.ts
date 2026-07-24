@@ -62,7 +62,12 @@ export const EDITOR_RUNTIME = String.raw`
     +'.oc-deg{position:absolute;left:0;top:0;background:#ff3b7f;color:#fff;font:600 13px/1.35 -apple-system,system-ui,sans-serif;padding:2px 9px;border-radius:6px;white-space:nowrap;pointer-events:none;z-index:2147483002;display:none;box-shadow:0 2px 8px rgba(0,0,0,.35)}'
     +'.oc-rotating,.oc-rotating *{cursor:grabbing !important}'
     +'.oc-box{position:absolute;outline:2px solid #4f7cff;outline-offset:1px}'
-    +'.oc-gl{position:absolute;background:#ff3b7f}';
+    +'.oc-gl{position:absolute;background:#ff3b7f}'
+    // Placeholder de imagen cargando/rota: vive ACÁ (hoja data-oc-ui, que nunca se
+    // serializa) y no en el style inline del <img>, para que el recuadro gris no
+    // quede horneado en el HTML guardado si se serializa antes del onload.
+    +'img[data-oc-ph]{min-height:180px;background:#eceaf0;outline:2px dashed #ff3b7f;outline-offset:-2px}'
+    +'img[data-oc-err]{outline:3px solid #e11d48;outline-offset:-3px}';
   document.head.appendChild(st);
 
   var ui=document.createElement('div'); ui.setAttribute('data-oc-ui','1');
@@ -1098,12 +1103,13 @@ export const EDITOR_RUNTIME = String.raw`
     snap();
     var img=document.createElement('img');
     // Placeholder visible: sin esto, mientras la imagen carga su alto es 'auto'=0px
-    // y "no aparece". El recuadro punteado con min-alto la hace visible y seleccionable
-    // al instante; al cargar (onload) se limpia el placeholder. onerror la deja marcada
-    // en rojo en vez de desaparecer en silencio.
-    img.style.cssText='position:absolute;left:'+Math.round((W-360)/2)+'px;top:'+Math.round((H-360)/2)+'px;width:360px;height:auto;min-height:180px;z-index:5;background:#eceaf0;outline:2px dashed #ff3b7f;outline-offset:-2px';
-    img.onload=function(){ img.style.minHeight=''; img.style.background=''; img.style.outline=''; img.style.outlineOffset=''; paint(); syncOne(); serialize(); };
-    img.onerror=function(){ img.style.outline='3px solid #e11d48'; };
+    // y "no aparece". Los estilos del placeholder viven en la hoja del editor
+    // (img[data-oc-ph]), NO en el style inline: así, si la lámina se serializa antes
+    // del onload (o la carga falla), no queda un cuadrado gris guardado en el HTML.
+    img.setAttribute('data-oc-ph','1');
+    img.style.cssText='position:absolute;left:'+Math.round((W-360)/2)+'px;top:'+Math.round((H-360)/2)+'px;width:360px;height:auto;z-index:5';
+    img.onload=function(){ img.removeAttribute('data-oc-ph'); img.removeAttribute('data-oc-err'); paint(); syncOne(); serialize(); };
+    img.onerror=function(){ img.setAttribute('data-oc-err','1'); };
     img.src=url;
     rootEl().appendChild(img);
     sels=[img]; paint(); report(); serialize();
@@ -1193,7 +1199,8 @@ export const EDITOR_RUNTIME = String.raw`
   function serializeNoSnap(){
     ui.remove(); gl.remove(); st.remove();
     document.querySelectorAll('[contenteditable]').forEach(function(n){ n.removeAttribute('contenteditable'); });
-    var html=document.body.innerHTML.replace(/<script[\s\S]*?<\/script>/gi,'');
+    var html=document.body.innerHTML.replace(/<script[\s\S]*?<\/script>/gi,'')
+      .replace(/\sdata-oc-(?:ph|err)="1"/g,'');
     post({oc:'html', html:html});
     document.head.appendChild(st); document.body.appendChild(gl); document.body.appendChild(ui);
     paint();
@@ -1223,6 +1230,23 @@ export const EDITOR_RUNTIME = String.raw`
     else if(m.oc==='selectLayer') selectLayer(m.id);
     else if(m.oc==='reorderLayers') reorderLayers(m.ids);
     else if(m.oc==='serialize') serialize();
+  });
+  // Curar láminas guardadas con el placeholder viejo horneado en el style inline
+  // (versiones anteriores de addImage serializaban background #eceaf0 + outline
+  // punteado): se limpia y, si la imagen sigue sin cargar, pasa al placeholder
+  // nuevo de la hoja del editor, que no se serializa.
+  [].slice.call(document.querySelectorAll('img')).forEach(function(img){
+    var s=img.style, hit=false;
+    if(/rgb\(236,\s*234,\s*240\)|#eceaf0/i.test((s.background||'')+' '+(s.backgroundColor||''))){ s.background=''; hit=true; }
+    if(/rgb\(255,\s*59,\s*127\)|#ff3b7f|rgb\(225,\s*29,\s*72\)|#e11d48/i.test((s.outline||'')+' '+(s.outlineColor||''))){ s.outline=''; s.outlineOffset=''; hit=true; }
+    if(!hit) return;
+    if(s.minHeight==='180px') s.minHeight='';
+    if(!img.complete || !img.naturalWidth){
+      img.setAttribute('data-oc-ph','1');
+      img.onload=function(){ img.removeAttribute('data-oc-ph'); img.removeAttribute('data-oc-err'); paint(); };
+      img.onerror=function(){ img.setAttribute('data-oc-err','1'); };
+      if(img.complete) img.setAttribute('data-oc-err','1');
+    }
   });
   post({oc:'ready'});
   reportLayers();   // lista inicial de capas para el panel
