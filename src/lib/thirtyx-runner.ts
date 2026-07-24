@@ -21,9 +21,8 @@
  */
 import path from "path";
 import { mkdir, writeFile } from "fs/promises";
-import { mkdirSync } from "fs";
 import { ingestReference, buildGenerationMessage, buildContinuationMessage, IngestError } from "./thirtyx";
-import { spawnClaude } from "./generate-headless";
+import { spawnClaudeWithCentralFallback } from "./generate-headless";
 import { buildSystemPrompt } from "./chat-system-prompt";
 import { getBrand } from "./brand";
 import { getCarousel } from "./carousels";
@@ -31,7 +30,7 @@ import { getPreset, getPresetByAvatarSlug } from "./style-presets";
 import { exportAllSlides } from "./export-slides";
 import { isInstagramUrl } from "./instagram-url";
 import { claimJob, completeJob, failJob, uploadCarousel } from "./prewave";
-import { getCentralClaudeToken, getInternalApiToken, isHostedMode } from "./hosted";
+import { getInternalApiToken, isHostedMode } from "./hosted";
 import { getPrewaveToken } from "./users";
 import { isHiggsfieldConfigured } from "./higgsfield";
 import {
@@ -117,6 +116,9 @@ async function generateAllSlides(
   systemPrompt: string
 ): Promise<GenerationOutcome> {
   let sessionId: string | undefined;
+  // Token central que viene usando ESTE carrusel (para --resume entre pasadas y
+  // como preferencia del fallback). Cambia solo si una cuenta llega a su límite.
+  let currentToken: string | undefined;
   let stalls = 0;
   let lastResult = "";
   let lastStderr = "";
@@ -137,22 +139,30 @@ async function generateAllSlides(
         ? buildGenerationMessage(referenceCount)
         : buildContinuationMessage(before, referenceCount);
 
-    const gen = await spawnClaude({
-      message,
-      systemPrompt,
-      sessionId,
-      cwd: process.cwd(),
-      env: runnerSpawnEnv(),
-    });
+    const gen = await spawnClaudeWithCentralFallback(
+      { message, systemPrompt, sessionId, cwd: process.cwd() },
+      "runner",
+      currentToken
+    );
     // Guardá el diagnóstico del turno ANTES de decidir cortar/seguir.
     if (gen.resultText) lastResult = gen.resultText;
     if (gen.stderr) lastStderr = gen.stderr;
     lastExitCode = gen.exitCode;
+    if (gen.exhaustedAll) {
+      throw new Error(
+        `Todas las cuentas de Claude llegaron a su límite de uso. Esperá a que resetee la ventana o agregá otra cuenta (CLAUDE_TEAM_OAUTH_TOKEN_2).${generationDiagnosis(
+          { lastResult, lastStderr, lastExitCode }
+        )}`.trim()
+      );
+    }
     if (gen.exitCode && gen.exitCode !== 0) {
       throw new Error(
         `Claude terminó con código ${gen.exitCode}.${generationDiagnosis({ lastResult, lastStderr, lastExitCode })}`.trim()
       );
     }
+    // Fijá la cuenta que efectivamente se usó (puede haber rotado por límite) para
+    // que la próxima pasada reanude en la MISMA cuenta.
+    if (gen.tokenUsed) currentToken = gen.tokenUsed;
     // La sesión permite reanudar la conversación en la próxima pasada.
     if (gen.sessionId) sessionId = gen.sessionId;
 
@@ -177,23 +187,12 @@ function localBase(): string {
 }
 
 /**
- * Modo hosteado: los jobs de la cola no tienen usuaria logueada, así que el
- * runner usa un token de worker dedicado (CLAUDE_RUNNER_OAUTH_TOKEN — un
- * `claude setup-token` de la cuenta que quieras que pague la cola). Sin él,
- * hereda la auth local del server (modo local: comportamiento de siempre).
+ * Modo hosteado: los jobs de la cola no tienen usuaria logueada, así que el runner
+ * usa las cuentas centrales de Claude (CLAUDE_TEAM_OAUTH_TOKEN[_N]). El token y la
+ * carpeta de config aislada los inyecta `spawnClaudeWithCentralFallback`, que además
+ * rota a otra cuenta si la primera llega a su límite. Sin ninguna cuenta central
+ * configurada, el subproceso hereda la auth local del server (modo local de siempre).
  */
-function runnerSpawnEnv(): Record<string, string> | undefined {
-  const token = getCentralClaudeToken();
-  if (!token) return undefined;
-  // Config dir propio del worker: mismas razones que en /api/chat — que unas
-  // credenciales globales del server nunca pisen el token del worker. Base
-  // configurable (CLAUDE_CONFIG_BASE) para apuntar a disco local en Cloud Run.
-  const configBase =
-    process.env.CLAUDE_CONFIG_BASE || path.resolve(process.cwd(), "data", "claude-config");
-  const configDir = path.join(configBase, "_runner");
-  mkdirSync(configDir, { recursive: true });
-  return { CLAUDE_CODE_OAUTH_TOKEN: token, CLAUDE_CONFIG_DIR: configDir };
-}
 
 /** Token interno para que el subproceso pase el proxy de auth (modo hosteado). */
 function runnerInternalToken(): string | undefined {

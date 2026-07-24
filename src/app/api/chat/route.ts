@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { mkdir, stat } from "fs/promises";
 import path from "path";
 import { isClaudeAvailable } from "@/lib/claude-path";
-import { spawnClaude, ClaudeSpawnError } from "@/lib/generate-headless";
+import { spawnClaude, ClaudeSpawnError, isUsageLimitError } from "@/lib/generate-headless";
+import { configDirForToken, markTokenExhausted } from "@/lib/claude-tokens";
 import { buildSystemPrompt } from "@/lib/chat-system-prompt";
 import { getBrand } from "@/lib/brand";
 import { getCarousel } from "@/lib/carousels";
@@ -78,6 +79,12 @@ export async function POST(request: NextRequest) {
   // mejor un error claro acá que un spawn que falla en inglés.
   let spawnEnv: Record<string, string> | undefined;
   let internalToken: string | undefined;
+  // Si se usó una cuenta CENTRAL (no el token propio de la usuaria), la guardamos
+  // para marcarla en cooldown si el turno termina en límite de uso — así el
+  // PRÓXIMO request usa otra cuenta sola (getCentralClaudeToken salta las que están
+  // en cooldown). El chat es streaming, así que no reintentamos en el mismo request;
+  // el fallback acá es entre requests.
+  let centralTokenUsed: string | null = null;
   if (isHostedMode()) {
     const user = await getSessionUser(request);
     if (!user) {
@@ -97,16 +104,20 @@ export async function POST(request: NextRequest) {
     // CLAUDE_CONFIG_DIR aislado: (1) si el server tuviera un `claude login`
     // global, esas credenciales NO pisan el token que inyectamos (el CLI prefiere
     // credenciales guardadas sobre el env), y (2) las sesiones de chat quedan
-    // separadas. Con token PROPIO usamos el dir de la usuaria; con el token
-    // CENTRAL usamos un dir compartido `_central`, para que credenciales
-    // cacheadas de un token propio previo de esa usuaria nunca pisen el central.
-    // Base configurable: en Cloud Run apunta a disco local efímero (rápido; las
-    // sesiones --resume solo viven durante la conversación, no hace falta que
-    // sobrevivan reinicios), no al volumen GCS montado en /app/data.
-    const configBase =
-      process.env.CLAUDE_CONFIG_BASE || path.resolve(process.cwd(), "data", "claude-config");
-    const configDir = path.join(configBase, ownToken ? user.id : "_central");
-    await mkdir(configDir, { recursive: true });
+    // separadas. Con token PROPIO usamos el dir de la usuaria; con una cuenta
+    // CENTRAL usamos un dir POR cuenta (configDirForToken), para que al rotar entre
+    // cuentas por límite las credenciales cacheadas de una no pisen a la otra.
+    // Base configurable: en Cloud Run apunta a disco local efímero.
+    let configDir: string;
+    if (ownToken) {
+      const configBase =
+        process.env.CLAUDE_CONFIG_BASE || path.resolve(process.cwd(), "data", "claude-config");
+      configDir = path.join(configBase, user.id);
+      await mkdir(configDir, { recursive: true });
+    } else {
+      centralTokenUsed = claudeToken;
+      configDir = configDirForToken(claudeToken, "central");
+    }
     spawnEnv = { CLAUDE_CODE_OAUTH_TOKEN: claudeToken, CLAUDE_CONFIG_DIR: configDir };
     internalToken = getInternalApiToken();
   }
@@ -196,6 +207,12 @@ export async function POST(request: NextRequest) {
           enqueue(`data: ${JSON.stringify({ type: "result", text })}\n\n`),
       })
         .then((res) => {
+          // Cuenta central que llegó a su límite → cooldown, para que el próximo
+          // request rote a otra cuenta solo.
+          const limitHit = isUsageLimitError(res);
+          if (centralTokenUsed && limitHit) {
+            markTokenExhausted(centralTokenUsed);
+          }
           if (res.exitCode && res.exitCode !== 0) {
             console.error("[chat] Claude subprocess exited non-zero", {
               exitCode: res.exitCode,
@@ -203,9 +220,12 @@ export async function POST(request: NextRequest) {
             });
             enqueue(
               `event: error\ndata: ${JSON.stringify({
-                error: `Claude CLI exited with code ${res.exitCode}`,
+                error: limitHit
+                  ? "La cuenta de Claude llegó a su límite de uso. Probá de nuevo en un rato (el sistema rota a otra cuenta sola si hay más configuradas)."
+                  : `Claude CLI exited with code ${res.exitCode}`,
                 exitCode: res.exitCode,
                 stderr: res.stderr || undefined,
+                usageLimit: limitHit || undefined,
               })}\n\n`
             );
           }

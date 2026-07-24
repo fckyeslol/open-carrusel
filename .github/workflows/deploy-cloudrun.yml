@@ -65,6 +65,12 @@ jobs:
           RUNTIME_SA_EMAIL: ${{ vars.RUNTIME_SA_EMAIL }}
           # Opcional: nombre del secreto con el token central de Claude.
           SHARED_CLAUDE_SECRET: ${{ vars.SHARED_CLAUDE_SECRET }}
+          # Opcional: cuentas de Claude adicionales para el fallback por límite.
+          # Cada var apunta al NOMBRE de un secreto (ej. CLAUDE_TEAM_OAUTH_TOKEN_2).
+          SHARED_CLAUDE_SECRET_2: ${{ vars.SHARED_CLAUDE_SECRET_2 }}
+          SHARED_CLAUDE_SECRET_3: ${{ vars.SHARED_CLAUDE_SECRET_3 }}
+          # Opcional: minutos de cooldown de una cuenta tras llegar a su límite.
+          CLAUDE_TOKEN_COOLDOWN_MIN: ${{ vars.CLAUDE_TOKEN_COOLDOWN_MIN }}
           # Opcional: montar el proxy residencial (IG_PROXY) y/o la cookie
           # (IG_SESSIONID) para el scraping de referentes. Poné la variable de
           # repo en "1" y creá el secreto correspondiente en Secret Manager.

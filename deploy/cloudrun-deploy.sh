@@ -30,6 +30,17 @@ SECRETS="AUTH_SECRET=AUTH_SECRET:latest,INTERNAL_API_TOKEN=INTERNAL_API_TOKEN:la
 if [ -n "${SHARED_CLAUDE_SECRET:-}" ]; then
   SECRETS="${SECRETS},${SHARED_CLAUDE_SECRET}=${SHARED_CLAUDE_SECRET}:latest"
 fi
+# Cuentas de Claude ADICIONALES para el fallback por límite (ver claude-tokens.ts):
+# seteá SHARED_CLAUDE_SECRET_2=CLAUDE_TEAM_OAUTH_TOKEN_2 (y _3, _4, _5) apuntando a
+# secretos que existan en Secret Manager. Cada uno se monta como env con su mismo
+# nombre, que es justo lo que escanea el pool de tokens.
+for i in 2 3 4 5; do
+  var="SHARED_CLAUDE_SECRET_${i}"
+  name="${!var:-}"
+  if [ -n "$name" ]; then
+    SECRETS="${SECRETS},${name}=${name}:latest"
+  fi
+done
 # Cookie de sesión de Instagram: sin ella el scraping del referente falla desde
 # Cloud Run (IP de datacenter que IG trata como bot → solo baja el logo). Se monta
 # solo si ADD_IG_SESSIONID=1 y el secreto IG_SESSIONID existe en Secret Manager,
@@ -42,6 +53,12 @@ fi
 # cookie. Se monta si ADD_IG_PROXY=1 y existe el secreto IG_PROXY (http://user:pass@host:port).
 if [ "${ADD_IG_PROXY:-}" = "1" ]; then
   SECRETS="${SECRETS},IG_PROXY=IG_PROXY:latest"
+fi
+
+ENV_VARS="HOSTED_MODE=1,DOMAIN=${APP_DOMAIN},CLAUDE_CLI_PATH=/usr/local/bin/claude,CLAUDE_CONFIG_BASE=/tmp/claude-config,AVATAR_ASSETS_DIR=/app/public/uploads/avatar-assets"
+# Cooldown de cuenta tras límite (opcional; default 300 min en la app).
+if [ -n "${CLAUDE_TOKEN_COOLDOWN_MIN:-}" ]; then
+  ENV_VARS="${ENV_VARS},CLAUDE_TOKEN_COOLDOWN_MIN=${CLAUDE_TOKEN_COOLDOWN_MIN}"
 fi
 
 # --no-cpu-throttling: CPU siempre asignada — el subproceso de Claude (hasta
@@ -61,7 +78,7 @@ gcloud run deploy "$SERVICE" \
   --timeout=3600 \
   --ingress=internal-and-cloud-load-balancing \
   --allow-unauthenticated \
-  --set-env-vars="HOSTED_MODE=1,DOMAIN=${APP_DOMAIN},CLAUDE_CLI_PATH=/usr/local/bin/claude,CLAUDE_CONFIG_BASE=/tmp/claude-config,AVATAR_ASSETS_DIR=/app/public/uploads/avatar-assets" \
+  --set-env-vars="$ENV_VARS" \
   --set-secrets="$SECRETS" \
   --add-volume="name=data,type=cloud-storage,bucket=${BUCKET_DATA}" \
   --add-volume-mount="volume=data,mount-path=/app/data" \

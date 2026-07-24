@@ -10,6 +10,12 @@
 import { spawn } from "child_process";
 import crossSpawn from "cross-spawn";
 import { getClaudePath, resolveDirectExecutable } from "./claude-path";
+import {
+  configDirForToken,
+  markTokenExhausted,
+  tokenLabel,
+  tokenTryOrder,
+} from "./claude-tokens";
 
 /** Herramientas que el agente puede usar para construir el carrusel. */
 const DEFAULT_ALLOWED_TOOLS = ["Bash", "WebFetch", "Read"] as const;
@@ -45,6 +51,8 @@ export interface SpawnClaudeResult {
   stderr: string;
   /** Texto del evento `result` (resumen final del agente), si vino. */
   resultText: string;
+  /** El evento `result` vino con `is_error: true` (el turno terminó en error). */
+  isError: boolean;
 }
 
 /** Error de ARRANQUE del subproceso (ENOENT, permisos, etc.). */
@@ -79,7 +87,12 @@ function buildArgs(opts: SpawnClaudeOptions): string[] {
 }
 
 /** Interpreta una línea de `stream-json` y dispara los callbacks correspondientes. */
-function handleEvent(event: Record<string, unknown>, opts: SpawnClaudeOptions, setSid: (id: string) => void) {
+function handleEvent(
+  event: Record<string, unknown>,
+  opts: SpawnClaudeOptions,
+  setSid: (id: string) => void,
+  setError: () => void
+) {
   if (event.type === "system" && event.subtype === "init" && event.session_id) {
     setSid(event.session_id as string);
     return;
@@ -96,9 +109,33 @@ function handleEvent(event: Record<string, unknown>, opts: SpawnClaudeOptions, s
   }
   if (event.type === "result") {
     if (event.session_id) setSid(event.session_id as string);
+    if (event.is_error === true) setError();
     if (typeof event.result === "string" && event.result) opts.onResult?.(event.result);
     return;
   }
+}
+
+/**
+ * Frases distintivas con las que el CLI reporta que la cuenta llegó a su límite de
+ * uso (OAuth Max/Team) o fue rate-limiteada. Se buscan en stderr + texto del
+ * `result`. Son lo bastante específicas como para no confundirse con una generación
+ * normal (un carrusel sobre "límites" no dispara esto).
+ */
+const USAGE_LIMIT_RE =
+  /usage limit reached|usage limit will reset|reached your usage limit|rate limit|rate.?limited|429|too many requests|quota (?:exceeded|reached)|insufficient quota|out of (?:credits?|quota)|limit will reset at/i;
+
+/**
+ * ¿Este resultado indica que la CUENTA llegó a su límite (vs. un error cualquiera)?
+ * Requiere que el turno haya terminado mal (exit != 0 o `is_error`) Y que el texto
+ * matchee una frase de límite: así un error de python o del proxy interno NO quema
+ * una cuenta por error.
+ */
+export function isUsageLimitError(
+  r: Pick<SpawnClaudeResult, "exitCode" | "stderr" | "resultText" | "isError">
+): boolean {
+  const failed = r.isError || (r.exitCode !== null && r.exitCode !== 0);
+  if (!failed) return false;
+  return USAGE_LIMIT_RE.test(`${r.stderr}\n${r.resultText}`);
 }
 
 /**
@@ -144,10 +181,14 @@ export function spawnClaude(opts: SpawnClaudeOptions): Promise<SpawnClaudeResult
     let stdoutBuf = "";
     let stderrBuf = "";
     let settled = false;
+    let isError = false;
 
     const setSid = (id: string) => {
       sessionId = id;
       opts.onSessionId?.(id);
+    };
+    const setError = () => {
+      isError = true;
     };
     const wrappedResult: SpawnClaudeOptions = {
       ...opts,
@@ -164,7 +205,7 @@ export function spawnClaude(opts: SpawnClaudeOptions): Promise<SpawnClaudeResult
       for (const line of lines) {
         if (!line.trim()) continue;
         try {
-          handleEvent(JSON.parse(line), wrappedResult, setSid);
+          handleEvent(JSON.parse(line), wrappedResult, setSid, setError);
         } catch {
           /* línea no parseable: ignorar */
         }
@@ -206,12 +247,79 @@ export function spawnClaude(opts: SpawnClaudeOptions): Promise<SpawnClaudeResult
       // Drenar lo que quede en el buffer (última línea sin \n).
       if (stdoutBuf.trim()) {
         try {
-          handleEvent(JSON.parse(stdoutBuf), wrappedResult, setSid);
+          handleEvent(JSON.parse(stdoutBuf), wrappedResult, setSid, setError);
         } catch {
           /* ignorar */
         }
       }
-      resolve({ exitCode: code, sessionId, stderr: stderrBuf, resultText });
+      resolve({ exitCode: code, sessionId, stderr: stderrBuf, resultText, isError });
     });
   });
+}
+
+export interface FallbackResult extends SpawnClaudeResult {
+  /**
+   * Cuál token central produjo este resultado. `null` = no hay tokens centrales
+   * configurados (modo local: el subproceso heredó la auth del server).
+   */
+  tokenUsed: string | null;
+  /** Todas las cuentas configuradas llegaron al límite en esta operación. */
+  exhaustedAll: boolean;
+}
+
+/**
+ * Corre `spawnClaude` con FALLBACK entre las cuentas centrales de Claude.
+ *
+ * Intenta con el token preferido (el que venía usando la operación, para poder
+ * --resume), y si ESE llega a su límite de uso, lo marca en cooldown y reintenta
+ * con la siguiente cuenta disponible — SIN reanudar sesión (una sesión de Claude
+ * vive en el servidor de SU cuenta; no se puede resumir en otra). Solo reintenta
+ * ante un límite de uso: cualquier otro error (o un éxito) corta y se devuelve tal
+ * cual, para no rotar cuentas por un bug de generación.
+ *
+ * `scope` nombra la carpeta de config aislada por token (p. ej. "runner", "central").
+ * En modo local (sin tokens centrales) hace un único spawn heredando la auth.
+ */
+export async function spawnClaudeWithCentralFallback(
+  opts: SpawnClaudeOptions,
+  scope: string,
+  preferredToken?: string
+): Promise<FallbackResult> {
+  const order = tokenTryOrder(preferredToken);
+
+  // Sin tokens centrales (modo local): un solo spawn, auth heredada del server.
+  if (order.length === 0) {
+    const res = await spawnClaude(opts);
+    return { ...res, tokenUsed: null, exhaustedAll: false };
+  }
+
+  let last: SpawnClaudeResult | null = null;
+  for (let i = 0; i < order.length; i++) {
+    const token = order[i];
+    // Solo reanudamos sesión con el token que la creó (el preferido, primer intento).
+    const sessionId = i === 0 && token === preferredToken ? opts.sessionId : undefined;
+    const env = {
+      ...(opts.env ?? {}),
+      CLAUDE_CODE_OAUTH_TOKEN: token,
+      CLAUDE_CONFIG_DIR: configDirForToken(token, scope),
+    };
+
+    const res = await spawnClaude({ ...opts, sessionId, env });
+    last = res;
+
+    if (isUsageLimitError(res)) {
+      markTokenExhausted(token);
+      if (i < order.length - 1) {
+        console.warn(
+          `[claude-tokens] rotando de cuenta ${tokenLabel(token)} a la siguiente por límite de uso`
+        );
+        continue;
+      }
+      return { ...res, tokenUsed: token, exhaustedAll: true };
+    }
+    return { ...res, tokenUsed: token, exhaustedAll: false };
+  }
+
+  // Inalcanzable (order.length > 0 garantiza al menos una vuelta), pero TS lo pide.
+  return { ...(last as SpawnClaudeResult), tokenUsed: null, exhaustedAll: true };
 }

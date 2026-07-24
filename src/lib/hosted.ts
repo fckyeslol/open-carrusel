@@ -8,6 +8,7 @@
  * Eso mantiene intacto el flujo actual de las diseñadoras con repo local
  * mientras migramos.
  */
+import { nextCentralToken } from "./claude-tokens";
 
 export function isHostedMode(): boolean {
   return process.env.HOSTED_MODE === "1" || process.env.HOSTED_MODE === "true";
@@ -40,9 +41,14 @@ export function getAuthSecret(): string {
  * aceptamos CLAUDE_RUNNER_OAUTH_TOKEN por compatibilidad con los deploys que ya
  * lo tienen seteado (secrets de GCP, .env.hosted existentes). Devuelve null si
  * ninguno está: en ese caso cada usuaria sigue necesitando su token propio.
+ *
+ * Se pueden configurar VARIAS cuentas (ver claude-tokens.ts): esta función
+ * devuelve la próxima cuenta DISPONIBLE (salta las que están en cooldown por haber
+ * llegado a su límite). El fallback dentro de una misma generación lo maneja
+ * `spawnClaudeWithCentralFallback`.
  */
 export function getCentralClaudeToken(): string | null {
-  return process.env.CLAUDE_TEAM_OAUTH_TOKEN || process.env.CLAUDE_RUNNER_OAUTH_TOKEN || null;
+  return nextCentralToken();
 }
 
 /**

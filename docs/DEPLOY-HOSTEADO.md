@@ -84,9 +84,27 @@ crontab -e
 ## La cola 30x (/agent-jobs)
 
 Los jobs de la cola no tienen usuaria logueada. Para que corran en modo
-hosteado, poné en `.env.hosted` un `CLAUDE_RUNNER_OAUTH_TOKEN` (un
-`claude setup-token` de la cuenta que deba pagar esas generaciones) y
+hosteado, poné en `.env.hosted` un `CLAUDE_TEAM_OAUTH_TOKEN` (un
+`claude setup-token` de la cuenta que deba pagar esas generaciones;
+`CLAUDE_RUNNER_OAUTH_TOKEN` sigue funcionando como nombre legacy) y
 reiniciá: `docker compose -f docker-compose.hosted.yml up -d`.
+
+**Fallback por límite (varias cuentas).** Si una sola cuenta no aguanta el
+volumen, configurá VARIAS: cuando una llega a su límite de uso el sistema la
+pone en cooldown (~5h, `CLAUDE_TOKEN_COOLDOWN_MIN`) y rota a la siguiente sola,
+tanto en la cola como en el editor. Formas de listarlas:
+
+```
+# varias en una línea (coma):
+CLAUDE_TEAM_OAUTH_TOKEN=tok_cuentaA,tok_cuentaB
+# o numeradas (una por variable):
+CLAUDE_TEAM_OAUTH_TOKEN_1=tok_cuentaA
+CLAUDE_TEAM_OAUTH_TOKEN_2=tok_cuentaB
+```
+
+En Cloud Run cada cuenta extra es un secreto en Secret Manager; apuntá
+`SHARED_CLAUDE_SECRET_2=CLAUDE_TEAM_OAUTH_TOKEN_2` (variable de repo) al nombre
+del secreto y el deploy lo monta solo (ver `deploy/cloudrun-deploy.sh`).
 
 ### Bajar el referente desde el server — OBLIGATORIO para la cola
 

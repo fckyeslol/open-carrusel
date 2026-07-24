@@ -11,15 +11,13 @@
  * Estado en memoria (singleton en globalThis, sobrevive al HMR): la UI lo consulta
  * por GET /api/carousels/[id]/resize para mostrar progreso y los links a los hermanos.
  */
-import path from "path";
-import { mkdirSync } from "fs";
 import type { AspectRatio, Carousel } from "@/types/carousel";
 import { getCarousel, createResizedSibling } from "./carousels";
-import { spawnClaude } from "./generate-headless";
+import { spawnClaudeWithCentralFallback } from "./generate-headless";
 import { getBrand } from "./brand";
 import { getPreset, getPresetByAvatarSlug } from "./style-presets";
 import { isHiggsfieldConfigured } from "./higgsfield";
-import { getCentralClaudeToken, getInternalApiToken, isHostedMode } from "./hosted";
+import { getInternalApiToken, isHostedMode } from "./hosted";
 import { buildResizeSystemPrompt, buildAdaptSlideMessage } from "./resize-prompt";
 
 export type ResizeStatus = "pending" | "running" | "done" | "failed";
@@ -58,19 +56,6 @@ function localBase(): string {
 /** Token interno para pasar el proxy de auth (solo modo hosteado). */
 function internalToken(): string | undefined {
   return isHostedMode() ? getInternalApiToken() : undefined;
-}
-
-/**
- * Modo hosteado: el subproceso usa un token de worker dedicado para que el consumo
- * salga de ese seat. Sin él, hereda la auth local del server (comportamiento normal).
- * Mismo criterio que thirtyx-runner.
- */
-function spawnEnv(): Record<string, string> | undefined {
-  const token = getCentralClaudeToken();
-  if (!token) return undefined;
-  const configDir = path.resolve(process.cwd(), "data", "claude-config", "_runner");
-  mkdirSync(configDir, { recursive: true });
-  return { CLAUDE_CODE_OAUTH_TOKEN: token, CLAUDE_CONFIG_DIR: configDir };
 }
 
 async function resolvePreset(carousel: Carousel) {
@@ -114,6 +99,9 @@ async function adaptSibling(
   const slides = [...sibling.slides].sort((a, b) => a.order - b.order);
 
   let sessionId: string | undefined;
+  // Cuenta central que viene usando esta re-maquetación (para --resume y como
+  // preferencia del fallback). Rota sola si una cuenta llega a su límite.
+  let currentToken: string | undefined;
   for (let i = 0; i < slides.length; i++) {
     const slide = slides[i];
     const message = buildAdaptSlideMessage({
@@ -126,13 +114,18 @@ async function adaptSibling(
       notes: slide.notes,
     });
 
-    const gen = await spawnClaude({
-      message,
-      systemPrompt,
-      sessionId,
-      cwd: process.cwd(),
-      env: spawnEnv(),
-    });
+    const gen = await spawnClaudeWithCentralFallback(
+      { message, systemPrompt, sessionId, cwd: process.cwd() },
+      "runner",
+      currentToken
+    );
+    if (gen.exhaustedAll) {
+      throw new Error(
+        `Todas las cuentas de Claude llegaron a su límite de uso (lámina ${
+          i + 1
+        }). Esperá a que resetee la ventana o agregá otra cuenta (CLAUDE_TEAM_OAUTH_TOKEN_2).`
+      );
+    }
     if (gen.exitCode && gen.exitCode !== 0) {
       throw new Error(
         `Claude terminó con código ${gen.exitCode} en la lámina ${i + 1}. ${
@@ -140,6 +133,7 @@ async function adaptSibling(
         }`.trim()
       );
     }
+    if (gen.tokenUsed) currentToken = gen.tokenUsed;
     if (gen.sessionId) sessionId = gen.sessionId;
     state.completed = i + 1;
   }
