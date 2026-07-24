@@ -22,6 +22,15 @@ cd "$(dirname "$0")/.."
 # por proceso. 2+ instancias corromperían el store. No lo cambies sin migrar a
 # una DB real primero.
 #
+# Secretos: AUTH_SECRET + INTERNAL_API_TOKEN siempre. El token central de Claude
+# (que paga la cola/fallback) se inyecta solo si SHARED_CLAUDE_SECRET trae el
+# nombre del secreto (ej. CLAUDE_TEAM_OAUTH_TOKEN) — así el CI no necesita permiso
+# para leer secretos y el script sigue sirviendo para deploys sin token central.
+SECRETS="AUTH_SECRET=AUTH_SECRET:latest,INTERNAL_API_TOKEN=INTERNAL_API_TOKEN:latest"
+if [ -n "${SHARED_CLAUDE_SECRET:-}" ]; then
+  SECRETS="${SECRETS},${SHARED_CLAUDE_SECRET}=${SHARED_CLAUDE_SECRET}:latest"
+fi
+
 # --no-cpu-throttling: CPU siempre asignada — el subproceso de Claude (hasta
 #   8 min) y el streaming SSE necesitan CPU fuera del ciclo request/response.
 # --execution-environment gen2: requerido para montar volúmenes GCS.
@@ -40,7 +49,7 @@ gcloud run deploy "$SERVICE" \
   --ingress=internal-and-cloud-load-balancing \
   --allow-unauthenticated \
   --set-env-vars="HOSTED_MODE=1,DOMAIN=${APP_DOMAIN},CLAUDE_CLI_PATH=/usr/local/bin/claude,CLAUDE_CONFIG_BASE=/tmp/claude-config" \
-  --set-secrets="AUTH_SECRET=AUTH_SECRET:latest,INTERNAL_API_TOKEN=INTERNAL_API_TOKEN:latest" \
+  --set-secrets="$SECRETS" \
   --add-volume="name=data,type=cloud-storage,bucket=${BUCKET_DATA}" \
   --add-volume-mount="volume=data,mount-path=/app/data" \
   --add-volume="name=uploads,type=cloud-storage,bucket=${BUCKET_UPLOADS}" \

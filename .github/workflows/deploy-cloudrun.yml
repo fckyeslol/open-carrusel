@@ -63,4 +63,6 @@ jobs:
           BUCKET_DATA: ${{ vars.BUCKET_DATA }}
           BUCKET_UPLOADS: ${{ vars.BUCKET_UPLOADS }}
           RUNTIME_SA_EMAIL: ${{ vars.RUNTIME_SA_EMAIL }}
+          # Opcional: nombre del secreto con el token central de Claude.
+          SHARED_CLAUDE_SECRET: ${{ vars.SHARED_CLAUDE_SECRET }}
         run: bash deploy/cloudrun-deploy.sh
