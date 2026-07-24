@@ -38,6 +38,9 @@ export default function CarouselEditorPage({ params }: PageProps) {
   const [claudeAvailable, setClaudeAvailable] = useState(true);
   const [chatOpen, setChatOpen] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
+  // Estado del job de la cola 30x (si el carrusel vino de ahí), para mostrar el
+  // avance de la generación DENTRO del editor y no solo en el board.
+  const [jobStatus, setJobStatus] = useState<{ status: string; error?: string | null } | null>(null);
   const [showSafeZones, setShowSafeZones] = useState(false);
   const [editMode, setEditMode] = useState(false);
   // Se incrementa al deshacer/rehacer para forzar el remonte del editor visual
@@ -345,6 +348,42 @@ export default function CarouselEditorPage({ params }: PageProps) {
     return () => clearInterval(interval);
   }, [isGenerating, fetchCarousel]);
 
+  // Job de la cola 30x: mientras el agente genera en segundo plano (sin chat),
+  // pollear el estado del job y traer las láminas nuevas en vivo. Antes el editor
+  // no mostraba NADA para estos jobs — parecía trabado aunque estuviera trabajando.
+  const prewaveJobId = carousel?.prewaveJobId;
+  useEffect(() => {
+    if (!prewaveJobId) return;
+    const ACTIVE = new Set([
+      "pull", "queued", "pending", "processing", "ingesting", "generating", "rendering",
+    ]);
+    let stop = false;
+    const tick = async () => {
+      try {
+        const res = await fetch("/api/thirtyx/assignments");
+        if (!res.ok) return;
+        const data = await res.json();
+        const a = (
+          data.assignments as
+            | Array<{ jobId: string; status: string; error?: string | null }>
+            | undefined
+        )?.find((x) => x.jobId === prewaveJobId);
+        if (a && !stop) {
+          setJobStatus({ status: a.status, error: a.error });
+          if (ACTIVE.has(a.status)) fetchCarousel(); // traer las láminas recién creadas
+        }
+      } catch {
+        // ignorar errores de red del poll
+      }
+    };
+    tick();
+    const interval = setInterval(tick, 3000);
+    return () => {
+      stop = true;
+      clearInterval(interval);
+    };
+  }, [prewaveJobId, fetchCarousel]);
+
   const handleAspectChange = async (ratio: AspectRatio) => {
     if (!carousel) return;
     const res = await fetch(`/api/carousels/${id}`, {
@@ -514,6 +553,21 @@ export default function CarouselEditorPage({ params }: PageProps) {
       </div>
     );
   }
+
+  // Progreso de generación para el editor (solo carruseles de la cola 30x).
+  const generation = carousel.prewaveJobId
+    ? {
+        active: jobStatus
+          ? ["pull", "queued", "pending", "processing", "ingesting", "generating", "rendering"].includes(
+              jobStatus.status
+            )
+          : false,
+        failed: jobStatus?.status === "failed" || jobStatus?.status === "blocked",
+        error: jobStatus?.error ?? null,
+        produced: carousel.slides.length,
+        target: carousel.referenceImages?.length ?? 0,
+      }
+    : null;
 
   return (
     <div className="h-full flex flex-col">
@@ -741,6 +795,7 @@ export default function CarouselEditorPage({ params }: PageProps) {
               activeIndex={activeSlide}
               onActiveChange={setActiveSlide}
               showSafeZones={showSafeZones}
+              generation={generation}
             />
           )}
 

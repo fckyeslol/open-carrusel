@@ -20,8 +20,23 @@ import {
 /** Herramientas que el agente puede usar para construir el carrusel. */
 const DEFAULT_ALLOWED_TOOLS = ["Bash", "WebFetch", "Read"] as const;
 
-/** 8 min: generar un carrusel 30x lee varias imágenes (visión) y escribe N láminas. */
-const DEFAULT_TIMEOUT_MS = 480_000;
+/**
+ * Tope por pasada de generación. Generar un carrusel 30x grande (14 láminas) lee
+ * muchas imágenes con visión y escribe/verifica lámina por lámina, así que 8 min
+ * cortaban a la mitad y el job moría con SIGTERM (exit 143). Subido a 45 min y
+ * configurable por env (CLAUDE_SPAWN_TIMEOUT_MS); igual el runner ahora REANUDA si
+ * una pasada se corta, así que esto es solo una red anti-proceso-zombie, no el
+ * límite real del trabajo. 0/negativo = sin tope.
+ */
+function defaultTimeoutMs(): number {
+  const raw = process.env.CLAUDE_SPAWN_TIMEOUT_MS;
+  if (raw != null && raw !== "") {
+    const n = parseInt(raw, 10);
+    if (Number.isFinite(n)) return n <= 0 ? 0 : n; // 0 = sin timeout
+  }
+  return 45 * 60_000;
+}
+const DEFAULT_TIMEOUT_MS = defaultTimeoutMs();
 const STDERR_CAP = 8192;
 
 export interface SpawnClaudeOptions {
@@ -218,7 +233,9 @@ export function spawnClaude(opts: SpawnClaudeOptions): Promise<SpawnClaudeResult
       }
     });
 
-    const timeout = setTimeout(() => child.kill(), opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+    // 0/negativo = sin tope (clearTimeout(undefined) es no-op, así que es seguro).
+    const effTimeout = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    const timeout = effTimeout > 0 ? setTimeout(() => child.kill(), effTimeout) : undefined;
 
     child.on("error", (err) => {
       if (settled) return;

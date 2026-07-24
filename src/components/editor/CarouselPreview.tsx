@@ -7,12 +7,26 @@ import { SlideRenderer } from "./SlideRenderer";
 import { SafeZoneOverlay } from "./SafeZoneOverlay";
 import type { Slide, AspectRatio } from "@/types/carousel";
 
+/** Estado de una generación en curso (job de la cola 30x), para mostrar avance. */
+export interface GenerationStatus {
+  /** El job está trabajando ahora (ingesta/generando/renderizando). */
+  active: boolean;
+  /** El job falló o quedó bloqueado. */
+  failed?: boolean;
+  error?: string | null;
+  /** Láminas ya creadas / total esperado (del referente). */
+  produced: number;
+  target: number;
+}
+
 interface CarouselPreviewProps {
   slides: Slide[];
   aspectRatio: AspectRatio;
   activeIndex: number;
   onActiveChange: (index: number) => void;
   showSafeZones?: boolean;
+  /** Si el carrusel viene de la cola, refleja el avance de la generación. */
+  generation?: GenerationStatus | null;
 }
 
 export function CarouselPreview({
@@ -21,6 +35,7 @@ export function CarouselPreview({
   activeIndex,
   onActiveChange,
   showSafeZones = false,
+  generation = null,
 }: CarouselPreviewProps) {
   const slide = slides[activeIndex];
 
@@ -40,13 +55,42 @@ export function CarouselPreview({
     return (
       <div className="oc-canvas flex-1 flex items-center justify-center">
         <div className="text-center text-muted-foreground p-8">
-          <div className="w-16 h-20 border-2 border-dashed border-muted-foreground/30 rounded-lg mx-auto mb-4 flex items-center justify-center">
-            <Plus className="h-5 w-5 opacity-40" aria-hidden="true" />
-          </div>
-          <p className="text-sm font-medium text-foreground">Todavía no hay láminas</p>
-          <p className="text-xs mt-1 max-w-[220px] leading-relaxed">
-            Pedile al chat que genere el carrusel y las láminas aparecen acá.
-          </p>
+          {generation?.active ? (
+            <>
+              <div
+                className="h-8 w-8 border-2 border-accent border-t-transparent rounded-full animate-spin mx-auto mb-4"
+                aria-hidden="true"
+              />
+              <p className="text-sm font-medium text-foreground">
+                Generando el carrusel…
+                {generation.target > 0 ? ` ${generation.produced}/${generation.target} láminas` : ""}
+              </p>
+              <p className="text-xs mt-1 max-w-[250px] leading-relaxed">
+                Las láminas van apareciendo a medida que se crean. Puede tardar unos
+                minutos — no hace falta que hagas nada ni que recargues.
+              </p>
+            </>
+          ) : generation?.failed ? (
+            <>
+              <div className="w-16 h-20 border-2 border-dashed border-destructive/40 rounded-lg mx-auto mb-4 flex items-center justify-center">
+                <Plus className="h-5 w-5 opacity-40 rotate-45" aria-hidden="true" />
+              </div>
+              <p className="text-sm font-medium text-foreground">La generación falló</p>
+              <p className="text-xs mt-1 max-w-[260px] leading-relaxed">
+                {generation.error || "Reintentá el job desde el board."}
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="w-16 h-20 border-2 border-dashed border-muted-foreground/30 rounded-lg mx-auto mb-4 flex items-center justify-center">
+                <Plus className="h-5 w-5 opacity-40" aria-hidden="true" />
+              </div>
+              <p className="text-sm font-medium text-foreground">Todavía no hay láminas</p>
+              <p className="text-xs mt-1 max-w-[220px] leading-relaxed">
+                Pedile al chat que genere el carrusel y las láminas aparecen acá.
+              </p>
+            </>
+          )}
         </div>
       </div>
     );
@@ -54,6 +98,17 @@ export function CarouselPreview({
 
   return (
     <div className="oc-canvas flex-1 flex flex-col min-h-0 min-w-0">
+      {/* Banner de generación en curso: el agente sigue agregando láminas. */}
+      {generation?.active && (
+        <div className="shrink-0 flex items-center justify-center gap-2 py-1.5 text-xs text-muted-foreground border-b border-border bg-surface/60">
+          <span
+            className="h-3 w-3 border-2 border-accent border-t-transparent rounded-full animate-spin"
+            aria-hidden="true"
+          />
+          Generando…
+          {generation.target > 0 ? ` ${generation.produced}/${generation.target} láminas` : ""}
+        </div>
+      )}
       {/* Preview area with padding for arrows */}
       <div className="flex-1 relative min-h-0 p-8 px-14">
         {/* Left arrow */}

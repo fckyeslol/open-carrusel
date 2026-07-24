@@ -64,6 +64,14 @@ function maxConcurrent(): number {
 const MAX_GENERATION_PASSES = 8;
 
 /**
+ * Cuántas pasadas SEGUIDAS sin agregar ni una lámina toleramos antes de dar por
+ * trabada la generación. Una pasada puede cortarse a la mitad (timeout/kill → exit
+ * 143) y aun así haber dejado láminas nuevas: en ese caso reanudamos. Solo si N
+ * pasadas seguidas no producen NADA asumimos que no va a avanzar y cortamos.
+ */
+const MAX_STALLS = 3;
+
+/**
  * Corre la generación hasta que el carrusel tenga las `referenceCount` láminas.
  *
  * El agente headless a veces genera una lámina (o unas pocas) y CIERRA su turno
@@ -148,16 +156,13 @@ async function generateAllSlides(
     if (gen.resultText) lastResult = gen.resultText;
     if (gen.stderr) lastStderr = gen.stderr;
     lastExitCode = gen.exitCode;
+    // Todas las cuentas de Claude al límite: reintentar NO ayuda (están rate-
+    // limiteadas), así que este SÍ corta — con mensaje accionable.
     if (gen.exhaustedAll) {
       throw new Error(
         `Todas las cuentas de Claude llegaron a su límite de uso. Esperá a que resetee la ventana o agregá otra cuenta (CLAUDE_TEAM_OAUTH_TOKEN_2).${generationDiagnosis(
           { lastResult, lastStderr, lastExitCode }
         )}`.trim()
-      );
-    }
-    if (gen.exitCode && gen.exitCode !== 0) {
-      throw new Error(
-        `Claude terminó con código ${gen.exitCode}.${generationDiagnosis({ lastResult, lastStderr, lastExitCode })}`.trim()
       );
     }
     // Fijá la cuenta que efectivamente se usó (puede haber rotado por límite) para
@@ -169,10 +174,14 @@ async function generateAllSlides(
     const after = (await getCarousel(carouselId))?.slides.length ?? 0;
     if (after >= referenceCount) return outcome();
 
-    // Sin progreso: no reanudes eternamente si el agente no avanza.
+    // IMPORTANTE: una pasada puede terminar con exit ≠ 0 (timeout/kill → 143, o un
+    // error transitorio) y aun así haber dejado láminas nuevas. NO fallamos acá:
+    // reanudamos con un mensaje de continuación (el agente lee lo ya hecho y sigue).
+    // Solo si MAX_STALLS pasadas SEGUIDAS no agregan ni una lámina cortamos — así un
+    // fallo duro (auth/budget/config) no gira en falso las 8 pasadas.
     if (after <= before) {
       stalls += 1;
-      if (stalls >= 2) break;
+      if (stalls >= MAX_STALLS) break;
     } else {
       stalls = 0;
     }
