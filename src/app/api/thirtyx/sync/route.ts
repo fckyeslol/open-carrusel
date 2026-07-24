@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { listPendingJobs, getPrewaveConfig, isConfigured, PrewaveError } from "@/lib/prewave";
-import { upsertFromAgentJob, listAssignments } from "@/lib/assignments";
+import { upsertFromAgentJob, listAssignments, pruneDesignOrphans } from "@/lib/assignments";
 import { getRunner } from "@/lib/thirtyx-runner";
 
 export const runtime = "nodejs";
@@ -24,6 +24,9 @@ export async function POST() {
       { status: 401 }
     );
   }
+
+  // Limpia huérfanos de Diseño que quedaron guardados de antes (ya no se ingieren).
+  await pruneDesignOrphans();
 
   let pulled = 0;
   let enqueued = 0;

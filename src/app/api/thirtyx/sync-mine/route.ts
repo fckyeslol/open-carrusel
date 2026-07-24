@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listPendingJobs, PrewaveError } from "@/lib/prewave";
-import { upsertFromAgentJob, listAssignmentsForDesigner } from "@/lib/assignments";
+import { upsertFromAgentJob, listAssignmentsForDesigner, pruneDesignOrphans } from "@/lib/assignments";
 import { getRunner } from "@/lib/thirtyx-runner";
 import { getSessionUser } from "@/lib/auth";
 import { getPrewaveToken } from "@/lib/users";
@@ -30,6 +30,9 @@ export async function POST(request: NextRequest) {
       { status: 409 }
     );
   }
+
+  // Limpia huérfanos de Diseño que quedaron guardados de antes (ya no se ingieren).
+  await pruneDesignOrphans();
 
   let pulled = 0;
   let enqueued = 0;

@@ -154,6 +154,28 @@ export async function setStatus(
   }));
 }
 
+/**
+ * Descarta los huérfanos de Diseño: TODO assignment SIN avatar resuelto (`avatarSlug`
+ * vacío), sin importar el estado. Son los jobs de origen Diseño ("El job no trae
+ * avatar (origen Diseño sin resolver)"): Producción SIEMPRE trae el avatar resuelto
+ * por FK, así que un slug vacío ⇒ no es Producción. Ahora que la ingesta solo trae
+ * Producción (ver isProduccionJob en prewave.ts) ya no vuelven a entrar; esto limpia
+ * los que quedaron guardados de antes (blocked, failed, etc.). NO toca los que tienen
+ * avatar aunque estén `blocked`/`failed` (p.ej. "Cora Bilbao", sin preset local, o
+ * "crece30x", que falló generando): esos son Producción y se resuelven aparte. Nunca
+ * se reclamaron en Prewave, así que borrarlos localmente es seguro. Devuelve cuántos
+ * se quitaron.
+ */
+export async function pruneDesignOrphans(): Promise<number> {
+  let removed = 0;
+  await updateData<Store>(FILE, EMPTY, (store) => {
+    const kept = store.assignments.filter((a) => Boolean(a.avatarSlug));
+    removed = store.assignments.length - kept.length;
+    return { assignments: kept };
+  });
+  return removed;
+}
+
 /** Sube el contador de intentos (para backoff / diagnóstico). */
 export async function incrementAttempts(jobId: string): Promise<void> {
   await updateData<Store>(FILE, EMPTY, (store) => ({

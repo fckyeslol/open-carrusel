@@ -123,11 +123,15 @@ async function req<T>(path: string, init?: RequestInit, tokenOverride?: string):
  * ⚠️ NO es `/production/design-queue` (esos son briefs de producción, mayormente
  * contenido propio "manual" SIN referente). La cola real de generación es esta:
  * cada job trae `reference_url`. Ver docs/PLAN-MIGRACION-CARRUSELES.md §3.
+ *
+ * Solo se ingieren jobs de origen PRODUCCIÓN (con `brief_id`, avatar resuelto por
+ * FK). Los de Diseño (`design_request_id`, sin avatar resuelto) se descartan en
+ * `listPendingJobs` — ver isProduccionJob().
  */
 export interface AgentJob {
   jobId: string; // agent_jobs.id
   referenceUrl: string; // el post de IG a calcar (reference_url)
-  avatarSlug: string; // avatar_slug (origen Producción) → avatar_hint (origen Diseño)
+  avatarSlug: string; // avatar_slug (resuelto por FK en Producción)
   avatarName: string | null;
 }
 
@@ -143,25 +147,40 @@ interface ApiAgentJob {
   avatar_name?: string | null;
   avatar_hint?: string | null;
   status?: string | null;
+  brief_id?: string | null; // origen Producción
+  design_request_id?: string | null; // origen Diseño (legacy) — se descarta
+}
+
+/**
+ * ¿Es un job de origen PRODUCCIÓN? Solo esos se ingieren (pedido del equipo: no
+ * traer nada del flujo de Diseño). Producción trae `brief_id` con el avatar
+ * resuelto por FK; Diseño trae `design_request_id` y a lo sumo un `avatar_hint`
+ * sin resolver. Si la API no serializa el origen, el discriminador equivalente es
+ * el avatar resuelto: Producción SIEMPRE trae `avatar_slug`, Diseño no.
+ */
+function isProduccionJob(j: ApiAgentJob): boolean {
+  if (j.design_request_id) return false; // Diseño explícito → fuera
+  if (j.brief_id) return true; // Producción explícito → entra
+  return Boolean(j.avatar_slug); // fallback: avatar resuelto ⇒ Producción
 }
 
 function mapAgentJob(j: ApiAgentJob): AgentJob {
   return {
     jobId: j.id,
     referenceUrl: j.reference_url || "",
-    // Producción trae avatar_slug directo; Diseño (legacy) solo avatar_hint.
-    avatarSlug: j.avatar_slug || j.avatar_hint || "",
+    avatarSlug: j.avatar_slug || "",
     avatarName: j.avatar_name ?? null,
   };
 }
 
 /**
  * Trae los jobs PENDIENTES de la diseñadora (scope por SU token JWT): las
- * solicitudes de "Generar 30x" que todavía nadie reclamó.
+ * solicitudes de "Generar 30x" que todavía nadie reclamó. Filtra a solo Producción
+ * (ver isProduccionJob): los jobs de Diseño no se ingieren.
  */
 export async function listPendingJobs(token?: string): Promise<AgentJob[]> {
   const data = await req<{ items: ApiAgentJob[] }>(`/agent-jobs?status=pending`, undefined, token);
-  return (data.items || []).map(mapAgentJob);
+  return (data.items || []).filter(isProduccionJob).map(mapAgentJob);
 }
 
 /** Reclama un job (pending → processing) para que otro worker no lo tome. */
