@@ -31,7 +31,8 @@ import { getPreset, getPresetByAvatarSlug } from "./style-presets";
 import { exportAllSlides } from "./export-slides";
 import { isInstagramUrl } from "./instagram-url";
 import { claimJob, completeJob, failJob, uploadCarousel } from "./prewave";
-import { getInternalApiToken, isHostedMode } from "./hosted";
+import { getCentralClaudeToken, getInternalApiToken, isHostedMode } from "./hosted";
+import { getPrewaveToken } from "./users";
 import { isHiggsfieldConfigured } from "./higgsfield";
 import {
   getAssignment,
@@ -135,7 +136,7 @@ function localBase(): string {
  * hereda la auth local del server (modo local: comportamiento de siempre).
  */
 function runnerSpawnEnv(): Record<string, string> | undefined {
-  const token = process.env.CLAUDE_RUNNER_OAUTH_TOKEN;
+  const token = getCentralClaudeToken();
   if (!token) return undefined;
   // Config dir propio del worker: mismas razones que en /api/chat — que unas
   // credenciales globales del server nunca pisen el token del worker. Base
@@ -163,7 +164,13 @@ interface Runner {
 async function processAssignment(jobId: string): Promise<void> {
   const a = await getAssignment(jobId);
   if (!a) return;
-  if (a.status === "done" || a.status === "delivered") return; // ya generado / entregado
+  // pending_review espera aprobación humana — no reprocesar.
+  if (a.status === "done" || a.status === "delivered" || a.status === "pending_review") return;
+
+  // Modo hosteado: este job se reclama/escribe con el token de SU diseñadora
+  // (scope por persona), no con el global. En local: undefined → token global.
+  const designerToken =
+    isHostedMode() && a.designerId ? (await getPrewaveToken(a.designerId)) ?? undefined : undefined;
 
   // PRE-FLIGHT (antes de reclamar y sin tocar Prewave): ¿podemos generar ESTE job
   // en esta máquina? Si el avatar no tiene un preset local `ready` (falta su ADN, o
@@ -183,7 +190,7 @@ async function processAssignment(jobId: string): Promise<void> {
     // tome. Best-effort: si el PATCH falla (403 de ownership, red), seguimos con la
     // generación local igual — el claim es una optimización, no un bloqueo. Ver
     // docs/PLAN-MIGRACION-CARRUSELES.md §3/§6.5.
-    await writeback(() => claimJob(jobId));
+    await writeback(() => claimJob(jobId, designerToken));
 
     if (!isInstagramUrl(a.referenceUrl)) {
       throw new Error(`El referente no es una URL de Instagram válida: ${a.referenceUrl || "(vacío)"}`);
@@ -240,27 +247,30 @@ async function processAssignment(jobId: string): Promise<void> {
     // 4. Listo para QA + writeback a Prewave (→ done). El estado local es la fuente
     //    de verdad de la UI; el writeback es best-effort para no perder el resultado
     //    si Prewave está caído.
-    await setStatus(jobId, "done", { resultUrl: `/exports/${carousel.id}/` });
-    //    Fase 7: subir los PNG al endpoint de worker (sube a GCS + siembra las N
-    //    láminas en el brief para publicación). Best-effort: si el endpoint no está
-    //    (404) o el job no tiene brief (422), no pasa nada acá.
-    //    "Ver 30x" (result_url del job) lo setea el endpoint a una GALERÍA pública
-    //    con TODAS las láminas (accesible desde cualquier lado). Solo si el endpoint
-    //    no está (404) o el job no tiene brief (422) caemos al editor LOCAL (todas
-    //    las láminas también, pero solo en la máquina de la diseñadora).
-    const editorUrl = `http://localhost:${process.env.PORT || "3000"}/carousel/${carousel.id}`;
-    await writeback(async () => {
-      try {
-        await uploadCarousel(jobId, files);
-        // OK: el endpoint dejó result_url apuntando a la galería pública. No pisar.
-      } catch {
-        await completeJob(jobId, editorUrl);
-      }
-    });
+    const resultPath = `/exports/${carousel.id}/`;
+    if (isHostedMode()) {
+      // Híbrido: el borrador queda EN REVISIÓN. La diseñadora lo aprueba desde su
+      // bandeja y ahí recién se hace el writeback a Prewave con SU token
+      // (POST /api/thirtyx/assignments/[jobId]/approve). NO se toca Prewave acá.
+      await setStatus(jobId, "pending_review", { resultUrl: resultPath });
+    } else {
+      // Modo local: writeback automático al terminar (comportamiento de siempre).
+      // uploadCarousel sube los PNG al endpoint de worker (GCS + siembra el brief) y
+      // cierra el job; si no está (404) o el job no tiene brief (422), cae a completeJob.
+      await setStatus(jobId, "done", { resultUrl: resultPath });
+      const editorUrl = `http://localhost:${process.env.PORT || "3000"}/carousel/${carousel.id}`;
+      await writeback(async () => {
+        try {
+          await uploadCarousel(jobId, files);
+        } catch {
+          await completeJob(jobId, editorUrl);
+        }
+      });
+    }
   } catch (e) {
     const msg = (e as Error).message || "Error desconocido en la generación";
     await setStatus(jobId, "failed", { error: msg });
-    await writeback(() => failJob(jobId, msg));
+    await writeback(() => failJob(jobId, msg, designerToken));
   }
 }
 

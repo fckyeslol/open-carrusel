@@ -29,6 +29,7 @@ const STATUS: Record<string, { label: string; tone: Tone }> = {
   ingesting: { label: "Bajando referente", tone: "active" },
   generating: { label: "Generando", tone: "active" },
   rendering: { label: "Renderizando", tone: "active" },
+  pending_review: { label: "En revisión", tone: "ready" },
   done: { label: "Listo para QA", tone: "ready" },
   delivered: { label: "Entregado", tone: "done" },
   failed: { label: "Falló", tone: "error" },
@@ -88,12 +89,22 @@ export function AssignmentQueue() {
   const [error, setError] = useState<string | null>(null);
   const [notConfigured, setNotConfigured] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  // Ruta de sync: per-diseñadora en modo hosteado (scope por sesión), global en local.
+  const [syncPath, setSyncPath] = useState<string | null>(null);
   const busyRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((b) => setSyncPath(b?.hosted ? "/api/thirtyx/sync-mine" : "/api/thirtyx/sync"))
+      .catch(() => setSyncPath("/api/thirtyx/sync"));
+  }, []);
 
   // PULL: pregunta a Prewave por trabajos nuevos, encola los nuevos y trae el estado.
   const sync = useCallback(async () => {
+    if (!syncPath) return;
     try {
-      const res = await fetch("/api/thirtyx/sync", { method: "POST" });
+      const res = await fetch(syncPath, { method: "POST" });
       const data = await res.json();
       if (res.status === 401) {
         setNotConfigured(true);
@@ -116,10 +127,29 @@ export function AssignmentQueue() {
   }, []);
 
   useEffect(() => {
+    if (!syncPath) return;
     sync();
     const id = setInterval(sync, POLL_MS);
     return () => clearInterval(id);
-  }, [sync]);
+  }, [sync, syncPath]);
+
+  const approve = useCallback(
+    async (jobId: string) => {
+      if (busyRef.current.has(jobId)) return;
+      busyRef.current.add(jobId);
+      try {
+        const res = await fetch(`/api/thirtyx/assignments/${jobId}/approve`, { method: "POST" });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          setError(d.error || "No se pudo aprobar el pedido");
+        }
+        await sync();
+      } finally {
+        busyRef.current.delete(jobId);
+      }
+    },
+    [sync]
+  );
 
   const retry = useCallback(
     async (jobId: string) => {
@@ -234,6 +264,24 @@ export function AssignmentQueue() {
                           </div>
                         )}
 
+                        {a.status === "pending_review" && a.carouselId && (
+                          <div className="mt-3 flex items-center gap-3">
+                            <Link
+                              href={`/carousel/${a.carouselId}`}
+                              className="text-xs font-medium text-accent-strong underline-offset-2 hover:underline"
+                            >
+                              Abrir para revisar →
+                            </Link>
+                            <Button
+                              size="sm"
+                              className="ml-auto"
+                              onClick={() => approve(a.jobId)}
+                            >
+                              Aprobar y entregar
+                            </Button>
+                          </div>
+                        )}
+
                         {(a.status === "done" || a.status === "delivered") && a.carouselId && (
                           <div className="mt-3 flex items-center gap-3">
                             <Link
@@ -243,7 +291,7 @@ export function AssignmentQueue() {
                               Abrir para QA →
                             </Link>
                             <span className="ml-auto text-[11px] text-muted-foreground">
-                              Entregá desde Prewave
+                              {a.status === "delivered" ? "Entregado a Prewave" : "Entregá desde Prewave"}
                             </span>
                           </div>
                         )}

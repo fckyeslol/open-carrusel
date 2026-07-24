@@ -81,8 +81,15 @@ export class PrewaveError extends Error {
   }
 }
 
-async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const cfg = await getPrewaveConfig();
+/**
+ * `tokenOverride`: en modo hosteado cada request se hace con el JWT de UNA
+ * diseñadora (scope por persona), no con el token global. Se mezcla sobre el
+ * apiBase de la config global.
+ */
+async function req<T>(path: string, init?: RequestInit, tokenOverride?: string): Promise<T> {
+  const cfg = tokenOverride
+    ? { ...(await getPrewaveConfig()), token: tokenOverride }
+    : await getPrewaveConfig();
   if (!isConfigured(cfg)) {
     throw new PrewaveError(401, "Prewave sin configurar: falta token o API key");
   }
@@ -152,36 +159,39 @@ function mapAgentJob(j: ApiAgentJob): AgentJob {
  * Trae los jobs PENDIENTES de la diseñadora (scope por SU token JWT): las
  * solicitudes de "Generar 30x" que todavía nadie reclamó.
  */
-export async function listPendingJobs(): Promise<AgentJob[]> {
-  const data = await req<{ items: ApiAgentJob[] }>(`/agent-jobs?status=pending`);
+export async function listPendingJobs(token?: string): Promise<AgentJob[]> {
+  const data = await req<{ items: ApiAgentJob[] }>(`/agent-jobs?status=pending`, undefined, token);
   return (data.items || []).map(mapAgentJob);
 }
 
 /** Reclama un job (pending → processing) para que otro worker no lo tome. */
-export async function claimJob(jobId: string): Promise<void> {
-  await req(`/agent-jobs/${jobId}`, {
-    method: "PATCH",
-    body: JSON.stringify({ status: "processing" }),
-  });
+export async function claimJob(jobId: string, token?: string): Promise<void> {
+  await req(
+    `/agent-jobs/${jobId}`,
+    { method: "PATCH", body: JSON.stringify({ status: "processing" }) },
+    token
+  );
 }
 
 /**
  * Cierra un job OK (→ done) con el link del resultado. El endpoint espera
  * `resultUrl` en camelCase (snake_case se ignora — verificado en el pipeline).
  */
-export async function completeJob(jobId: string, resultUrl: string): Promise<void> {
-  await req(`/agent-jobs/${jobId}`, {
-    method: "PATCH",
-    body: JSON.stringify({ status: "done", resultUrl }),
-  });
+export async function completeJob(jobId: string, resultUrl: string, token?: string): Promise<void> {
+  await req(
+    `/agent-jobs/${jobId}`,
+    { method: "PATCH", body: JSON.stringify({ status: "done", resultUrl }) },
+    token
+  );
 }
 
 /** Marca un job como fallido (→ failed) con el motivo (máx 1000 chars). */
-export async function failJob(jobId: string, error: string): Promise<void> {
-  await req(`/agent-jobs/${jobId}`, {
-    method: "PATCH",
-    body: JSON.stringify({ status: "failed", error: error.slice(0, 1000) }),
-  });
+export async function failJob(jobId: string, error: string, token?: string): Promise<void> {
+  await req(
+    `/agent-jobs/${jobId}`,
+    { method: "PATCH", body: JSON.stringify({ status: "failed", error: error.slice(0, 1000) }) },
+    token
+  );
 }
 
 /** Una lámina exportada lista para subir. */
@@ -264,9 +274,12 @@ async function compressSlidesForUpload(
  */
 export async function uploadCarousel(
   jobId: string,
-  files: readonly CarouselSlideFile[]
+  files: readonly CarouselSlideFile[],
+  token?: string
 ): Promise<void> {
-  const cfg = await getPrewaveConfig();
+  const cfg = token
+    ? { ...(await getPrewaveConfig()), token }
+    : await getPrewaveConfig();
   if (!isConfigured(cfg)) {
     throw new PrewaveError(401, "Prewave sin configurar: falta token o API key");
   }

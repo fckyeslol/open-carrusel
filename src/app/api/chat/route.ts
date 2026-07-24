@@ -8,7 +8,7 @@ import { getBrand } from "@/lib/brand";
 import { getCarousel } from "@/lib/carousels";
 import { getPreset } from "@/lib/style-presets";
 import { isHiggsfieldConfigured } from "@/lib/higgsfield";
-import { getInternalApiToken, isHostedMode } from "@/lib/hosted";
+import { getCentralClaudeToken, getInternalApiToken, isHostedMode } from "@/lib/hosted";
 import { getSessionUser } from "@/lib/auth";
 import { getClaudeToken } from "@/lib/users";
 
@@ -71,9 +71,11 @@ export async function POST(request: NextRequest) {
 
   const { message, sessionId, carouselId, stylePresetId, attachments } = body;
 
-  // Modo hosteado: la generación corre con el token de Claude de la usuaria
-  // logueada (su seat del Team paga su consumo). Sin token configurado no se
-  // puede generar — mejor un error claro acá que un spawn que falla en inglés.
+  // Modo hosteado: la generación corre con un token de Claude. Preferimos el
+  // token propio de la usuaria logueada (su seat paga su consumo); si no conectó
+  // ninguno, caemos al token central del despliegue (getCentralClaudeToken —
+  // tu seat de Team paga todo). Sin ninguno de los dos no se puede generar:
+  // mejor un error claro acá que un spawn que falla en inglés.
   let spawnEnv: Record<string, string> | undefined;
   let internalToken: string | undefined;
   if (isHostedMode()) {
@@ -81,7 +83,8 @@ export async function POST(request: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: "No autenticada" }, { status: 401 });
     }
-    const claudeToken = await getClaudeToken(user.id);
+    const ownToken = await getClaudeToken(user.id);
+    const claudeToken = ownToken ?? getCentralClaudeToken();
     if (!claudeToken) {
       return NextResponse.json(
         {
@@ -91,16 +94,18 @@ export async function POST(request: NextRequest) {
         { status: 409 }
       );
     }
-    // CLAUDE_CONFIG_DIR aislado por usuaria: (1) si el server tuviera un
-    // `claude login` global, esas credenciales NO pisan el token de la usuaria
-    // (el CLI prefiere credenciales guardadas sobre el env), y (2) las sesiones
-    // de chat de cada una quedan separadas.
+    // CLAUDE_CONFIG_DIR aislado: (1) si el server tuviera un `claude login`
+    // global, esas credenciales NO pisan el token que inyectamos (el CLI prefiere
+    // credenciales guardadas sobre el env), y (2) las sesiones de chat quedan
+    // separadas. Con token PROPIO usamos el dir de la usuaria; con el token
+    // CENTRAL usamos un dir compartido `_central`, para que credenciales
+    // cacheadas de un token propio previo de esa usuaria nunca pisen el central.
     // Base configurable: en Cloud Run apunta a disco local efímero (rápido; las
     // sesiones --resume solo viven durante la conversación, no hace falta que
     // sobrevivan reinicios), no al volumen GCS montado en /app/data.
     const configBase =
       process.env.CLAUDE_CONFIG_BASE || path.resolve(process.cwd(), "data", "claude-config");
-    const configDir = path.join(configBase, user.id);
+    const configDir = path.join(configBase, ownToken ? user.id : "_central");
     await mkdir(configDir, { recursive: true });
     spawnEnv = { CLAUDE_CODE_OAUTH_TOKEN: claudeToken, CLAUDE_CONFIG_DIR: configDir };
     internalToken = getInternalApiToken();

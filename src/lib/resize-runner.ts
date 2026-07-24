@@ -19,7 +19,7 @@ import { spawnClaude } from "./generate-headless";
 import { getBrand } from "./brand";
 import { getPreset, getPresetByAvatarSlug } from "./style-presets";
 import { isHiggsfieldConfigured } from "./higgsfield";
-import { getInternalApiToken, isHostedMode } from "./hosted";
+import { getCentralClaudeToken, getInternalApiToken, isHostedMode } from "./hosted";
 import { buildResizeSystemPrompt, buildAdaptSlideMessage } from "./resize-prompt";
 
 export type ResizeStatus = "pending" | "running" | "done" | "failed";
@@ -66,7 +66,7 @@ function internalToken(): string | undefined {
  * Mismo criterio que thirtyx-runner.
  */
 function spawnEnv(): Record<string, string> | undefined {
-  const token = process.env.CLAUDE_RUNNER_OAUTH_TOKEN;
+  const token = getCentralClaudeToken();
   if (!token) return undefined;
   const configDir = path.resolve(process.cwd(), "data", "claude-config", "_runner");
   mkdirSync(configDir, { recursive: true });

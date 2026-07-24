@@ -29,6 +29,23 @@ export function getAuthSecret(): string {
 }
 
 /**
+ * Token central de Claude: un `claude setup-token` de la cuenta Team dueña del
+ * despliegue, que paga TODO el consumo hosteado cuando se centraliza en un solo
+ * seat en vez de pedirle a cada usuaria el suyo. Lo usan:
+ *   - la cola 30x (worker sin usuaria logueada) — siempre, si está seteado;
+ *   - el editor interactivo (/api/chat) — como FALLBACK cuando la usuaria no
+ *     conectó su propio token.
+ *
+ * Preferimos CLAUDE_TEAM_OAUTH_TOKEN (nombre nuevo, describe qué hace) pero
+ * aceptamos CLAUDE_RUNNER_OAUTH_TOKEN por compatibilidad con los deploys que ya
+ * lo tienen seteado (secrets de GCP, .env.hosted existentes). Devuelve null si
+ * ninguno está: en ese caso cada usuaria sigue necesitando su token propio.
+ */
+export function getCentralClaudeToken(): string | null {
+  return process.env.CLAUDE_TEAM_OAUTH_TOKEN || process.env.CLAUDE_RUNNER_OAUTH_TOKEN || null;
+}
+
+/**
  * Token interno para que el SUBPROCESO de Claude (que corre en el mismo server
  * y le pega a la API por loopback) pase el middleware de auth sin cookie de
  * sesión. Se inyecta como instrucción en el system prompt en modo hosteado.

@@ -21,8 +21,9 @@ export type AssignmentStatus =
   | "ingesting" // bajando el referente + creando el carrusel
   | "generating" // Claude generando las láminas
   | "rendering" // exportando a PNG
-  | "done" // generado y renderizado, listo para QA
-  | "delivered" // la diseñadora hizo QA y entregó (job cerrado en Prewave)
+  | "pending_review" // (hosteado) borrador listo — espera que la diseñadora apruebe antes del writeback
+  | "done" // generado y renderizado, listo para QA (modo local: ya se hizo writeback)
+  | "delivered" // aprobado/entregado: job cerrado en Prewave
   | "failed"; // reventó en alguna etapa
 
 /** Etapas "en vuelo": si el proceso se reinicia, hay que re-encolarlas. */
@@ -74,6 +75,11 @@ export async function getAssignment(jobId: string): Promise<Assignment | null> {
   return store.assignments.find((a) => a.jobId === jobId) ?? null;
 }
 
+/** Asignaciones de UNA diseñadora (modo hosteado: cada una ve solo lo suyo). */
+export async function listAssignmentsForDesigner(designerId: string): Promise<Assignment[]> {
+  return (await listAssignments()).filter((a) => a.designerId === designerId);
+}
+
 /** Asignaciones que quedaron a medias (para reconciliar al bootear). */
 export async function listReprocessable(): Promise<Assignment[]> {
   const store = await readDataSafe<Store>(FILE, EMPTY);
@@ -88,7 +94,8 @@ export async function listReprocessable(): Promise<Assignment[]> {
  * generación local resuelve su preset y falla con mensaje claro si no calza.
  */
 export async function upsertFromAgentJob(
-  item: AgentJob
+  item: AgentJob,
+  designerId: string | null = null
 ): Promise<{ assignment: Assignment; isNew: boolean }> {
   const ts = now();
   let isNew = false;
@@ -108,7 +115,7 @@ export async function upsertFromAgentJob(
       avatarSlug: item.avatarSlug,
       avatarName: item.avatarName,
       referenceUrl: item.referenceUrl,
-      designerId: null,
+      designerId,
       status: "received",
       carouselId: null,
       resultUrl: null,
