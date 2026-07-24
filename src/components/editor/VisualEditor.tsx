@@ -29,6 +29,8 @@ import {
   ClipboardPaste,
   BringToFront,
   SendToBack,
+  ChevronUp,
+  ChevronDown,
   AlignStartVertical,
   AlignCenterVertical,
   AlignEndVertical,
@@ -1071,13 +1073,14 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
               </Section>
 
               <Section title="Capa y grupo">
+                {/* Frente/atrás del todo; Subir/Bajar mueven una capa a la vez. */}
                 <div className="flex gap-1">
                   <Button
                     size="sm"
                     variant="outline"
                     className="flex-1"
                     onClick={() => applyProp("front", true)}
-                    title="Traer al frente"
+                    title="Traer al frente del todo"
                   >
                     <BringToFront className="h-4 w-4" /> Al frente
                   </Button>
@@ -1086,9 +1089,29 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
                     variant="outline"
                     className="flex-1"
                     onClick={() => applyProp("back", true)}
-                    title="Enviar atrás"
+                    title="Enviar al fondo del todo"
                   >
                     <SendToBack className="h-4 w-4" /> Atrás
+                  </Button>
+                </div>
+                <div className="flex gap-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => applyProp("forward", true)}
+                    title="Subir una capa"
+                  >
+                    <ChevronUp className="h-4 w-4" /> Subir
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => applyProp("backward", true)}
+                    title="Bajar una capa"
+                  >
+                    <ChevronDown className="h-4 w-4" /> Bajar
                   </Button>
                 </div>
                 <div className="flex flex-wrap gap-1">

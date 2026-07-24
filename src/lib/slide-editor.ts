@@ -738,14 +738,11 @@ export const EDITOR_RUNTIME = String.raw`
   //    capturamos el orden VISUAL actual de los hermanos, movemos el elemento a
   //    la punta que toca y reasignamos z-index secuencial (posicionando lo
   //    estático con relative, que no altera el layout). Sin tocar el DOM. ──────
-  function restack(el,toFront){
-    var par=el.parentElement; if(!par) return;
-    if(el.ownerSVGElement){
-      // Dentro de un svg no hay z-index: manda el orden del DOM.
-      if(toFront) par.appendChild(el);
-      else par.insertBefore(el, par.firstElementChild);
-      return;
-    }
+  // Hermanos "apilables" (excluye UI, textura, script/style) en su ORDEN VISUAL
+  //   actual (z-index, y a igualdad, orden del DOM). Base común de front/back y
+  //   de los movimientos de una capa a la vez. index 0 = atrás, último = frente.
+  function layerSiblings(el){
+    var par=el.parentElement; if(!par) return null;
     var items=[], kids=par.children;
     for(var i=0;i<kids.length;i++){
       var k=kids[i];
@@ -758,13 +755,46 @@ export const EDITOR_RUNTIME = String.raw`
       items.push({el:k, z:z, i:i});
     }
     items.sort(function(a,b){ return (a.z-b.z) || (a.i-b.i); });  // orden visual hoy
-    var rest=[];
-    items.forEach(function(it){ if(it.el!==el) rest.push(it.el); });
-    var order = toFront ? rest.concat([el]) : [el].concat(rest);
+    return items.map(function(it){ return it.el; });
+  }
+  // Reasigna z-index secuencial según el orden dado (posicionando lo estático
+  //   con relative, que no altera el layout). Sin tocar el DOM.
+  function applyLayerOrder(order){
     order.forEach(function(k,idx){
       if(getComputedStyle(k).position==='static') k.style.position='relative';
       k.style.zIndex=String(idx+1);
     });
+  }
+  function restack(el,toFront){
+    var par=el.parentElement; if(!par) return;
+    if(el.ownerSVGElement){
+      // Dentro de un svg no hay z-index: manda el orden del DOM.
+      if(toFront) par.appendChild(el);
+      else par.insertBefore(el, par.firstElementChild);
+      return;
+    }
+    var order=layerSiblings(el); if(!order) return;
+    var rest=order.filter(function(k){ return k!==el; });
+    applyLayerOrder(toFront ? rest.concat([el]) : [el].concat(rest));
+  }
+  // Mueve el elemento UNA capa: dir>0 lo sube (hacia el frente), dir<0 lo baja.
+  //   Intercambia con el vecino inmediato en el orden visual; si ya está en la
+  //   punta, no hace nada.
+  function restackStep(el,dir){
+    var par=el.parentElement; if(!par) return;
+    if(el.ownerSVGElement){
+      // Dentro de un svg el orden del DOM es el orden de pintado.
+      var sib = dir>0 ? el.nextElementSibling : el.previousElementSibling;
+      if(!sib) return;
+      if(dir>0) par.insertBefore(sib, el); else par.insertBefore(el, sib);
+      return;
+    }
+    var order=layerSiblings(el); if(!order) return;
+    var idx=order.indexOf(el); if(idx<0) return;
+    var j=idx+(dir>0?1:-1);
+    if(j<0||j>=order.length) return;   // ya en la punta
+    order[idx]=order[j]; order[j]=el;  // swap con el vecino inmediato
+    applyLayerOrder(order);
   }
   // Estilos "puros" que sirven igual sobre el elemento completo o sobre un <span>
   // de tramo (selección parcial). Los props estructurales (text, splitBg, x/y/w/h,
@@ -957,6 +987,8 @@ export const EDITOR_RUNTIME = String.raw`
       else if(p==='h'){ promoteAbsolute(el); el.style.height=Math.max(1,v)+'px'; }
       else if(p==='front'){ restack(el,true); }
       else if(p==='back'){ restack(el,false); }
+      else if(p==='forward'){ restackStep(el,1); }
+      else if(p==='backward'){ restackStep(el,-1); }
       else if(p==='remove'){ el.remove(); }
       else styleEl(el,p,v);
     });
