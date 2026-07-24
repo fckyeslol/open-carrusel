@@ -1,5 +1,5 @@
 {
-  "generadas": "2026-07-21",
+  "generadas": "2026-07-23",
   "procedurales": true,
   "texturas": [
     {
@@ -19,6 +19,36 @@
       "nombre": "Papel rugoso",
       "uso": "Papel artesanal, tela, superficie con fibra direccional.",
       "archivo": "/textures/papel-rugoso.png"
+    },
+    {
+      "slug": "granulado",
+      "nombre": "Granulado",
+      "uso": "Grano de película parejo y fino, sin moteado. Efecto foto/impreso limpio.",
+      "archivo": "/textures/granulado.png"
+    },
+    {
+      "slug": "papel-arrugado",
+      "nombre": "Papel arrugado",
+      "uso": "Papel estrujado: pliegues y facetas con luz suave. Superficie de papel manipulado.",
+      "archivo": "/textures/papel-arrugado.png"
+    },
+    {
+      "slug": "halftone",
+      "nombre": "Halftone",
+      "uso": "Trama de puntos de impresión (CMYK/riso). Da aire retro-editorial e impreso.",
+      "archivo": "/textures/halftone.png"
+    },
+    {
+      "slug": "frost",
+      "nombre": "Frost",
+      "uso": "Vidrio escarchado: difusión nebulosa con destellos cristalinos. Superficie fría y traslúcida.",
+      "archivo": "/textures/frost.png"
+    },
+    {
+      "slug": "cuadricula",
+      "nombre": "Cuadrícula",
+      "uso": "Grilla técnica de líneas finas (cuaderno/blueprint). Estructura sutil de fondo.",
+      "archivo": "/textures/cuadricula.png"
     }
   ]
 }
