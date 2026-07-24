@@ -36,5 +36,7 @@ ENV CLAUDE_CLI_PATH=/usr/local/bin/claude
 
 EXPOSE 3000
 
-# -H 0.0.0.0 dentro del contenedor: solo Caddy (red interna de compose) lo ve.
-CMD ["npx", "next", "start", "-H", "0.0.0.0", "-p", "3000"]
+# Shell-form para honrar $PORT: Cloud Run inyecta PORT=8080 (y lo espera); en
+# compose/VM queda en 3000. El loopback del subproceso usa el mismo process.env.PORT.
+# -H 0.0.0.0: en Cloud Run lo alcanza el Load Balancer; en compose, Caddy.
+CMD ["sh", "-c", "npx next start -H 0.0.0.0 -p ${PORT:-3000}"]

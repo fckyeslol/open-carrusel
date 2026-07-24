@@ -1,0 +1,56 @@
+name: Deploy a Cloud Run
+
+# CI/CD: en cada push a main construye la imagen, la sube a Artifact Registry y
+# deploya a Cloud Run. Autentica con Workload Identity Federation (sin llaves
+# JSON de larga vida). Config vía Variables y Secrets del repo — ver
+# docs/DEPLOY-GCP.md.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+# Un deploy a la vez; si llegan pushes seguidos, corre el último.
+concurrency:
+  group: deploy-cloudrun
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # necesario para Workload Identity Federation
+
+    env:
+      IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.AR_REPO }}/app:${{ github.sha }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.CI_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build & push (Cloud Build)
+        run: |
+          gcloud builds submit \
+            --project="${{ vars.GCP_PROJECT_ID }}" \
+            --region="${{ vars.GCP_REGION }}" \
+            --tag="$IMAGE"
+
+      - name: Deploy a Cloud Run
+        env:
+          IMAGE: ${{ env.IMAGE }}
+          PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          REGION: ${{ vars.GCP_REGION }}
+          SERVICE: ${{ vars.CLOUD_RUN_SERVICE }}
+          APP_DOMAIN: ${{ vars.APP_DOMAIN }}
+          BUCKET_DATA: ${{ vars.BUCKET_DATA }}
+          BUCKET_UPLOADS: ${{ vars.BUCKET_UPLOADS }}
+          RUNTIME_SA_EMAIL: ${{ vars.RUNTIME_SA_EMAIL }}
+        run: bash deploy/cloudrun-deploy.sh

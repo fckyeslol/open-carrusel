@@ -138,8 +138,11 @@ function runnerSpawnEnv(): Record<string, string> | undefined {
   const token = process.env.CLAUDE_RUNNER_OAUTH_TOKEN;
   if (!token) return undefined;
   // Config dir propio del worker: mismas razones que en /api/chat — que unas
-  // credenciales globales del server nunca pisen el token del worker.
-  const configDir = path.resolve(process.cwd(), "data", "claude-config", "_runner");
+  // credenciales globales del server nunca pisen el token del worker. Base
+  // configurable (CLAUDE_CONFIG_BASE) para apuntar a disco local en Cloud Run.
+  const configBase =
+    process.env.CLAUDE_CONFIG_BASE || path.resolve(process.cwd(), "data", "claude-config");
+  const configDir = path.join(configBase, "_runner");
   mkdirSync(configDir, { recursive: true });
   return { CLAUDE_CODE_OAUTH_TOKEN: token, CLAUDE_CONFIG_DIR: configDir };
 }

@@ -95,7 +95,12 @@ export async function POST(request: NextRequest) {
     // `claude login` global, esas credenciales NO pisan el token de la usuaria
     // (el CLI prefiere credenciales guardadas sobre el env), y (2) las sesiones
     // de chat de cada una quedan separadas.
-    const configDir = path.resolve(process.cwd(), "data", "claude-config", user.id);
+    // Base configurable: en Cloud Run apunta a disco local efímero (rápido; las
+    // sesiones --resume solo viven durante la conversación, no hace falta que
+    // sobrevivan reinicios), no al volumen GCS montado en /app/data.
+    const configBase =
+      process.env.CLAUDE_CONFIG_BASE || path.resolve(process.cwd(), "data", "claude-config");
+    const configDir = path.join(configBase, user.id);
     await mkdir(configDir, { recursive: true });
     spawnEnv = { CLAUDE_CODE_OAUTH_TOKEN: claudeToken, CLAUDE_CONFIG_DIR: configDir };
     internalToken = getInternalApiToken();

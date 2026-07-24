@@ -1,0 +1,13 @@
+# Qué NO sube el tarball a Cloud Build (`gcloud builds submit`).
+# El Dockerfile hace `npm ci` + `npm run build` adentro, así que node_modules y
+# .next no hacen falta en el contexto (y pesan muchísimo).
+.git
+node_modules
+.next
+data
+public/uploads
+*.log
+.env*
+!.env.hosted.example
+.playwright-mcp
+scratchpad
