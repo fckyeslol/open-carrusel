@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { AssignmentThumb } from "@/components/thirtyx/AssignmentThumb";
+import { GeneratingCard } from "@/components/thirtyx/GeneratingCard";
 import { cn } from "@/lib/utils";
 
 interface Assignment {
@@ -22,15 +23,6 @@ const POLL_MS = 8000;
 
 /** Estados en curso (aún generándose). */
 const GENERATING = ["received", "claiming", "ingesting", "generating", "rendering"];
-
-const STAGE_LABEL: Record<string, string> = {
-  received: "En cola",
-  ingesting: "Bajando referente",
-  generating: "Generando",
-  rendering: "Renderizando",
-  blocked: "Sin avatar",
-  failed: "Falló",
-};
 
 function shortAvatar(name: string | null, slug: string): string {
   return (name || slug || "Sin avatar").replace(/^30X\s*[—–-]\s*/i, "").trim();
@@ -217,15 +209,12 @@ export function ReviewBoard() {
             {generando.length > 0 && (
               <Column title="Generando" count={generando.length}>
                 {generando.map((a) => (
-                  <li key={a.jobId} className="flex items-center gap-3 rounded-lg border border-border bg-background p-3">
-                    <AssignmentThumb carouselId={a.carouselId} isActive />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-xs font-medium">{shortAvatar(a.avatarName, a.avatarSlug)}</p>
-                      <p className="flex items-center gap-1.5 text-[11px] text-accent-strong">
-                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
-                        {STAGE_LABEL[a.status] || "En proceso"}
-                      </p>
-                    </div>
+                  <li key={a.jobId}>
+                    <GeneratingCard
+                      carouselId={a.carouselId}
+                      title={shortAvatar(a.avatarName, a.avatarSlug)}
+                      status={a.status}
+                    />
                   </li>
                 ))}
               </Column>

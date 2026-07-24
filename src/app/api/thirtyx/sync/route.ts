@@ -40,13 +40,14 @@ export async function POST() {
         enqueued++;
       }
     }
-    // Auto-recuperación: re-encolá los `blocked` (avatar sin preset local). Si su ADN
-    // ya se importó — o el bloqueo fue una lectura transitoria de GCS FUSE — el runner
-    // los reintenta solo. preflightBlockReason es barato e idempotente: si el preset
-    // sigue faltando, se re-bloquea sin reclamar ni tocar Prewave. Los `failed` (fallos
-    // reales) NO se re-encolan: se reintentan a mano.
+    // Auto-recuperación: re-encolá los `blocked` que TIENEN avatar (bloqueados por
+    // preset local faltante). Si su ADN ya se importó — o el bloqueo fue una lectura
+    // transitoria de GCS FUSE — el runner los reintenta solo. preflightBlockReason es
+    // barato e idempotente: si el preset sigue faltando, se re-bloquea sin reclamar ni
+    // tocar Prewave. Los `blocked` SIN avatar NO se re-encolan: nunca se recuperan
+    // reintentando (solo parpadearían en "Generando"); los `failed` tampoco.
     for (const a of await listAssignments()) {
-      if (a.status === "blocked") getRunner().enqueue(a.jobId);
+      if (a.status === "blocked" && a.avatarSlug) getRunner().enqueue(a.jobId);
     }
   } catch (e) {
     const status = e instanceof PrewaveError ? e.status : 500;

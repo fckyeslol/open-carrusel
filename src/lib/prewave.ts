@@ -356,11 +356,20 @@ export async function submitEdited(
 /**
  * Trae los jobs PENDIENTES de la diseñadora (scope por SU token JWT): las
  * solicitudes de "Generar 30x" que todavía nadie reclamó. Filtra a solo Producción
- * (ver isProduccionJob): los jobs de Diseño no se ingieren.
+ * (ver isProduccionJob) y, dentro de esos, SOLO los que ya tienen avatar resuelto.
+ *
+ * Un job de Producción puede llegar con `brief_id` pero sin `avatar_slug` resuelto
+ * (la FK todavía no calzó). Ingerirlo solo genera ruido: se crea como "En cola",
+ * aparece en Generando y el runner lo bloquea al instante por "sin avatar", y cada
+ * sync lo re-trae. Mejor NO ingerirlo hasta que Prewave le resuelva el avatar; en el
+ * próximo pull, ya con `avatar_slug`, entra normalmente.
  */
 export async function listPendingJobs(token?: string): Promise<AgentJob[]> {
   const data = await req<{ items: ApiAgentJob[] }>(`/agent-jobs?status=pending`, undefined, token);
-  return (data.items || []).filter(isProduccionJob).map(mapAgentJob);
+  return (data.items || [])
+    .filter(isProduccionJob)
+    .map(mapAgentJob)
+    .filter((j) => Boolean(j.avatarSlug));
 }
 
 /** Reclama un job (pending → processing) para que otro worker no lo tome. */
