@@ -65,7 +65,15 @@ export async function POST(request: NextRequest) {
           skipped++; // 422/404: sin referente o no-carrusel
           continue;
         }
-        const { isNew } = await upsertFromAgentJob(res.job, user.id);
+        // El agent_job de enqueue-30x NO serializa el avatar (viene null); lo
+        // tomamos del brief del design-queue, que sí lo trae resuelto.
+        const job = {
+          ...res.job,
+          avatarId: res.job.avatarId ?? brief.avatarId,
+          avatarSlug: res.job.avatarSlug || brief.avatarSlug,
+          avatarName: res.job.avatarName ?? brief.avatarName,
+        };
+        const { isNew } = await upsertFromAgentJob(job, user.id);
         if (brief.briefId) known.add(brief.briefId);
         if (isNew) {
           getRunner().enqueue(res.job.jobId);
