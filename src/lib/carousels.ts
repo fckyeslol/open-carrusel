@@ -161,6 +161,14 @@ export async function deleteCarousel(id: string): Promise<boolean> {
 
 // --- Slide operations ---
 
+/**
+ * HTML de una lámina en blanco: un lienzo blanco a sangre. El diseñador (o la IA)
+ * la rellena después. Se usa para el botón "+" de la tira, sobre todo para armar
+ * el CTA final, que normalmente se agrega aparte del contenido generado.
+ */
+export const BLANK_SLIDE_HTML =
+  '<div style="width:100%;height:100%;background:#ffffff;"></div>';
+
 export async function addSlide(
   carouselId: string,
   html: string,
@@ -182,6 +190,50 @@ export async function addSlide(
   carousel.updatedAt = now();
   await save(data);
   return slide;
+}
+
+/** Agrega una lámina en blanco al final del carrusel. */
+export async function addBlankSlide(
+  carouselId: string,
+  notes = ""
+): Promise<Slide | null> {
+  return addSlide(carouselId, BLANK_SLIDE_HTML, notes);
+}
+
+/**
+ * Duplica una lámina insertando la copia JUSTO DESPUÉS del original. El historial
+ * (deshacer/rehacer) arranca vacío en la copia: es una lámina nueva, no comparte
+ * pasado con la original.
+ */
+export async function duplicateSlide(
+  carouselId: string,
+  slideId: string
+): Promise<Slide | null> {
+  const data = await load();
+  const carousel = data.carousels.find((c) => c.id === carouselId);
+  if (!carousel) return null;
+  if (carousel.slides.length >= MAX_SLIDES) return null;
+
+  const idx = carousel.slides.findIndex((s) => s.id === slideId);
+  if (idx === -1) return null;
+
+  const source = carousel.slides[idx];
+  const copy: Slide = {
+    id: generateId(),
+    html: source.html,
+    previousVersions: [],
+    redoVersions: [],
+    order: 0, // se recalcula abajo
+    notes: source.notes,
+  };
+
+  carousel.slides.splice(idx + 1, 0, copy);
+  carousel.slides.forEach((s, i) => {
+    s.order = i;
+  });
+  carousel.updatedAt = now();
+  await save(data);
+  return copy;
 }
 
 export async function updateSlide(
