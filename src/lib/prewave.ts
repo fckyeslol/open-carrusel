@@ -130,6 +130,8 @@ async function req<T>(path: string, init?: RequestInit, tokenOverride?: string):
  */
 export interface AgentJob {
   jobId: string; // agent_jobs.id
+  briefId: string | null; // curated_briefs.id — para el writeback /production/:briefId/edited
+  avatarId: string | null; // para consultar el checklist custom del avatar
   referenceUrl: string; // el post de IG a calcar (reference_url)
   avatarSlug: string; // avatar_slug (resuelto por FK en Producción)
   avatarName: string | null;
@@ -145,6 +147,7 @@ interface ApiAgentJob {
   reference_url?: string | null;
   avatar_slug?: string | null;
   avatar_name?: string | null;
+  avatar_id?: string | null;
   avatar_hint?: string | null;
   status?: string | null;
   brief_id?: string | null; // origen Producción
@@ -167,10 +170,187 @@ function isProduccionJob(j: ApiAgentJob): boolean {
 function mapAgentJob(j: ApiAgentJob): AgentJob {
   return {
     jobId: j.id,
+    briefId: j.brief_id ?? null,
+    avatarId: j.avatar_id ?? null,
     referenceUrl: j.reference_url || "",
     avatarSlug: j.avatar_slug || "",
     avatarName: j.avatar_name ?? null,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Fuente per-diseñadora: design-queue + auto-encolado (POST enqueue-30x)
+// ---------------------------------------------------------------------------
+
+/** Un brief del backlog de diseño de carruseles de la diseñadora. */
+export interface DesignBrief {
+  briefId: string; // curated_briefs.id
+  avatarId: string | null;
+  avatarSlug: string;
+  avatarName: string | null;
+  status: string; // por_editar | por_corregir
+  contentFormat: string; // 'carrusel'
+}
+
+interface ApiDesignItem {
+  id: string;
+  status?: string | null;
+  content_format?: string | null;
+  avatar?: { id?: string | null; slug?: string | null; name?: string | null } | null;
+}
+
+/**
+ * Backlog de carruseles POR DISEÑAR de la diseñadora (scope por su JWT). El
+ * endpoint ya filtra: content_format='carrusel', status IN (por_editar,
+ * por_corregir), assigned_editor_id = ella, con post scrapeado. Sin paginación.
+ */
+export async function listDesignQueue(token: string): Promise<DesignBrief[]> {
+  const data = await req<{ items: ApiDesignItem[] }>(`/production/design-queue`, undefined, token);
+  return (data.items || [])
+    .filter((it) => (it.content_format ?? "carrusel") === "carrusel")
+    .map((it) => ({
+      briefId: it.id,
+      avatarId: it.avatar?.id ?? null,
+      avatarSlug: it.avatar?.slug ?? "",
+      avatarName: it.avatar?.name ?? null,
+      status: it.status ?? "",
+      contentFormat: it.content_format ?? "carrusel",
+    }));
+}
+
+/**
+ * Encola "Generar 30x" para un brief (crea el agent_job; Prewave resuelve el
+ * referente). Idempotente: si ya hay un job abierto devuelve el existente
+ * (`alreadyOpen: true`). Devuelve null si el brief no se puede encolar (422: sin
+ * referente o no es carrusel; 404: inexistente) — el sync lo saltea.
+ */
+export async function enqueue30x(
+  briefId: string,
+  token: string
+): Promise<{ job: AgentJob; alreadyOpen: boolean } | null> {
+  const cfg = { ...(await getPrewaveConfig()), token };
+  const res = await fetch(`${cfg.apiBase}/production/${briefId}/enqueue-30x`, {
+    method: "POST",
+    headers: authHeaders(cfg),
+    cache: "no-store",
+  });
+  if (res.status === 422 || res.status === 404) return null; // sin referente / no-carrusel / inexistente
+  const text = await res.text();
+  let body: unknown = null;
+  try {
+    body = text ? JSON.parse(text) : null;
+  } catch {
+    body = text;
+  }
+  const jobFrom = (b: unknown): ApiAgentJob | null =>
+    b && typeof b === "object" && "job" in b ? ((b as { job: ApiAgentJob }).job ?? null) : null;
+  if (res.status === 201 || res.status === 409) {
+    const j = jobFrom(body);
+    if (!j) throw new PrewaveError(res.status, "enqueue-30x sin job en la respuesta");
+    return { job: mapAgentJob(j), alreadyOpen: res.status === 409 };
+  }
+  const msg =
+    body && typeof body === "object" && "error" in body
+      ? String((body as { error: unknown }).error)
+      : `enqueue-30x HTTP ${res.status}`;
+  throw new PrewaveError(res.status, msg);
+}
+
+// ---------------------------------------------------------------------------
+// Writeback de entrega: mover el brief a "en_revisión" (POST .../edited)
+// ---------------------------------------------------------------------------
+
+export interface ChecklistItem {
+  id: string;
+  label: string;
+  checked: boolean;
+}
+export interface ChecklistPhase {
+  key: string;
+  title: string;
+  items: ChecklistItem[];
+}
+export interface ChecklistPayload {
+  version: number;
+  creator: string;
+  hasManychat: boolean;
+  phases: ChecklistPhase[];
+}
+
+/**
+ * Checklist estándar de carrusel (3 fases obligatorias, 6 ítems ≥5 mínimo, todos
+ * marcados). Se usa cuando el avatar NO tiene un checklist custom.
+ */
+export function buildStandardCarouselChecklist(): ChecklistPayload {
+  const ph = (key: string, title: string, items: [string, string][]): ChecklistPhase => ({
+    key,
+    title,
+    items: items.map(([id, label]) => ({ id, label, checked: true })),
+  });
+  return {
+    version: 1,
+    creator: "open-carrusel",
+    hasManychat: false,
+    phases: [
+      ph("portada", "Portada", [["p1", "Portada generada"], ["p2", "Gancho claro"]]),
+      ph("laminas", "Láminas", [["l1", "Láminas completas"], ["l2", "Fieles al referente"]]),
+      ph("identidad", "Identidad", [["i1", "Paleta del avatar"], ["i2", "Tipografía correcta"]]),
+    ],
+  };
+}
+
+/** Marca todos los ítems como checked (para un template custom del avatar). */
+function markAllChecked(tpl: ChecklistPayload): ChecklistPayload {
+  return {
+    version: tpl.version ?? 1,
+    creator: tpl.creator || "open-carrusel",
+    hasManychat: Boolean(tpl.hasManychat),
+    phases: (tpl.phases || []).map((p) => ({
+      ...p,
+      items: (p.items || []).map((i) => ({ ...i, checked: true })),
+    })),
+  };
+}
+
+/**
+ * Devuelve el checklist a enviar para un avatar: su template custom (con todos
+ * los ítems marcados) si existe, o el estándar. El endpoint valida contra el
+ * custom si el Chief Editor lo definió, así que hay que respetarlo.
+ */
+export async function resolveCarouselChecklist(
+  avatarId: string | null,
+  token: string
+): Promise<ChecklistPayload> {
+  if (avatarId) {
+    try {
+      const data = await req<{ carrusel: ChecklistPayload | null }>(
+        `/production/checklists?avatar_id=${avatarId}`,
+        undefined,
+        token
+      );
+      if (data.carrusel && data.carrusel.phases?.length) return markAllChecked(data.carrusel);
+    } catch {
+      /* si falla, caemos al estándar */
+    }
+  }
+  return buildStandardCarouselChecklist();
+}
+
+/**
+ * Marca el brief como entregado (por_editar → en_revisión) con el link del
+ * entregable (nuestro editor HTML) y el checklist. Requiere token de la diseñadora.
+ */
+export async function submitEdited(
+  briefId: string,
+  driveUrl: string,
+  checklist: ChecklistPayload,
+  token: string
+): Promise<void> {
+  await req(
+    `/production/${briefId}/edited`,
+    { method: "POST", body: JSON.stringify({ driveUrl, checklist }) },
+    token
+  );
 }
 
 /**

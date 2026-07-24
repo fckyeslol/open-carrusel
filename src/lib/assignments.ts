@@ -37,6 +37,8 @@ export const IN_FLIGHT: readonly AssignmentStatus[] = [
 
 export interface Assignment {
   jobId: string;
+  briefId: string | null; // curated_briefs.id — dedup del design-queue + writeback
+  avatarId: string | null; // para el checklist custom del avatar en el writeback
   deliveryId: string | null;
   event: string;
   avatarSlug: string;
@@ -110,6 +112,8 @@ export async function upsertFromAgentJob(
     isNew = true;
     const created: Assignment = {
       jobId: item.jobId,
+      briefId: item.briefId,
+      avatarId: item.avatarId,
       deliveryId: null,
       event: "pull",
       avatarSlug: item.avatarSlug,
