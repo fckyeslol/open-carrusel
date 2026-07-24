@@ -7,13 +7,24 @@ import path from "path";
 const execFileAsync = promisify(execFile);
 
 /**
- * Assets de marca por avatar (avenger). Viven versionados en el repo
- * (30x/avatars/<slug>/assets/<tipo>/) — la carpeta es la fuente de verdad y
- * esta lib es la única puerta de escritura desde la app. Tras cada cambio se
- * re-corre import-avatars.mjs para que el preset (logoPath + designRules)
- * refleje los assets sin esperar al próximo arranque.
+ * Assets de marca por avatar (avenger). Esta lib es la única puerta de escritura
+ * desde la app. Tras cada cambio se re-corre import-avatars.mjs para que el
+ * preset (logoPath + designRules) refleje los assets sin esperar al próximo
+ * arranque.
+ *
+ * Dos raíces distintas a propósito:
+ *  - AVATARS_DIR (30x/avatars): el ADN de cada avatar, versionado en git y
+ *    horneado en la imagen. Es la fuente para listar avatares y validar slugs.
+ *  - ASSETS_DIR: los ARCHIVOS de assets. Por defecto comparten carpeta con el
+ *    ADN (local/compose). En Cloud Run el FS de la imagen es efímero (se pierde
+ *    en cada deploy), así que AVATAR_ASSETS_DIR los manda al bucket `uploads`
+ *    montado (/app/public/uploads/avatar-assets) para que persistan. La URL
+ *    servida (/avatar-assets/<slug>/<kind>/<file>) no cambia en ningún caso.
  */
 const AVATARS_DIR = path.resolve(process.cwd(), "30x", "avatars");
+const ASSETS_DIR = process.env.AVATAR_ASSETS_DIR
+  ? path.resolve(process.env.AVATAR_ASSETS_DIR)
+  : AVATARS_DIR;
 const IMPORT_SCRIPT = path.resolve(process.cwd(), "scripts", "import-avatars.mjs");
 
 export const ASSET_KINDS = ["logo", "fotos", "fondos", "referencias"] as const;
@@ -76,7 +87,7 @@ function detectImageExt(buffer: Uint8Array): string | null {
 }
 
 async function listKind(slug: string, kind: AssetKind): Promise<Array<{ file: string; url: string }>> {
-  const dir = path.join(AVATARS_DIR, slug, "assets", kind);
+  const dir = path.join(ASSETS_DIR, slug, "assets", kind);
   if (!existsSync(dir)) return [];
   try {
     const files = (await readdir(dir))
@@ -137,7 +148,7 @@ export async function saveAvatarAsset(
     claimedExt === detectedExt || (detectedExt === ".jpg" && claimedExt === ".jpeg");
   if (!extOk) file = file.slice(0, file.length - claimedExt.length) + detectedExt;
 
-  const dir = path.join(AVATARS_DIR, slug, "assets", kind);
+  const dir = path.join(ASSETS_DIR, slug, "assets", kind);
   await mkdir(dir, { recursive: true });
 
   // Evitar pisar un asset existente: sufijo incremental.
@@ -162,7 +173,7 @@ export async function deleteAvatarAsset(
   if (!isValidSlug(slug)) return false;
   const safe = sanitizeAssetFilename(file);
   if (!safe || safe !== file) return false;
-  const target = path.join(AVATARS_DIR, slug, "assets", kind, safe);
+  const target = path.join(ASSETS_DIR, slug, "assets", kind, safe);
   try {
     const info = await stat(target);
     if (!info.isFile()) return false;

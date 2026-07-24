@@ -48,7 +48,7 @@ gcloud run deploy "$SERVICE" \
   --timeout=3600 \
   --ingress=internal-and-cloud-load-balancing \
   --allow-unauthenticated \
-  --set-env-vars="HOSTED_MODE=1,DOMAIN=${APP_DOMAIN},CLAUDE_CLI_PATH=/usr/local/bin/claude,CLAUDE_CONFIG_BASE=/tmp/claude-config" \
+  --set-env-vars="HOSTED_MODE=1,DOMAIN=${APP_DOMAIN},CLAUDE_CLI_PATH=/usr/local/bin/claude,CLAUDE_CONFIG_BASE=/tmp/claude-config,AVATAR_ASSETS_DIR=/app/public/uploads/avatar-assets" \
   --set-secrets="$SECRETS" \
   --add-volume="name=data,type=cloud-storage,bucket=${BUCKET_DATA}" \
   --add-volume-mount="volume=data,mount-path=/app/data" \

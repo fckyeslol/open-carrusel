@@ -3,12 +3,18 @@ import { readFile, stat } from "fs/promises";
 import path from "path";
 
 /**
- * Sirve los assets de marca de cada avatar (avenger) desde su carpeta versionada
- * en el repo: 30x/avatars/<slug>/assets/**. Así las láminas pueden referenciar
- * `/avatar-assets/<slug>/fotos/retrato.jpg` sin copiar nada a public/ y sin
- * riesgo de que la copia quede desactualizada.
+ * Sirve los assets de marca de cada avatar (avenger) desde <root>/<slug>/assets/**.
+ * Así las láminas pueden referenciar `/avatar-assets/<slug>/fotos/retrato.jpg` sin
+ * copiar nada a public/ y sin riesgo de que la copia quede desactualizada.
+ *
+ * La raíz sale de AVATAR_ASSETS_DIR (en Cloud Run apunta al bucket `uploads`
+ * montado, para que los assets persistan entre deploys); sin la env cae en la
+ * carpeta versionada 30x/avatars — debe coincidir con la escritura en
+ * src/lib/avatar-assets.ts.
  */
-const AVATARS_DIR = path.resolve(process.cwd(), "30x", "avatars");
+const ASSETS_DIR = process.env.AVATAR_ASSETS_DIR
+  ? path.resolve(process.env.AVATAR_ASSETS_DIR)
+  : path.resolve(process.cwd(), "30x", "avatars");
 
 // Solo nombres seguros: slug del avatar y segmentos de ruta sin traversal.
 const SAFE_SLUG = /^[a-z0-9][a-z0-9-]*$/;
@@ -55,7 +61,7 @@ export async function GET(
     return NextResponse.json({ error: "Unsupported file type" }, { status: 404 });
   }
 
-  const assetsBase = path.join(AVATARS_DIR, slug, "assets");
+  const assetsBase = path.join(ASSETS_DIR, slug, "assets");
   const resolved = path.resolve(assetsBase, ...file);
   // Cinturón y tirantes: aunque los segmentos ya están whitelisteados, verificar
   // que la ruta final siga dentro de la carpeta de assets del avatar.

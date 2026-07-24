@@ -99,15 +99,29 @@ const ASSET_KINDS = ["logo", "fotos", "fondos", "referencias"];
 const ASSET_EXTS = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"]);
 
 /**
- * Lee la carpeta de assets del avatar (30x/avatars/<slug>/assets/<tipo>/) y
+ * Raíz de los ARCHIVOS de assets. Por defecto comparten carpeta con el ADN
+ * (30x/avatars/<slug>/assets/), como en local/compose. En Cloud Run el ADN va
+ * horneado en la imagen pero los assets que sube la UI deben persistir entre
+ * deploys, así que AVATAR_ASSETS_DIR los apunta al bucket `uploads` montado
+ * (/app/public/uploads/avatar-assets). Las URLs servidas no cambian.
+ */
+function assetsRootFor(avatarsDir) {
+  return process.env.AVATAR_ASSETS_DIR
+    ? path.resolve(process.env.AVATAR_ASSETS_DIR)
+    : avatarsDir;
+}
+
+/**
+ * Lee la carpeta de assets del avatar (<root>/<slug>/assets/<tipo>/) y
  * devuelve las URLs con que la app los sirve (/avatar-assets/<slug>/...).
  * La carpeta es la fuente de verdad: soltar un archivo ahí basta para que el
  * próximo arranque lo detecte — cero configuración.
  */
 async function scanAssets(avatarsDir, slug) {
+  const root = assetsRootFor(avatarsDir);
   const assets = { logo: [], fotos: [], fondos: [], referencias: [] };
   for (const kind of ASSET_KINDS) {
-    const dir = path.join(avatarsDir, slug, "assets", kind);
+    const dir = path.join(root, slug, "assets", kind);
     if (!existsSync(dir)) continue;
     try {
       const files = (await readdir(dir))
