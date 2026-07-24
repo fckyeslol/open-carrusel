@@ -301,7 +301,10 @@ export const EDITOR_RUNTIME = String.raw`
       borderStyle: isSvg ? (cs.stroke==='none' ? 'none' : ((cs.strokeDasharray&&cs.strokeDasharray!=='none')?'dashed':'solid')) : cs.borderTopStyle,
       borderColor: isSvg ? (cs.stroke==='none' ? '#111827' : toHex(cs.stroke)) : toHex(cs.borderTopColor),
       letterSpacing: ct.letterSpacing==='normal'?0:Math.round((parseFloat(ct.letterSpacing)||0)*10)/10,
-      lineHeight: cs.lineHeight==='normal'?0:Math.round(((parseFloat(cs.lineHeight)||0)/(parseFloat(cs.fontSize)||1))*100)/100,
+      // 'normal' se reporta como 1.2 (aprox del default del navegador), no como 0:
+      // mostrando 0 el campo parecía estar en el mínimo y "no dejaba" bajar el
+      // interlineado, cuando el valor real era ~1.2.
+      lineHeight: cs.lineHeight==='normal'?1.2:Math.round(((parseFloat(cs.lineHeight)||0)/(parseFloat(cs.fontSize)||1))*100)/100,
       x:Math.round(er.left), y:Math.round(er.top), w:Math.round(er.width), h:Math.round(er.height),
       canUndo: hist.length>0});
   }
@@ -896,7 +899,9 @@ export const EDITOR_RUNTIME = String.raw`
     else if(p==='rotate'){ prepSvgRotate(el); el.style.rotate=((parseFloat(v)||0)%360+360)%360+'deg'; }
     else if(p==='radius'){ el.style.borderRadius=v+'px'; }
     else if(p==='letterSpacing'){ el.style.letterSpacing=v+'px'; }
-    else if(p==='lineHeight'){ el.style.lineHeight=v; }
+    // line-height negativo es inválido en CSS y el navegador lo ignoraría en
+    // silencio: se aplica con piso en 0 (= líneas totalmente colapsadas).
+    else if(p==='lineHeight'){ el.style.lineHeight=Math.max(0,parseFloat(v)||0); }
     // ── borde/trazo unificado: divs e imágenes van por border, las líneas solo por
     //    border-top (si no, los otros 3 lados aparecen con 3px "medium"), y los svg
     //    raíz por stroke (que en SVG hereda del raíz a las formas hijas). ──────────

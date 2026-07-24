@@ -793,14 +793,16 @@ export function VisualEditor({
                     </label>
                     <label className="flex-1">
                       <span className={labelCls}>Interlínea</span>
+                      {/* Sin min: se puede tipear cualquier valor. El runtime aplica
+                          con piso en 0 (CSS no admite line-height negativo; 0 ya es
+                          el colapso total de líneas). */}
                       <input
                         type="number"
                         step={0.1}
-                        min={0}
                         className={inputCls}
                         value={sel.lineHeight ?? 0}
                         onChange={(e) => {
-                          const v = Math.max(0, Number(e.target.value));
+                          const v = Number(e.target.value);
                           setSel({ ...sel, lineHeight: v });
                           applyProp("lineHeight", v);
                         }}
