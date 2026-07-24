@@ -52,13 +52,29 @@ create_secret() {
 }
 create_secret AUTH_SECRET "$(gen)"
 create_secret INTERNAL_API_TOKEN "$(gen)"
+
+# Crea la SA si no existe y ESPERA a que propague: IAM es eventualmente
+# consistente, así que bindear una SA recién creada falla con "does not exist"
+# si se hace de inmediato.
+ensure_sa() {
+  local id="$1" display="$2" email="${1}@${PROJECT_ID}.iam.gserviceaccount.com"
+  if gcloud iam service-accounts describe "$email" >/dev/null 2>&1; then
+    echo "  ($id ya existía)"
+  else
+    gcloud iam service-accounts create "$id" --display-name="$display"
+  fi
+  for _ in $(seq 1 15); do
+    gcloud iam service-accounts describe "$email" >/dev/null 2>&1 && return 0
+    sleep 2
+  done
+  echo "  ⚠ $id no propagó a tiempo — reintentá el script"; return 1
+}
 # Opcional: token de worker para la cola 30x. Descomentá y pegá un setup-token:
 # create_secret CLAUDE_RUNNER_OAUTH_TOKEN "PEGAR_TOKEN"
 
 echo "▶ Service account de runtime: $RUNTIME_SA"
 RUNTIME_EMAIL="${RUNTIME_SA}@${PROJECT_ID}.iam.gserviceaccount.com"
-gcloud iam service-accounts create "$RUNTIME_SA" \
-  --display-name="Open Carrusel runtime" 2>/dev/null || echo "  (ya existía)"
+ensure_sa "$RUNTIME_SA" "Open Carrusel runtime"
 # Lectura/escritura en los buckets de estado.
 for b in "$BUCKET_DATA" "$BUCKET_UPLOADS"; do
   gcloud storage buckets add-iam-policy-binding "gs://$b" \
@@ -72,8 +88,7 @@ done
 
 echo "▶ Service account de CI: $CI_SA"
 CI_EMAIL="${CI_SA}@${PROJECT_ID}.iam.gserviceaccount.com"
-gcloud iam service-accounts create "$CI_SA" \
-  --display-name="Open Carrusel CI (GitHub Actions)" 2>/dev/null || echo "  (ya existía)"
+ensure_sa "$CI_SA" "Open Carrusel CI (GitHub Actions)"
 # Permisos para construir imagen y deployar.
 for role in roles/run.admin roles/artifactregistry.writer roles/cloudbuild.builds.editor \
             roles/storage.admin roles/iam.serviceAccountUser; do

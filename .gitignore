@@ -40,6 +40,9 @@ yarn-error.log*
 !.env.example
 !.env.hosted.example
 
+# GCP deploy config real (solo la plantilla .example va al repo)
+deploy/gcp.env
+
 # Playwright MCP session logs (ephemeral)
 .playwright-mcp/
 
