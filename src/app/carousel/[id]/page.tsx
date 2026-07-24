@@ -588,6 +588,7 @@ export default function CarouselEditorPage({ params }: PageProps) {
               carouselId={carousel.id}
               carouselName={carousel.name}
               slideCount={carousel.slides.length}
+              activeSlideNumber={activeSlide + 1}
             />
           </div>
 

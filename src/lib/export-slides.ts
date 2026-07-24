@@ -77,7 +77,7 @@ const MIME_POR_EXT: Record<string, string> = {
  * /uploads. La extensión acota el match para no agarrar URLs que no son imágenes;
  * los http(s):// no empiezan con "/" y quedan afuera (las fuentes van por otro lado).
  */
-async function inlineImages(html: string): Promise<string> {
+export async function inlineImages(html: string): Promise<string> {
   const publicDir = path.resolve(process.cwd(), "public");
   // Las comillas pueden venir escapadas como entidad: al serializar un
   // style="background: url('/uploads/x.jpg')" el navegador lo guarda como
