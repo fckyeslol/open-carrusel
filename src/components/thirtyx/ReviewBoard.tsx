@@ -103,6 +103,20 @@ export function ReviewBoard() {
     [sync]
   );
 
+  // Regenerar desde 0 un pedido que ya está por revisar: descarta el borrador actual
+  // y encola una generación limpia (ingestReference crea un carrusel nuevo). Es
+  // destructivo sobre el borrador que la diseñadora está revisando, así que confirma.
+  const regenerate = useCallback(
+    async (jobId: string) => {
+      const ok = window.confirm(
+        "Esto descarta el borrador actual y genera el carrusel de nuevo desde 0. ¿Seguir?"
+      );
+      if (!ok) return;
+      await retry(jobId);
+    },
+    [retry]
+  );
+
   const logout = useCallback(async () => {
     await fetch("/api/auth/logout", { method: "POST" });
     router.replace("/login");
@@ -195,7 +209,15 @@ export function ReviewBoard() {
                     >
                       Abrir para revisar →
                     </Link>
-                    <Button size="sm" className="ml-auto" onClick={() => approve(a.jobId)}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="ml-auto"
+                      onClick={() => regenerate(a.jobId)}
+                    >
+                      Regenerar desde 0
+                    </Button>
+                    <Button size="sm" onClick={() => approve(a.jobId)}>
                       Aprobar y entregar
                     </Button>
                   </div>
