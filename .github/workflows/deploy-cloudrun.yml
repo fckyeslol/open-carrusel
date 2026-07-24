@@ -33,21 +33,25 @@ jobs:
         with:
           workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
           service_account: ${{ secrets.CI_SERVICE_ACCOUNT }}
+          token_format: access_token # para autenticar el docker push a AR
 
       - uses: google-github-actions/setup-gcloud@v2
 
-      - name: Build & push (Cloud Build)
-        # --suppress-logs: los logs de un build regional van a un bucket
-        # administrado por Google que la SA de CI no puede leer; sin esto,
-        # gcloud falla con un error vacío tras un build EXITOSO. El estado del
-        # build se sigue por la API (no por el bucket), así que el paso refleja
-        # bien éxito/fallo. Si un build falla: gcloud builds log <id> --region.
+      # Build en el propio runner y push a Artifact Registry. Evitamos
+      # `gcloud builds submit` (Cloud Build) porque con builds regionales devuelve
+      # error aunque el build sea EXITOSO (no puede leer el bucket de logs
+      # administrado por Google). Docker en el runner es más directo y confiable.
+      - name: Login a Artifact Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ vars.GCP_REGION }}-docker.pkg.dev
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+
+      - name: Build & push imagen
         run: |
-          gcloud builds submit \
-            --project="${{ vars.GCP_PROJECT_ID }}" \
-            --region="${{ vars.GCP_REGION }}" \
-            --tag="$IMAGE" \
-            --suppress-logs
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
 
       - name: Deploy a Cloud Run
         env:
