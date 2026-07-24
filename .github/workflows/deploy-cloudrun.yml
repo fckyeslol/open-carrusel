@@ -37,11 +37,17 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v2
 
       - name: Build & push (Cloud Build)
+        # --suppress-logs: los logs de un build regional van a un bucket
+        # administrado por Google que la SA de CI no puede leer; sin esto,
+        # gcloud falla con un error vacío tras un build EXITOSO. El estado del
+        # build se sigue por la API (no por el bucket), así que el paso refleja
+        # bien éxito/fallo. Si un build falla: gcloud builds log <id> --region.
         run: |
           gcloud builds submit \
             --project="${{ vars.GCP_PROJECT_ID }}" \
             --region="${{ vars.GCP_REGION }}" \
-            --tag="$IMAGE"
+            --tag="$IMAGE" \
+            --suppress-logs
 
       - name: Deploy a Cloud Run
         env:
