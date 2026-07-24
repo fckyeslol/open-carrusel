@@ -19,7 +19,7 @@ export const maxDuration = 120;
  *    hasta 2 minutos y la UI necesita mostrar en qué etapa va.
  */
 export async function POST(request: NextRequest) {
-  let body: { referenceUrl?: string; avatarSlug?: string; name?: string };
+  let body: { referenceUrl?: string; avatarSlug?: string; name?: string; note?: string };
   try {
     body = await request.json();
   } catch {
@@ -28,6 +28,10 @@ export async function POST(request: NextRequest) {
 
   const referenceUrl = body.referenceUrl?.trim();
   const avatarSlug = body.avatarSlug?.trim();
+  // Anotación libre de la diseñadora; se recorta para no inflar el mensaje de
+  // generación con un pegado accidental de miles de caracteres.
+  const note =
+    typeof body.note === "string" ? body.note.trim().slice(0, 2000) || undefined : undefined;
 
   if (!referenceUrl || !isInstagramUrl(referenceUrl)) {
     return NextResponse.json(
@@ -54,7 +58,7 @@ export async function POST(request: NextRequest) {
         carouselId: result.carousel.id,
         stylePresetId: result.preset.id,
         referenceCount: result.referenceCount,
-        generationMessage: buildGenerationMessage(result.referenceCount),
+        generationMessage: buildGenerationMessage(result.referenceCount, note),
       });
     },
     toIngestErrorEvent

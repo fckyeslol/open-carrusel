@@ -183,11 +183,25 @@ export async function ingestReference(params: IngestParams): Promise<IngestResul
  * referente ya adjunto. El system prompt (buildSystemPrompt) ya inyecta la
  * identidad del avatar (brand del preset), sus reglas de diseño, su formato de
  * ejemplo y las rutas de las imágenes de referencia (para Read).
+ *
+ * `note` es una anotación libre que la diseñadora deja al lanzar la generación
+ * (ej. "hacela más sobria", "resaltá la cifra final"). Se inserta arriba de todo
+ * para que pese en TODAS las láminas, pero NO invalida la fidelidad al referente:
+ * ajusta tratamiento/énfasis, no reemplaza el layout ni inventa contenido.
  */
-export function buildGenerationMessage(referenceCount: number): string {
+export function buildGenerationMessage(referenceCount: number, note?: string): string {
+  const trimmedNote = note?.trim();
+
   return [
     `Generá el carrusel COMPLETO copiando el referente de Instagram adjunto (${referenceCount} imágenes de referencia) al 100%.`,
     "",
+    ...(trimmedNote
+      ? [
+          `NOTA DE LA DISEÑADORA para esta generación (tenela presente en TODAS las láminas): «${trimmedNote}»`,
+          "Respetá esta nota dentro de las reglas de abajo: ajusta énfasis, tono o tratamiento, pero sin romper el layout del referente ni inventar contenido.",
+          "",
+        ]
+      : []),
     "REGLA #1: el LAYOUT lo manda el referente, SIEMPRE. Lo ÚNICO que cambia es NUESTRA identidad (tipografía, paleta, logo del avatar activo).",
     "",
     "Proceso:",

@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { IngestProgress } from "@/components/thirtyx/IngestProgress";
 import { SectionLabel } from "@/components/thirtyx/SectionLabel";
 import { AssignmentQueue } from "@/components/thirtyx/AssignmentQueue";
+import { AvatarAssetsPanel } from "@/components/thirtyx/AvatarAssetsPanel";
 import { useIngest, type IngestDone } from "@/hooks/useIngest";
 import { isInstagramUrl } from "@/lib/instagram-url";
 import { cn } from "@/lib/utils";
@@ -48,6 +49,7 @@ export default function ThirtyXPage() {
   // manual entry
   const [url, setUrl] = useState("");
   const [avatarSlug, setAvatarSlug] = useState("");
+  const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   // config form
@@ -98,11 +100,11 @@ export default function ThirtyXPage() {
       fetch("/api/thirtyx/from-reference", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ referenceUrl: url.trim(), avatarSlug }),
+        body: JSON.stringify({ referenceUrl: url.trim(), avatarSlug, note: note.trim() || undefined }),
         signal,
       })
     );
-  }, [ingest, url, avatarSlug]);
+  }, [ingest, url, avatarSlug, note]);
 
   const handleManual = () => {
     setError(null);
@@ -309,6 +311,28 @@ export default function ThirtyXPage() {
               Post o reel público. Bajamos sus láminas y las usamos como referente.
             </p>
 
+            {/* Nota opcional: viaja al mensaje de generación (buildGenerationMessage). */}
+            <label
+              htmlFor="generation-note"
+              className="mt-6 block text-[11px] uppercase tracking-[0.14em] text-muted-foreground"
+            >
+              Nota para la generación <span className="normal-case tracking-normal">(opcional)</span>
+            </label>
+            <textarea
+              id="generation-note"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              disabled={busy}
+              rows={2}
+              maxLength={2000}
+              placeholder="Ej: resaltá la cifra final · tono más sobrio · dejá respirar los títulos"
+              className="mt-2 w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground transition-colors placeholder:text-muted-foreground/50 focus:border-accent focus:outline-none disabled:opacity-50"
+            />
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              Se suma a la generación sin romper la fidelidad al referente: ajusta énfasis o tono, no
+              el layout.
+            </p>
+
             <div className="mt-6 flex flex-wrap items-center gap-3">
               <label className="sr-only" htmlFor="avatar-select">
                 Avatar
@@ -366,6 +390,9 @@ export default function ThirtyXPage() {
 
         {/* ── 02 · Asignaciones (push desde Prewave) ─────────────────────── */}
         <AssignmentQueue />
+
+        {/* ── 03 · Assets de marca por avenger ───────────────────────────── */}
+        <AvatarAssetsPanel syncSlug={avatarSlug || undefined} />
 
         <footer className="mt-16 border-t border-border pt-5">
           <Link
