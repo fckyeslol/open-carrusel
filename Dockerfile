@@ -39,4 +39,11 @@ EXPOSE 3000
 # Shell-form para honrar $PORT: Cloud Run inyecta PORT=8080 (y lo espera); en
 # compose/VM queda en 3000. El loopback del subproceso usa el mismo process.env.PORT.
 # -H 0.0.0.0: en Cloud Run lo alcanza el Load Balancer; en compose, Caddy.
-CMD ["sh", "-c", "npx next start -H 0.0.0.0 -p ${PORT:-3000}"]
+#
+# Antes de arrancar sembramos los presets desde los ADN commiteados
+# (30x/avatars/<slug>/adn.json → data/style-presets.json). Va en el CMD, no en el
+# build, porque `data/` es un volumen montado en runtime: generarlo en build queda
+# tapado por el mount vacío del host. El script es idempotente (upsert por id) y no
+# usa red, así que re-correrlo en cada arranque solo refresca los avatares sin pisar
+# ediciones. `|| true`: si el sembrado falla, igual levantamos el server.
+CMD ["sh", "-c", "node scripts/import-avatars.mjs || true; npx next start -H 0.0.0.0 -p ${PORT:-3000}"]
