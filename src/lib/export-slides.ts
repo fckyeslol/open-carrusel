@@ -1,4 +1,4 @@
-import puppeteer, { type Browser } from "puppeteer";
+import puppeteer, { type Browser, type Page } from "puppeteer";
 import { readFile } from "fs/promises";
 import { existsSync } from "fs";
 import path from "path";
@@ -136,9 +136,43 @@ export async function prepareRenderableHtml(
  */
 const EXPORT_SCALE = 2;
 
+/**
+ * En la página ya renderizada, neutraliza la capa de fondo del slide para
+ * exportar "sin fondo" (PNG transparente). Quita exactamente lo que el editor
+ * trata como fondo: el `background` del `<html>`/`<body>` y del contenedor raíz
+ * (el mismo que colorea `setBg` en slide-editor.ts) y la capa de textura
+ * (`[data-oc-tex]`). El contenido (textos, imágenes, formas) queda intacto.
+ *
+ * No intenta adivinar fondos pintados en divs anidados: en este editor el fondo
+ * se setea sobre la raíz, así que ese es el contrato predecible.
+ */
+async function stripSlideBackground(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const clear = (el: HTMLElement) => {
+      el.style.background = "transparent";
+      el.style.backgroundColor = "transparent";
+      el.style.backgroundImage = "none";
+    };
+    clear(document.documentElement);
+    clear(document.body);
+    // Capa de textura a lámina completa: se oculta entera.
+    document
+      .querySelectorAll<HTMLElement>("[data-oc-tex]")
+      .forEach((el) => (el.style.display = "none"));
+    // Contenedor raíz del slide: primer hijo real del body (el que colorea setBg).
+    const skipTags = new Set(["SCRIPT", "STYLE", "LINK"]);
+    for (const child of Array.from(document.body.children) as HTMLElement[]) {
+      if (child.hasAttribute("data-oc-tex") || skipTags.has(child.tagName)) continue;
+      clear(child);
+      break;
+    }
+  });
+}
+
 export async function exportSlide(
   slide: Slide,
-  aspectRatio: AspectRatio
+  aspectRatio: AspectRatio,
+  options: { transparent?: boolean } = {}
 ): Promise<Buffer> {
   const { width, height } = DIMENSIONS[aspectRatio];
 
@@ -164,6 +198,10 @@ export async function exportSlide(
         // Font loading timeout — proceed with whatever loaded
       });
 
+    // "Sin fondo": neutralizamos la capa de fondo antes de capturar y dejamos que
+    // Puppeteer respete la transparencia (omitBackground no rasteriza el blanco).
+    if (options.transparent) await stripSlideBackground(page);
+
     const screenshotBuffer = await page.screenshot({
       type: "png",
       clip: { x: 0, y: 0, width, height },
@@ -171,11 +209,13 @@ export async function exportSlide(
       // through an Emulation path that hangs captureScreenshot on this Windows/
       // Chromium combo. Viewport == clip here, so disabling it is equivalent + reliable.
       captureBeyondViewport: false,
+      omitBackground: options.transparent === true,
     });
 
     exportCount++;
 
-    // Post-process with Sharp: enforce sRGB
+    // Post-process with Sharp: enforce sRGB. En transparente preservamos el canal
+    // alfa (png lo mantiene); en opaco es el mismo camino que siempre.
     const processed = await sharp(screenshotBuffer)
       .toColorspace("srgb")
       .png()

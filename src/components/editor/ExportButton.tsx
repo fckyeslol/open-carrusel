@@ -25,7 +25,7 @@ interface ExportButtonProps {
 /** Pausa entre descargas para que el navegador no bloquee los archivos en ráfaga. */
 const DOWNLOAD_GAP_MS = 400;
 
-type FormatId = "png" | "pdf-all" | "pdf-one" | "html" | "svg";
+type FormatId = "png" | "png-alpha" | "pdf-all" | "pdf-one" | "html" | "svg";
 
 interface FormatOption {
   id: FormatId;
@@ -41,6 +41,13 @@ const FORMATS: FormatOption[] = [
     id: "png",
     label: "PNG — láminas sueltas",
     hint: "Un .png por lámina, tamaño IG exacto",
+    icon: FileImage,
+    perSlide: true,
+  },
+  {
+    id: "png-alpha",
+    label: "PNG — sin fondo",
+    hint: "Transparente: quita color/degradado/textura de fondo, deja el contenido",
     icon: FileImage,
     perSlide: true,
   },
@@ -113,17 +120,22 @@ export function ExportButton({
 
   const safeName = carouselName.replace(/[^a-zA-Z0-9-_]/g, "_") || carouselId;
 
-  const exportPerSlide = async (format: "png" | "svg") => {
+  const exportPerSlide = async (
+    format: "png" | "svg",
+    opts: { transparent?: boolean } = {}
+  ) => {
     const ext = format;
+    const suffix = opts.transparent ? "-sin-fondo" : "";
+    const query = opts.transparent ? "&transparent=1" : "";
     setProgress({ current: 0, total: slideCount });
     for (let slide = 1; slide <= slideCount; slide++) {
       const response = await fetch(
-        `/api/carousels/${carouselId}/export?format=${format}&slide=${slide}`,
+        `/api/carousels/${carouselId}/export?format=${format}&slide=${slide}${query}`,
         { method: "POST" }
       );
       if (!response.ok) throw new Error(`Export failed on slide ${slide}`);
       const blob = await response.blob();
-      downloadBlob(blob, `${safeName}-slide-${slide}.${ext}`);
+      downloadBlob(blob, `${safeName}-slide-${slide}${suffix}.${ext}`);
       setProgress({ current: slide, total: slideCount });
       if (slide < slideCount) {
         await new Promise((r) => setTimeout(r, DOWNLOAD_GAP_MS));
@@ -157,6 +169,9 @@ export function ExportButton({
       switch (id) {
         case "png":
           await exportPerSlide("png");
+          break;
+        case "png-alpha":
+          await exportPerSlide("png", { transparent: true });
           break;
         case "svg":
           await exportPerSlide("svg");

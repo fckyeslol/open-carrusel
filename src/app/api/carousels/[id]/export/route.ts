@@ -70,13 +70,21 @@ export async function POST(
     switch (format) {
       case "png": {
         if (!slideIndexValid) return invalidSlide(slideParam, carousel.slides);
+        // ?transparent=1 → PNG sin la capa de fondo (para componer en otra
+        // herramienta). El nombre del archivo lo marca con `-sin-fondo`.
+        const transparent = url.searchParams.get("transparent") === "1";
         const buffer = await exportSlide(
           carousel.slides[slideNumber - 1],
-          aspectRatio
+          aspectRatio,
+          { transparent }
         );
-        return binary(buffer, "png", `${safeName}-slide-${slideNumber}.png`, {
-          "X-Slide-Count": String(carousel.slides.length),
-        });
+        const suffix = transparent ? "-sin-fondo" : "";
+        return binary(
+          buffer,
+          "png",
+          `${safeName}-slide-${slideNumber}${suffix}.png`,
+          { "X-Slide-Count": String(carousel.slides.length) }
+        );
       }
 
       case "svg": {
