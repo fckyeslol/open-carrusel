@@ -4,8 +4,7 @@ import { getSessionUser } from "@/lib/auth";
 import { getPrewaveToken } from "@/lib/users";
 import { isHostedMode } from "@/lib/hosted";
 import { getCarousel } from "@/lib/carousels";
-import { exportAllSlides } from "@/lib/export-slides";
-import { uploadCarousel, PrewaveError } from "@/lib/prewave";
+import { completeJob, PrewaveError } from "@/lib/prewave";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,9 +12,9 @@ export const maxDuration = 120;
 
 /**
  * Aprueba un borrador EN REVISIÓN y lo entrega a Prewave con el token de la
- * diseñadora. Re-exporta el carrusel AHORA (captura los ajustes que hizo durante
- * la revisión) y sube las láminas al endpoint de worker de Prewave (cierra el
- * job del lado de Prewave). Solo la dueña del pedido puede aprobarlo.
+ * diseñadora. El result_url del job apunta a NUESTRO editor (HTML editable):
+ * quien revisa en Prewave abre ese link y puede hacer cambios. Marcar el job
+ * `done` mueve el brief de "por diseñar" a "en revisión". Solo la dueña aprueba.
  */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ jobId: string }> }) {
   if (!isHostedMode()) {
@@ -48,10 +47,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "El carrusel está vacío" }, { status: 409 });
   }
 
-  // Re-exporta ahora: refleja los ajustes de la revisión.
-  const files = await exportAllSlides(carousel.slides, carousel.aspectRatio);
+  // Opción A: el entregable es NUESTRO editor (HTML editable). El revisor de
+  // Prewave abre este link y puede seguir ajustando. `done` → el brief pasa a
+  // "en revisión".
+  const host = request.headers.get("host") || process.env.DOMAIN || "carruseles.30x.com";
+  const editorUrl = `https://${host}/carousel/${a.carouselId}`;
   try {
-    await uploadCarousel(jobId, files, token);
+    await completeJob(jobId, editorUrl, token);
   } catch (e) {
     // No marcamos delivered: la entrega no llegó a Prewave, que pueda reintentar.
     const status = e instanceof PrewaveError ? e.status : 502;
