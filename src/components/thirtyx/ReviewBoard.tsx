@@ -97,6 +97,20 @@ export function ReviewBoard() {
     [sync]
   );
 
+  const retry = useCallback(
+    async (jobId: string) => {
+      if (busyRef.current.has(jobId)) return;
+      busyRef.current.add(jobId);
+      try {
+        await fetch(`/api/thirtyx/assignments/${jobId}/retry`, { method: "POST" });
+        await sync();
+      } finally {
+        busyRef.current.delete(jobId);
+      }
+    },
+    [sync]
+  );
+
   const logout = useCallback(async () => {
     await fetch("/api/auth/logout", { method: "POST" });
     router.replace("/login");
@@ -244,6 +258,14 @@ export function ReviewBoard() {
                     <p className="mt-0.5 line-clamp-2 text-[11px] text-muted-foreground">
                       {a.status === "blocked" ? (a.error || "Sin avatar cargado") : (a.error || "Falló la generación")}
                     </p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="mt-2 h-7 text-[11px]"
+                      onClick={() => retry(a.jobId)}
+                    >
+                      Reintentar
+                    </Button>
                   </li>
                 ))}
               </Column>
