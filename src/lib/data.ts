@@ -27,11 +27,19 @@ let tmpCounter = 0;
  * ausente durante el swap). Un puñado de reintentos con backoff corto sortea esa
  * ventana sin que la lectura falle.
  */
-const READ_RETRIES = 5;
-const READ_BACKOFF_MS = 25;
+const READ_RETRIES = 8;
+const READ_BACKOFF_MS = 40;
 
 /** Códigos de error de lectura que son transitorios (vale reintentar). */
-const TRANSIENT_READ_CODES = new Set(["EBUSY", "EPERM", "EACCES", "EMFILE", "ENFILE", "ENOENT"]);
+const TRANSIENT_READ_CODES = new Set([
+  "EBUSY", "EPERM", "EACCES", "EMFILE", "ENFILE", "ENOENT",
+  // GCS FUSE (Cloud Run): el handle del volumen montado se vuelve stale y la
+  // lectura falla con ESTALE/EIO — o con code "UNKNOWN" cuando Node no mapea el
+  // errno (ej. "Unknown system error -116, read"). Reintentar los sortea.
+  "ESTALE", "EIO", "UNKNOWN",
+]);
+/** errnos crudos transitorios de GCS FUSE (Node los reporta como code "UNKNOWN"). */
+const TRANSIENT_READ_ERRNOS = new Set([-116, -5]); // ESTALE, EIO
 
 function getMutex(filename: string): Mutex {
   let mutex = mutexes.get(filename);
@@ -84,8 +92,11 @@ async function readFileWithRetry(filePath: string): Promise<string> {
       return await readFile(filePath, "utf-8");
     } catch (err) {
       lastErr = err;
-      const code = (err as NodeJS.ErrnoException).code;
-      if (!code || !TRANSIENT_READ_CODES.has(code) || attempt === READ_RETRIES) break;
+      const e = err as NodeJS.ErrnoException;
+      const transient =
+        (e.code != null && TRANSIENT_READ_CODES.has(e.code)) ||
+        (typeof e.errno === "number" && TRANSIENT_READ_ERRNOS.has(e.errno));
+      if (!transient || attempt === READ_RETRIES) break;
       await delay(READ_BACKOFF_MS * (attempt + 1));
     }
   }
