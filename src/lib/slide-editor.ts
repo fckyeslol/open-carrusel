@@ -261,6 +261,7 @@ export const EDITOR_RUNTIME = String.raw`
     if(gy!=null){ gH.style.display='block'; gH.style.transform='translateY('+gy+'px)'; } else gH.style.display='none';
   }
   function report(){
+    reportLayers();   // el panel de capas se mantiene al día con cada cambio/selección
     if(!sels.length){ post({oc:'sel',none:true}); return; }
     var el=sels[0], cs=getComputedStyle(el), er=el.getBoundingClientRect();
     var isText = isTextEl(el), isSvg = isSvgRoot(el);
@@ -285,6 +286,7 @@ export const EDITOR_RUNTIME = String.raw`
         : (ct.backgroundColor&&ct.backgroundColor!=='rgba(0, 0, 0, 0)'&&ct.backgroundColor!=='transparent')?toHex(ct.backgroundColor):'',
       italic:ct.fontStyle==='italic', align:cs.textAlign,
       opacity: Math.round((parseFloat(cs.opacity)||1)*100),
+      blur: Math.round(filterBlur(el)),
       rotation: Math.round(((parseFloat(el.style.rotate)||0)%360+360)%360),
       radius: Math.round(parseFloat(cs.borderTopLeftRadius)||0),
       isShape: !!(el.getAttribute&&el.getAttribute('data-oc-shape')),
@@ -741,8 +743,8 @@ export const EDITOR_RUNTIME = String.raw`
   // Hermanos "apilables" (excluye UI, textura, script/style) en su ORDEN VISUAL
   //   actual (z-index, y a igualdad, orden del DOM). Base común de front/back y
   //   de los movimientos de una capa a la vez. index 0 = atrás, último = frente.
-  function layerSiblings(el){
-    var par=el.parentElement; if(!par) return null;
+  function layerChildrenOf(par){
+    if(!par) return [];
     var items=[], kids=par.children;
     for(var i=0;i<kids.length;i++){
       var k=kids[i];
@@ -757,6 +759,53 @@ export const EDITOR_RUNTIME = String.raw`
     items.sort(function(a,b){ return (a.z-b.z) || (a.i-b.i); });  // orden visual hoy
     return items.map(function(it){ return it.el; });
   }
+  function layerSiblings(el){
+    var par=el.parentElement; if(!par) return null;
+    return layerChildrenOf(par);
+  }
+  // ── panel de capas: id estable por elemento (persiste en el HTML serializado),
+  //    etiqueta legible, y reporte de la lista al padre para verla/reordenarla. ──
+  var ocIdSeq=0;
+  function ensureLayerId(el){
+    var id=el.getAttribute('data-oc-id');
+    if(!id){ id='L'+(++ocIdSeq)+Math.floor(Math.random()*1e6).toString(36); el.setAttribute('data-oc-id',id); }
+    return id;
+  }
+  function layerInfo(el){
+    if(el.tagName==='IMG') return {kind:'image', label:'Imagen'};
+    if(el.getAttribute && el.getAttribute('data-oc-g')) return {kind:'group', label:'Grupo'};
+    if(isSvgRoot(el) || (el.getAttribute && el.getAttribute('data-oc-shape'))) return {kind:'shape', label:'Forma'};
+    var t=(el.textContent||'').replace(/\s+/g,' ').trim();
+    if(t) return {kind:'text', label: t.length>26 ? t.slice(0,26)+'…' : t};
+    return {kind:'box', label:'Elemento'};
+  }
+  function reportLayers(){
+    var root=rootEl()||document.body;
+    var kids=layerChildrenOf(root);   // back-to-front
+    var selIds={};
+    sels.forEach(function(e){ if(e.getAttribute){ var id=e.getAttribute('data-oc-id'); if(id) selIds[id]=1; } });
+    var items=[];
+    for(var i=kids.length-1;i>=0;i--){   // FRONT primero (como un panel de capas)
+      var el=kids[i], id=ensureLayerId(el), info=layerInfo(el);
+      items.push({id:id, kind:info.kind, label:info.label, selected: !!selIds[id]});
+    }
+    post({oc:'layers', items:items});
+  }
+  function selectLayer(id){
+    var el=document.querySelector('[data-oc-id="'+id+'"]');
+    if(el) select(el, false, false);   // selección normal (agrupa si es grupo)
+  }
+  function reorderLayers(ids){
+    if(!ids||!ids.length) return;
+    var root=rootEl()||document.body;
+    var byId={};
+    layerChildrenOf(root).forEach(function(el){ byId[el.getAttribute('data-oc-id')]=el; });
+    // ids vienen FRONT→BACK; applyLayerOrder espera BACK→FRONT.
+    var order=[];
+    for(var i=ids.length-1;i>=0;i--){ var el=byId[ids[i]]; if(el) order.push(el); }
+    if(!order.length) return;
+    snap(); applyLayerOrder(order); paint(); report(); serialize();
+  }
   // Reasigna z-index secuencial según el orden dado (posicionando lo estático
   //   con relative, que no altera el layout). Sin tocar el DOM.
   function applyLayerOrder(order){
@@ -764,6 +813,18 @@ export const EDITOR_RUNTIME = String.raw`
       if(getComputedStyle(k).position==='static') k.style.position='relative';
       k.style.zIndex=String(idx+1);
     });
+  }
+  // ── filtro compuesto: sombra (drop-shadow) y desenfoque (blur) conviven en la
+  //    misma propiedad CSS 'filter'. Se leen/reescriben juntos para no pisarse. ──
+  function filterBlur(el){
+    var m=/blur\(([\d.]+)px\)/.exec(el.style.filter||'');
+    return m?parseFloat(m[1]):0;
+  }
+  function composeFilter(el, dropStr, blurPx){
+    var parts=[];
+    if(dropStr) parts.push('drop-shadow('+dropStr+')');
+    if(blurPx>0) parts.push('blur('+blurPx+'px)');
+    el.style.filter=parts.join(' ');
   }
   function restack(el,toFront){
     var par=el.parentElement; if(!par) return;
@@ -865,7 +926,9 @@ export const EDITOR_RUNTIME = String.raw`
     //    despega el elemento — se ve "más arriba" del fondo. 'dots' inserta una capa
     //    de puntos halftone DETRÁS (elemento real: se mueve/recolorea/borra solo). ──
     else if(p==='shadow'){
-      el.style.boxShadow=''; el.style.filter='';
+      // Preservamos un blur existente: sombra y desenfoque comparten 'filter'.
+      var keepBlur=filterBlur(el);
+      el.style.boxShadow=''; composeFilter(el, '', keepBlur);
       if(v==='dots'){
         var dr=el.getBoundingClientRect();
         var dd=document.createElement('div');
@@ -883,10 +946,16 @@ export const EDITOR_RUNTIME = String.raw`
         var box={soft:'0 6px 18px rgba(0,0,0,.20)', medium:'0 12px 30px rgba(0,0,0,.28)', strong:'0 22px 48px rgba(0,0,0,.40)', float:'0 30px 46px -18px rgba(0,0,0,.45)'};
         var drop={soft:'0 6px 10px rgba(0,0,0,.28)', medium:'0 12px 18px rgba(0,0,0,.32)', strong:'0 20px 28px rgba(0,0,0,.42)', float:'0 26px 22px rgba(0,0,0,.38)'};
         if(box[v]){
-          if(el.tagName==='IMG'||isSvgRoot(el)) el.style.filter='drop-shadow('+drop[v]+')';
+          if(el.tagName==='IMG'||isSvgRoot(el)) composeFilter(el, drop[v], keepBlur);
           else el.style.boxShadow=box[v];
         } // 'none' deja todo reseteado
       }
+    }
+    // ── desenfoque gaussiano del elemento: comparte 'filter' con el drop-shadow,
+    //    así que preservamos la sombra al ajustar el blur y viceversa. 0 = nítido. ──
+    else if(p==='blur'){
+      var dm=/drop-shadow\(([^)]*)\)/.exec(el.style.filter||'');
+      composeFilter(el, dm?dm[1]:'', Math.max(0,parseFloat(v)||0));
     }
     // ── degradado como relleno: en divs/texto va directo al background; en un svg
     //    raíz inyectamos <defs><linearGradient> y apuntamos el fill de las formas. ──
@@ -1151,9 +1220,12 @@ export const EDITOR_RUNTIME = String.raw`
     else if(m.oc==='setBg') setBg(m.value);
     else if(m.oc==='setTexture') setTexture(m.url, m.opacity);
     else if(m.oc==='deselect') clearSel();
+    else if(m.oc==='selectLayer') selectLayer(m.id);
+    else if(m.oc==='reorderLayers') reorderLayers(m.ids);
     else if(m.oc==='serialize') serialize();
   });
   post({oc:'ready'});
+  reportLayers();   // lista inicial de capas para el panel
 })();
 `;
 

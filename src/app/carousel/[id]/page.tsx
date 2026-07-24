@@ -31,6 +31,8 @@ export default function CarouselEditorPage({ params }: PageProps) {
   const [carousel, setCarousel] = useState<Carousel | null>(null);
   // Paleta del ADN del avatar activo: muestras de un clic en el editor visual.
   const [palette, setPalette] = useState<PaletteColor[]>([]);
+  // Colores propios de la diseñadora, guardados por avatar (además del ADN).
+  const [customColors, setCustomColors] = useState<string[]>([]);
   const [notFound, setNotFound] = useState(false);
   const [activeSlide, setActiveSlide] = useState(0);
   const [claudeAvailable, setClaudeAvailable] = useState(true);
@@ -236,6 +238,68 @@ export default function CarouselEditorPage({ params }: PageProps) {
       cancelled = true;
     };
   }, [stylePresetId]);
+
+  // Colores propios del avatar: se cargan del store por preset y se ofrecen como
+  // muestras extra (además del ADN). Sin preset no hay dónde guardarlos.
+  useEffect(() => {
+    if (!stylePresetId) {
+      setCustomColors([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/palettes/${stylePresetId}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && Array.isArray(data.colors)) setCustomColors(data.colors);
+      } catch {
+        // Sin colores propios el editor sigue igual; no es bloqueante.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [stylePresetId]);
+
+  // Persiste la lista completa de colores propios (optimista: actualiza la UI ya
+  // y manda el PUT; si falla, revierte al valor previo).
+  const saveCustomColors = useCallback(
+    async (next: string[]) => {
+      if (!stylePresetId) return;
+      const prev = customColors;
+      setCustomColors(next);
+      try {
+        const res = await fetch(`/api/palettes/${stylePresetId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ colors: next }),
+        });
+        if (!res.ok) throw new Error(`Error ${res.status}`);
+        const data = await res.json();
+        if (Array.isArray(data.colors)) setCustomColors(data.colors);
+      } catch {
+        setCustomColors(prev); // rollback
+      }
+    },
+    [stylePresetId, customColors]
+  );
+
+  const handleAddColor = useCallback(
+    (hex: string) => {
+      const h = hex.trim().toLowerCase();
+      if (!/^#[0-9a-f]{6}$/.test(h) || customColors.includes(h)) return;
+      saveCustomColors([...customColors, h]);
+    },
+    [customColors, saveCustomColors]
+  );
+
+  const handleRemoveColor = useCallback(
+    (hex: string) => {
+      saveCustomColors(customColors.filter((c) => c !== hex.toLowerCase()));
+    },
+    [customColors, saveCustomColors]
+  );
 
   // Al salir del modo edición, refrescamos el carrusel (actualiza la tira) y
   // descartamos las ediciones en vivo: el servidor ya es la fuente de verdad y
@@ -666,6 +730,9 @@ export default function CarouselEditorPage({ params }: PageProps) {
               }
               showSafeZones={showSafeZones}
               palette={palette}
+              customColors={customColors}
+              onAddColor={stylePresetId ? handleAddColor : undefined}
+              onRemoveColor={stylePresetId ? handleRemoveColor : undefined}
             />
           ) : (
             <CarouselPreview

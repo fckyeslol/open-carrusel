@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Section } from "@/components/ui/section";
 import { BackgroundPicker } from "./BackgroundPicker";
 import { ColorInput } from "./ColorInput";
+import { LayerPanel, type LayerItem } from "./LayerPanel";
 import type { PaletteColor } from "@/lib/adn-palette";
 import { SafeZoneOverlay } from "./SafeZoneOverlay";
 import { SHAPE_GALLERY, SHADOW_PRESETS, GRADIENT_PRESETS } from "./shape-gallery";
@@ -85,6 +86,7 @@ interface Selection {
   letterSpacing?: number;
   lineHeight?: number;
   opacity?: number;
+  blur?: number; // desenfoque gaussiano (px)
   radius?: number;
   rotation?: number; // grados 0-359 (CSS 'rotate')
   isShape?: boolean; // elemento de la librería de formas
@@ -122,9 +124,22 @@ interface VisualEditorProps {
   showSafeZones?: boolean;
   /** Paleta del ADN del avatar activo: muestras de un clic en los selectores de color. */
   palette?: PaletteColor[];
+  /** Colores propios de la diseñadora (guardados por avatar), muestras extra. */
+  customColors?: string[];
+  onAddColor?: (hex: string) => void;
+  onRemoveColor?: (hex: string) => void;
 }
 
-export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = false, palette }: VisualEditorProps) {
+export function VisualEditor({
+  html,
+  aspectRatio,
+  onChange,
+  showSafeZones = false,
+  palette,
+  customColors,
+  onAddColor,
+  onRemoveColor,
+}: VisualEditorProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [sel, setSel] = useState<Selection>({ none: true });
@@ -153,6 +168,8 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
   // El estado arranca leyendo la lámina, para reflejar una textura ya puesta.
   const [textures, setTextures] = useState<TextureItem[]>([]);
   const [tex, setTex] = useState(() => detectTexture(html));
+  // Lista de capas del slide (frente → fondo), reportada por el runtime del iframe.
+  const [layers, setLayers] = useState<LayerItem[]>([]);
   const { width: W, height: H } = DIMENSIONS[aspectRatio];
 
   // Capturamos el HTML inicial UNA vez: durante la edición el iframe es la fuente
@@ -250,6 +267,7 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
       const m = e.data;
       if (!m || !m.oc) return;
       if (m.oc === "sel") setSel(m as Selection);
+      else if (m.oc === "layers" && Array.isArray(m.items)) setLayers(m.items as LayerItem[]);
       else if (m.oc === "html") onChange(m.html);
       // Ctrl+V con el foco DENTRO del iframe: el runtime nos manda el File
       // del portapapeles y acá se sube + inserta como cualquier otra imagen.
@@ -346,6 +364,28 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
     setAiTarget(null);
     setAiPrompt("");
   }, [aiPrompt, aiTarget, generateImage, send]);
+
+  // Muestras que ve cada selector de color: ADN + colores propios, sin repetir.
+  const swatches = useMemo<PaletteColor[]>(() => {
+    const out: PaletteColor[] = [];
+    const seen = new Set<string>();
+    for (const p of palette ?? []) {
+      const hex = p.hex.toLowerCase();
+      if (seen.has(hex)) continue;
+      seen.add(hex);
+      out.push(p);
+    }
+    for (const c of customColors ?? []) {
+      const hex = c.toLowerCase();
+      if (seen.has(hex)) continue;
+      seen.add(hex);
+      out.push({ hex, name: "Mi color" });
+    }
+    return out;
+  }, [palette, customColors]);
+
+  // Color en edición dentro de la sección "Mis colores" (antes de agregarlo).
+  const [newColor, setNewColor] = useState("#4f7cff");
 
   const hasSel = !sel.none;
   const labelCls =
@@ -681,7 +721,7 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
                       className="mt-1"
                       title="Color del texto"
                       value={sel.color || "#000000"}
-                      swatches={palette}
+                      swatches={swatches}
                       onChange={(hex) => applyProp("color", hex)}
                     />
                   </div>
@@ -803,7 +843,7 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
                         className="flex-1"
                         title={sel.isShape ? "Relleno" : "Fondo del elemento"}
                         value={sel.bg || "#ffffff"}
-                        swatches={palette}
+                        swatches={swatches}
                         onChange={(hex) => {
                           setSel({ ...sel, bg: hex });
                           applyProp("bg", hex);
@@ -857,7 +897,7 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
                       <ColorInput
                         title="Color inicial"
                         value={grad.from}
-                        swatches={palette}
+                        swatches={swatches}
                         onChange={(hex) => {
                           const g = { ...grad, from: hex };
                           setGrad(g);
@@ -867,7 +907,7 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
                       <ColorInput
                         title="Color final"
                         value={grad.to}
-                        swatches={palette}
+                        swatches={swatches}
                         onChange={(hex) => {
                           const g = { ...grad, to: hex };
                           setGrad(g);
@@ -931,7 +971,7 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
                     className="mt-1.5"
                     title="Color del borde"
                     value={sel.borderColor || "#111827"}
-                    swatches={palette}
+                    swatches={swatches}
                     onChange={(hex) => {
                       setSel({ ...sel, borderColor: hex });
                       applyProp("borderColor", hex);
@@ -969,6 +1009,24 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
                       const v = Number(e.target.value);
                       setSel({ ...sel, opacity: v });
                       applyProp("opacity", v);
+                    }}
+                    className="mt-1 w-full accent-accent"
+                  />
+                </label>
+                {/* Desenfoque gaussiano del elemento (foto, forma, texto o caja). */}
+                <label className="block">
+                  <span className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Desenfoque <span className="tabular-nums">{sel.blur ?? 0}px</span>
+                  </span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={40}
+                    value={sel.blur ?? 0}
+                    onChange={(e) => {
+                      const v = Number(e.target.value);
+                      setSel({ ...sel, blur: v });
+                      applyProp("blur", v);
                     }}
                     className="mt-1 w-full accent-accent"
                   />
@@ -1145,13 +1203,27 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
             </>
           )}
 
+          {/* Capas del slide: lista de todos los elementos (frente → fondo). Clic
+              selecciona; arrastrar reordena. Complementa Subir/Bajar del elemento. */}
+          <Section title="Capas" defaultOpen={false}>
+            <p className="mb-2 text-[10px] text-muted-foreground leading-snug">
+              De arriba (frente) a abajo (fondo). Clic para seleccionar; arrastrá para
+              reordenar.
+            </p>
+            <LayerPanel
+              layers={layers}
+              onSelect={(id) => send({ oc: "selectLayer", id })}
+              onReorder={(ids) => send({ oc: "reorderLayers", ids })}
+            />
+          </Section>
+
           {/* Fondo del slide */}
           <Section title="Fondo del slide" defaultOpen={!hasSel}>
             <ColorInput
               className="mb-2"
               title="Color del fondo"
               value={slideBg}
-              swatches={palette}
+              swatches={swatches}
               onChange={(hex) => {
                 setSlideBg(hex);
                 send({ oc: "setBg", value: hex });
@@ -1179,6 +1251,62 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
               <BackgroundPicker onApply={(value) => send({ oc: "setBg", value })} />
             </div>
           </Section>
+
+          {/* Mis colores: paleta propia de la diseñadora (guardada por avatar). Los
+              colores agregados acá aparecen como muestras en TODOS los selectores de
+              color, junto a los del ADN. Solo se muestra si hay dónde guardarlos. */}
+          {onAddColor && (
+            <Section title="Mis colores" defaultOpen={false}>
+              <p className="mb-2 text-[10px] text-muted-foreground leading-snug">
+                Se guardan para este avatar y aparecen como muestras en todos los
+                selectores de color, junto a los del ADN.
+              </p>
+              <div className="flex items-center gap-1.5">
+                <ColorInput
+                  className="flex-1"
+                  title="Color a guardar"
+                  value={newColor}
+                  onChange={setNewColor}
+                />
+                <Button
+                  size="sm"
+                  variant="accent"
+                  className="shrink-0"
+                  onClick={() => onAddColor(newColor)}
+                  title="Guardar este color"
+                >
+                  Agregar
+                </Button>
+              </div>
+              {(customColors?.length ?? 0) > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {customColors!.map((hex) => (
+                    <div key={hex} className="group relative">
+                      <button
+                        type="button"
+                        className="h-7 w-7 rounded-md border border-border"
+                        style={{ backgroundColor: hex }}
+                        title={`${hex.toUpperCase()} — clic para editar el color a guardar`}
+                        onClick={() => setNewColor(hex)}
+                        aria-label={`Color guardado ${hex}`}
+                      />
+                      {onRemoveColor && (
+                        <button
+                          type="button"
+                          onClick={() => onRemoveColor(hex)}
+                          className="absolute -right-1 -top-1 hidden h-4 w-4 items-center justify-center rounded-full border border-border bg-background text-[10px] leading-none text-red-600 shadow-sm group-hover:flex"
+                          title="Quitar color"
+                          aria-label={`Quitar ${hex}`}
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Section>
+          )}
 
           {/* Textura del slide: capa de material a lámina completa, en overlay, detrás
               del texto. Los swatches se pintan en vivo (la PNG sobre un gris, igual que
