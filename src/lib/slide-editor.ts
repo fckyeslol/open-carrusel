@@ -76,7 +76,7 @@ export const EDITOR_RUNTIME = String.raw`
     var c=document.body.children;
     for(var i=0;i<c.length;i++){
       var t=c[i].tagName;
-      if(!c[i].hasAttribute('data-oc-ui') && t!=='SCRIPT' && t!=='STYLE' && t!=='LINK') return c[i];
+      if(!c[i].hasAttribute('data-oc-ui') && !c[i].hasAttribute('data-oc-tex') && t!=='SCRIPT' && t!=='STYLE' && t!=='LINK') return c[i];
     }
     return document.body;
   }
@@ -117,6 +117,14 @@ export const EDITOR_RUNTIME = String.raw`
     var g=el.getAttribute && el.getAttribute('data-oc-g');
     if(!g) return [el];
     return [].slice.call(document.querySelectorAll('[data-oc-g="'+g+'"]'));
+  }
+  // Historial de fuentes de una <img>: cada regeneración/quitar-fondo guarda su src
+  // en data-oc-imghist (JSON de URLs, la primera es la original). Vive en el atributo
+  // → se serializa con la lámina y sobrevive al cambio de selección y de sesión.
+  var IMGHISTMAX=12;
+  function readImgHist(el){
+    try{ var a=JSON.parse(el.getAttribute('data-oc-imghist')||'[]'); return Array.isArray(a)?a:[]; }
+    catch(e){ return []; }
   }
 
   // ── selección inteligente: prefiere texto/imagen; si no hay, toma el decorativo ──
@@ -266,6 +274,7 @@ export const EDITOR_RUNTIME = String.raw`
       tag:el.tagName.toLowerCase(), isText:isText,
       isImage: el.tagName==='IMG',
       src: el.tagName==='IMG' ? (el.getAttribute('src')||'') : '',
+      imgHist: el.tagName==='IMG' ? readImgHist(el) : [],
       text: isText ? readText(el) : '',
       range: !!rh,
       fontFamily:(ct.fontFamily||'').split(',')[0].replace(/['"]/g,'').trim(),
@@ -501,11 +510,19 @@ export const EDITOR_RUNTIME = String.raw`
   function startResize(e,corner){
     if(sels.length!==1) return;
     drag=null;  // un resize nunca coexiste con un arrastre (el mousedown del doc pudo armarlo)
-    var el=sels[0], r=el.getBoundingClientRect(), cs=getComputedStyle(el);
+    var el=sels[0], cs=getComputedStyle(el), isTxt=isTextEl(el);
     snap();
+    // Anclar el borde OPUESTO al handle: horneamos la posición visual actual a
+    // left/top reales (baja el translate del arrastre a coordenadas) para poder
+    // mover el ancla al redimensionar. Sin esto, un elemento ya arrastrado lee un
+    // left/top que no incluye el translate y "salta". En texto no aplica: su tamaño
+    // lo maneja fontSize/width sin ancla, y fijarle el ancho reflowearía de golpe.
+    if(!isTxt && !el.ownerSVGElement){ el.removeAttribute('data-oc-abs'); promoteAbsolute(el); }
+    var r=el.getBoundingClientRect();
     rz={el:el, sx:e.clientX, sy:e.clientY, w:r.width, h:r.height, corner:corner,
+        left:parseFloat(el.style.left)||0, top:parseFloat(el.style.top)||0,
         fs:parseFloat(cs.fontSize)||0,
-        isText: isTextEl(el)};
+        isText: isTxt};
     e.preventDefault(); e.stopPropagation();
   }
   function doResize(x,y){
@@ -520,21 +537,31 @@ export const EDITOR_RUNTIME = String.raw`
       } else { // lateral w/e → SOLO ancho: el texto refluye, fontSize intacto
         rz.el.style.width=Math.max(20,Math.round(rz.w+wDelta))+'px';
       }
-    } else {
-      if(isCorner){ // esquina → escala proporcional
-        var ratio2=Math.max(0.15,(rz.w+wDelta)/Math.max(1,rz.w));
-        rz.el.style.width=Math.max(20,Math.round(rz.w*ratio2))+'px';
-        if(rz.el.tagName==='IMG') rz.el.style.height='auto';
-        // formas: el alto acompaña (un círculo sigue círculo); las líneas no tienen alto
-        else if(rz.el.getAttribute&&rz.el.getAttribute('data-oc-shape')&&!rz.el.getAttribute('data-oc-line'))
-          rz.el.style.height=Math.max(20,Math.round(rz.h*ratio2))+'px';
-      } else if(c==='e'||c==='w'){ // lateral → ancho libre
-        rz.el.style.width=Math.max(20,Math.round(rz.w+wDelta))+'px';
-        if(rz.el.tagName==='IMG') rz.el.style.height='auto';
-      } else { // n/s → alto libre
-        rz.el.style.height=Math.max(20,Math.round(rz.h+hDelta))+'px';
-      }
+      syncOne(); return;
     }
+    // no-texto: cambiamos el tamaño Y movemos el ancla, para que la esquina/borde
+    // opuesto al handle quede fijo (si no, el elemento crece hacia el lado contrario
+    // al que arrastrás y parece saltar).
+    var newW=rz.w, newH=rz.h;
+    if(isCorner){ // esquina → escala proporcional
+      var ratio2=Math.max(0.15,(rz.w+wDelta)/Math.max(1,rz.w));
+      newW=Math.max(20,Math.round(rz.w*ratio2));
+      rz.el.style.width=newW+'px';
+      if(rz.el.tagName==='IMG'){ rz.el.style.height='auto'; newH=rz.el.getBoundingClientRect().height; }
+      // formas: el alto acompaña (un círculo sigue círculo); las líneas no tienen alto
+      else if(rz.el.getAttribute&&rz.el.getAttribute('data-oc-shape')&&!rz.el.getAttribute('data-oc-line')){
+        newH=Math.max(20,Math.round(rz.h*ratio2)); rz.el.style.height=newH+'px';
+      }
+    } else if(c==='e'||c==='w'){ // lateral → ancho libre
+      newW=Math.max(20,Math.round(rz.w+wDelta));
+      rz.el.style.width=newW+'px';
+      if(rz.el.tagName==='IMG') rz.el.style.height='auto';
+    } else { // n/s → alto libre
+      newH=Math.max(20,Math.round(rz.h+hDelta));
+      rz.el.style.height=newH+'px';
+    }
+    if(leftSide) rz.el.style.left=Math.round(rz.left+(rz.w-newW))+'px';
+    if(topSide) rz.el.style.top=Math.round(rz.top+(rz.h-newH))+'px';
     syncOne();   // re-mide solo el elemento activo, sin reconstruir el overlay
   }
 
@@ -588,11 +615,25 @@ export const EDITOR_RUNTIME = String.raw`
   }, true);
 
   function copy(){
+    if(!sels.length) return;
     clip=sels.map(function(el){ return el.outerHTML; });
+    // Portapapeles COMPARTIDO entre láminas: cada lámina es un iframe propio, así
+    // que subimos el HTML al padre. Al montar otra lámina, el padre nos re-inyecta
+    // este clip (setClip) y el Ctrl+V / "Pegar" funciona de lámina a lámina.
+    post({oc:'clip', html:clip});
     // Pisamos el portapapeles del sistema (mejor esfuerzo): sin esto, un
     // screenshot viejo le ganaría al elemento recién copiado en el Ctrl+V.
     try{ if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(' ').catch(function(){}); }catch(err){}
     post({oc:'toast',msg:sels.length+' copiado(s)'});
+  }
+  // Al pegar de OTRA lámina la fuente del elemento puede no estar cargada acá:
+  // recorremos el árbol pegado y aseguramos cada font-family inline (Google Fonts).
+  function ensureFontsIn(el){
+    var all=[el].concat([].slice.call(el.querySelectorAll('*')));
+    all.forEach(function(n){
+      var ff=n.style&&n.style.fontFamily;
+      if(ff) ensureFont(ff.split(',')[0].replace(/['"]/g,'').trim());
+    });
   }
   function paste(){
     if(!clip.length) return;
@@ -603,6 +644,7 @@ export const EDITOR_RUNTIME = String.raw`
       var el=t.firstElementChild; if(!el) return;
       el.removeAttribute('data-oc-g');
       rootEl().appendChild(el);
+      ensureFontsIn(el);
       var d=[20,20]; delta.set(el,d); baseTf.set(el, el.style.transform||'');
       el.style.transform=(el.style.transform?el.style.transform+' ':'')+'translate(20px,20px)';
       added.push(el);
@@ -708,6 +750,7 @@ export const EDITOR_RUNTIME = String.raw`
     for(var i=0;i<kids.length;i++){
       var k=kids[i];
       if(k.hasAttribute && k.hasAttribute('data-oc-ui')) continue;
+      if(k.hasAttribute && k.hasAttribute('data-oc-tex')) continue;   // la textura vive siempre al fondo
       if(k.tagName==='SCRIPT'||k.tagName==='STYLE'||k.tagName==='LINK') continue;
       var cs=getComputedStyle(k), z;
       if(cs.position==='static') z=-0.5;   // estático: pinta bajo lo posicionado
@@ -1007,15 +1050,44 @@ export const EDITOR_RUNTIME = String.raw`
     rootEl().appendChild(el);
     sels=[el]; paint(); report(); serialize();
   }
-  // Reemplaza la fuente de la imagen seleccionada (para regenerar con IA).
+  // Reemplaza la fuente de la imagen seleccionada (para regenerar con IA, quitar
+  // fondo o volver a una versión anterior). Va sumando cada src al historial para
+  // poder comparar el fondo nuevo con el anterior y volver si no convence.
   function setImgSrc(url){
     if(!sels.length) return; var el=sels[0];
     if(el.tagName!=='IMG') return;
     snap();
+    var hist=readImgHist(el);
+    // Primera vez: sembrar con la fuente actual (el fondo original que había).
+    if(!hist.length){ var cur=el.getAttribute('src'); if(cur) hist=[cur]; }
+    // Volver a una versión ya guardada no la duplica; una nueva se agrega al final.
+    if(hist.indexOf(url)<0) hist.push(url);
+    if(hist.length>IMGHISTMAX) hist=hist.slice(hist.length-IMGHISTMAX);
+    el.setAttribute('data-oc-imghist', JSON.stringify(hist));
     el.onload=function(){ paint(); syncOne(); serialize(); };
     el.src=url; report(); serialize();
   }
   function setBg(val){ snap(); (rootEl()||document.body).style.background=val; serialize(); }
+
+  // ── textura de material: capa a lámina completa con mix-blend-mode:overlay, como
+  //    primer hijo del host de fondo (el mismo que colorea setBg) → blende contra ese
+  //    fondo y queda DETRÁS del contenido (z-index 0). Es un div real: se serializa y
+  //    viaja al preview/export. url vacío la quita. Reusa la capa existente al cambiar
+  //    de textura u opacidad, así nunca se apilan dos. ────────────────────────────
+  function setTexture(url, opacity){
+    snap();
+    var host=rootEl()||document.body;
+    var ex=document.querySelector('[data-oc-tex]');
+    if(!url){ if(ex) ex.remove(); paint(); serialize(); return; }
+    if(getComputedStyle(host).position==='static') host.style.position='relative';
+    var t=ex||document.createElement('div');
+    t.setAttribute('data-oc-tex','1');
+    t.style.cssText='position:absolute;inset:0;pointer-events:none;background-position:center;background-size:cover;mix-blend-mode:overlay;z-index:0';
+    t.style.backgroundImage="url('"+url+"')";
+    t.style.opacity=String(opacity);
+    if(!ex) host.insertBefore(t, host.firstChild);
+    paint(); serialize();
+  }
 
   function serializeNoSnap(){
     ui.remove(); gl.remove(); st.remove();
@@ -1038,12 +1110,14 @@ export const EDITOR_RUNTIME = String.raw`
     else if(m.oc==='undo') undo();
     else if(m.oc==='copy') copy();
     else if(m.oc==='paste') paste();
+    else if(m.oc==='setClip'){ if(m.html&&m.html.length) clip=m.html.slice(); }
     else if(m.oc==='duplicate') duplicate();
     else if(m.oc==='addText') addText();
     else if(m.oc==='addShape') addShape(m.kind);
     else if(m.oc==='addImage') addImage(m.url);
     else if(m.oc==='setImgSrc') setImgSrc(m.url);
     else if(m.oc==='setBg') setBg(m.value);
+    else if(m.oc==='setTexture') setTexture(m.url, m.opacity);
     else if(m.oc==='deselect') clearSel();
     else if(m.oc==='serialize') serialize();
   });

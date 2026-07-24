@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { wrapEditableSlide, EDITOR_FONTS } from "@/lib/slide-editor";
 import { DIMENSIONS, type AspectRatio } from "@/types/carousel";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Section } from "@/components/ui/section";
 import { BackgroundPicker } from "./BackgroundPicker";
@@ -23,6 +24,8 @@ import {
   Ungroup,
   Undo2,
   Copy as CopyIcon,
+  ClipboardCopy,
+  ClipboardPaste,
   BringToFront,
   SendToBack,
   AlignStartVertical,
@@ -39,6 +42,12 @@ import {
 } from "lucide-react";
 
 const FONTS = EDITOR_FONTS;
+
+// Portapapeles COMPARTIDO entre láminas. Cada lámina es un iframe que se remonta al
+// cambiar de slide (key={slideId}), así que el clip no puede vivir dentro del iframe.
+// Lo guardamos a nivel de módulo: sobrevive el remonte y deja copiar el logo/texto de
+// una lámina y pegarlo en otra. Se siembra en cada iframe nuevo al recibir su 'ready'.
+let sharedClip: string[] = [];
 
 /** Grosores estándar de Google Fonts, con nombre en español. */
 const WEIGHTS = [
@@ -58,6 +67,7 @@ interface Selection {
   isText?: boolean;
   isImage?: boolean;
   src?: string; // src de la imagen seleccionada (para "Quitar fondo")
+  imgHist?: string[]; // versiones anteriores del src (original + regeneraciones)
   tag?: string;
   text?: string;
   /** Hay un tramo de texto marcado: la tipografía se aplica solo a ese tramo. */
@@ -87,6 +97,21 @@ interface Selection {
   grouped?: boolean;
 }
 
+/** Entrada del manifest de texturas horneadas (public/textures/manifest.json). */
+interface TextureItem {
+  slug: string;
+  nombre: string;
+  uso: string;
+  archivo: string;
+}
+
+/** Lee de una lámina si ya trae capa de textura (slug + opacidad) para reflejarla en el panel. */
+function detectTexture(html: string): { slug: string | null; opacity: number } {
+  const slug = html.match(/data-oc-tex[^>]*\/textures\/([a-z0-9-]+)\.png/i)?.[1] ?? null;
+  const op = html.match(/data-oc-tex[^>]*opacity:\s*([\d.]+)/i)?.[1];
+  return { slug, opacity: op ? Number(op) : 0.85 };
+}
+
 interface VisualEditorProps {
   html: string;
   aspectRatio: AspectRatio;
@@ -98,6 +123,9 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [sel, setSel] = useState<Selection>({ none: true });
+  // ¿hay algo en el portapapeles compartido? Arranca del módulo para que "Pegar"
+  // siga activo al cambiar de lámina (el componente se remonta, el clip no).
+  const [hasClip, setHasClip] = useState(() => sharedClip.length > 0);
   const [scale, setScale] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -116,6 +144,10 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
   const [shapesOpen, setShapesOpen] = useState(false);
   const [grad, setGrad] = useState({ from: "#4f7cff", to: "#ff3b7f", angle: 135 });
   const [slideBg, setSlideBg] = useState("#F6F5F0"); // color plano del fondo del slide
+  // Textura de material del slide: catálogo (del manifest) + la aplicada actualmente.
+  // El estado arranca leyendo la lámina, para reflejar una textura ya puesta.
+  const [textures, setTextures] = useState<TextureItem[]>([]);
+  const [tex, setTex] = useState(() => detectTexture(html));
   const { width: W, height: H } = DIMENSIONS[aspectRatio];
 
   // Capturamos el HTML inicial UNA vez: durante la edición el iframe es la fuente
@@ -144,6 +176,43 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
   const applyProp = useCallback(
     (prop: string, value: unknown) => send({ oc: "apply", prop, value }),
     [send]
+  );
+
+  // Catálogo de texturas horneadas: se lee del manifest público (barato, JSON chico).
+  useEffect(() => {
+    let alive = true;
+    fetch("/textures/manifest.json")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (alive && Array.isArray(d?.texturas)) setTextures(d.texturas);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Aplica (o quita, con slug null) la capa de textura del slide. La URL va absoluta:
+  // el iframe es `srcdoc` y así carga siempre, igual que las imágenes.
+  const applyTexture = useCallback(
+    (slug: string | null) => {
+      const opacity = tex.opacity || 0.85;
+      setTex({ slug, opacity });
+      const url = slug ? new URL(`/textures/${slug}.png`, window.location.origin).href : "";
+      send({ oc: "setTexture", url, opacity });
+    },
+    [send, tex.opacity]
+  );
+
+  const changeTextureOpacity = useCallback(
+    (v: number) => {
+      setTex((t) => ({ ...t, opacity: v }));
+      if (tex.slug) {
+        const url = new URL(`/textures/${tex.slug}.png`, window.location.origin).href;
+        send({ oc: "setTexture", url, opacity: v });
+      }
+    },
+    [send, tex.slug]
   );
 
   const onUpload = useCallback(
@@ -180,10 +249,21 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
       // Ctrl+V con el foco DENTRO del iframe: el runtime nos manda el File
       // del portapapeles y acá se sube + inserta como cualquier otra imagen.
       else if (m.oc === "pasteImage" && m.file instanceof File) onUpload(m.file);
+      // Copia dentro de una lámina → la subimos al portapapeles compartido (módulo)
+      // para poder pegarla en OTRA lámina.
+      else if (m.oc === "clip" && Array.isArray(m.html)) {
+        sharedClip = m.html;
+        setHasClip(m.html.length > 0);
+      }
+      // La lámina terminó de montar: le sembramos el portapapeles compartido, así
+      // el Ctrl+V / "Pegar" trae lo copiado en la lámina anterior.
+      else if (m.oc === "ready" && sharedClip.length) {
+        send({ oc: "setClip", html: sharedClip });
+      }
     };
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
-  }, [onChange, onUpload]);
+  }, [onChange, onUpload, send]);
 
   // Ctrl+V con el foco FUERA del iframe (panel de propiedades, etc.): si el
   // portapapeles trae una imagen y no se está escribiendo en un campo, va a la lámina.
@@ -424,6 +504,14 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
             <Button size="sm" variant="ghost" onClick={() => send({ oc: "duplicate" })} disabled={!hasSel}>
               <CopyIcon className="h-4 w-4" /> Duplicar
             </Button>
+            {/* Copiar/Pegar ENTRE láminas: copiá el logo o un texto acá, cambiá de
+                lámina y pegalo. El portapapeles es compartido (nivel de módulo). */}
+            <Button size="sm" variant="ghost" onClick={() => send({ oc: "copy" })} disabled={!hasSel}>
+              <ClipboardCopy className="h-4 w-4" /> Copiar
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => send({ oc: "paste" })} disabled={!hasClip}>
+              <ClipboardPaste className="h-4 w-4" /> Pegar
+            </Button>
           </div>
           {uploadError && <p className="text-xs text-red-600">{uploadError}</p>}
         </div>
@@ -437,7 +525,9 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
               tipografía se aplican solo a esa parte. Arrastrá para mover; en texto, las{" "}
               <b>esquinas</b> escalan la tipografía y los <b>laterales</b> ajustan el ancho.
               El <b>círculo rosa con ↻</b> arriba del elemento lo rota: arrastralo en
-              la dirección del giro (imán cada 45°).
+              la dirección del giro (imán cada 45°). <b>Copiar</b> (Ctrl+C) y{" "}
+              <b>Pegar</b> (Ctrl+V) funcionan entre láminas: copiá el logo o un texto,
+              cambiá de lámina y pegalo.
             </p>
           )}
 
@@ -480,6 +570,58 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
                     </p>
                   )}
                   {bgError && <p className="text-xs text-red-600">{bgError}</p>}
+
+                  {/* Versiones del fondo: original + cada regeneración/quitar-fondo.
+                      Clic en una la vuelve a aplicar, para comparar el nuevo con el
+                      anterior sin perder ninguno. */}
+                  {(sel.imgHist?.length ?? 0) > 1 && (
+                    <div className="space-y-1.5 pt-1">
+                      <span className={labelCls}>Versiones del fondo</span>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {sel.imgHist!.map((url, i) => {
+                          const active = url === sel.src;
+                          return (
+                            <button
+                              key={url + i}
+                              type="button"
+                              onClick={() => {
+                                if (!active) send({ oc: "setImgSrc", url });
+                              }}
+                              title={
+                                i === 0
+                                  ? active
+                                    ? "Original (aplicado)"
+                                    : "Volver al fondo original"
+                                  : active
+                                    ? `Versión ${i + 1} (aplicada)`
+                                    : `Volver a la versión ${i + 1}`
+                              }
+                              className={cn(
+                                "group relative block aspect-[4/5] w-full overflow-hidden rounded-md border transition-all focus:outline-none focus:ring-2 focus:ring-foreground/30",
+                                active
+                                  ? "border-accent ring-2 ring-accent"
+                                  : "border-border hover:border-foreground/50 hover:shadow-md"
+                              )}
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={url}
+                                alt={i === 0 ? "Fondo original" : `Versión ${i + 1}`}
+                                loading="lazy"
+                                className="h-full w-full object-cover"
+                              />
+                              <span className="absolute left-0 top-0 rounded-br-md bg-foreground/70 px-1 text-[9px] font-semibold leading-tight text-background">
+                                {i === 0 ? "Orig" : i + 1}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="text-[10px] text-muted-foreground leading-relaxed">
+                        Clic para volver a una versión anterior.
+                      </p>
+                    </div>
+                  )}
                 </Section>
               )}
 
@@ -1004,6 +1146,71 @@ export function VisualEditor({ html, aspectRatio, onChange, showSafeZones = fals
             <div className="max-h-72 overflow-y-auto">
               <BackgroundPicker onApply={(value) => send({ oc: "setBg", value })} />
             </div>
+          </Section>
+
+          {/* Textura del slide: capa de material a lámina completa, en overlay, detrás
+              del texto. Los swatches se pintan en vivo (la PNG sobre un gris, igual que
+              en la lámina) para que se reconozcan de un vistazo. */}
+          <Section title="Textura" defaultOpen={false}>
+            <p className="mb-2 text-[10px] text-muted-foreground leading-snug">
+              Material sobre todo el fondo (grano, papel, halftone…), detrás del texto.
+              Se mezcla con el color del fondo de arriba.
+            </p>
+            <div className="grid grid-cols-3 gap-1.5">
+              <button
+                type="button"
+                onClick={() => applyTexture(null)}
+                className={cn(
+                  "flex h-14 items-center justify-center rounded-md border text-[10px] font-medium transition-colors",
+                  !tex.slug
+                    ? "border-accent text-accent ring-1 ring-accent"
+                    : "border-border text-muted-foreground hover:border-accent/60"
+                )}
+              >
+                Ninguna
+              </button>
+              {textures.map((t) => (
+                <button
+                  key={t.slug}
+                  type="button"
+                  title={t.uso}
+                  onClick={() => applyTexture(t.slug)}
+                  className={cn(
+                    "relative h-14 overflow-hidden rounded-md border transition-colors",
+                    tex.slug === t.slug
+                      ? "border-accent ring-1 ring-accent"
+                      : "border-border hover:border-accent/60"
+                  )}
+                >
+                  <span className="absolute inset-0" style={{ background: "#6b7280" }} />
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={t.archivo}
+                    alt=""
+                    className="absolute inset-0 h-full w-full object-cover"
+                    style={{ mixBlendMode: "overlay" }}
+                  />
+                  <span className="absolute inset-x-0 bottom-0 truncate bg-black/45 px-1 py-0.5 text-center text-[9px] font-medium leading-tight text-white">
+                    {t.nombre}
+                  </span>
+                </button>
+              ))}
+            </div>
+            {tex.slug && (
+              <label className="mt-2 block">
+                <span className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Intensidad <span className="tabular-nums">{Math.round(tex.opacity * 100)}%</span>
+                </span>
+                <input
+                  type="range"
+                  min={30}
+                  max={100}
+                  value={Math.round(tex.opacity * 100)}
+                  onChange={(e) => changeTextureOpacity(Number(e.target.value) / 100)}
+                  className="mt-1 w-full accent-accent"
+                />
+              </label>
+            )}
           </Section>
         </div>
       </div>
