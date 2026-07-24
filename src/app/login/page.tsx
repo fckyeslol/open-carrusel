@@ -33,8 +33,8 @@ function LoginForm() {
         return;
       }
       const next = searchParams.get("next");
-      // Solo rutas internas — nunca redirigir a un dominio externo.
-      router.push(next && next.startsWith("/") && !next.startsWith("//") ? next : "/");
+      // Solo rutas internas — nunca redirigir a un dominio externo. Default: el tablero.
+      router.push(next && next.startsWith("/") && !next.startsWith("//") ? next : "/tablero");
       router.refresh();
     } catch {
       setError("No se pudo conectar con el servidor");

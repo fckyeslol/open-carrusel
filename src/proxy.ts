@@ -44,7 +44,16 @@ export default function proxy(request: NextRequest) {
   if (isInternalRequest(request)) return NextResponse.next();
 
   const userId = parseSessionValue(request.cookies.get(SESSION_COOKIE)?.value);
-  if (userId) return NextResponse.next();
+  if (userId) {
+    // La diseñadora aterriza en su tablero de pedidos, no en el home genérico.
+    if (pathname === "/") {
+      const boardUrl = request.nextUrl.clone();
+      boardUrl.pathname = "/tablero";
+      boardUrl.search = "";
+      return NextResponse.redirect(boardUrl);
+    }
+    return NextResponse.next();
+  }
 
   if (pathname.startsWith("/api/")) {
     return NextResponse.json({ error: "No autenticada" }, { status: 401 });
