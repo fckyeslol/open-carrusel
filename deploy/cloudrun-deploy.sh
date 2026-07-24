@@ -30,6 +30,19 @@ SECRETS="AUTH_SECRET=AUTH_SECRET:latest,INTERNAL_API_TOKEN=INTERNAL_API_TOKEN:la
 if [ -n "${SHARED_CLAUDE_SECRET:-}" ]; then
   SECRETS="${SECRETS},${SHARED_CLAUDE_SECRET}=${SHARED_CLAUDE_SECRET}:latest"
 fi
+# Cookie de sesión de Instagram: sin ella el scraping del referente falla desde
+# Cloud Run (IP de datacenter que IG trata como bot → solo baja el logo). Se monta
+# solo si ADD_IG_SESSIONID=1 y el secreto IG_SESSIONID existe en Secret Manager,
+# así el script sigue sirviendo para deploys sin la cookie. Ver docs/DEPLOY-HOSTEADO.md.
+if [ "${ADD_IG_SESSIONID:-}" = "1" ]; then
+  SECRETS="${SECRETS},IG_SESSIONID=IG_SESSIONID:latest"
+fi
+# Proxy residencial para el scraping: hace que la request salga por una IP de casa
+# (la condición que IG no bloquea), sin cookie ni cuenta. Recomendado sobre la
+# cookie. Se monta si ADD_IG_PROXY=1 y existe el secreto IG_PROXY (http://user:pass@host:port).
+if [ "${ADD_IG_PROXY:-}" = "1" ]; then
+  SECRETS="${SECRETS},IG_PROXY=IG_PROXY:latest"
+fi
 
 # --no-cpu-throttling: CPU siempre asignada — el subproceso de Claude (hasta
 #   8 min) y el streaming SSE necesitan CPU fuera del ciclo request/response.

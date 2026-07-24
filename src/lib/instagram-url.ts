@@ -22,3 +22,19 @@ export function normalizeInstagramUrl(raw: string): string | null {
 export function isInstagramUrl(raw: string): boolean {
   return normalizeInstagramUrl(raw) !== null;
 }
+
+/**
+ * ¿La URL sugiere que el post es un CARRUSEL (varias láminas)? Instagram agrega
+ * `?img_index=N` cuando compartís un post multi-imagen; los posts de una sola
+ * imagen NO lo llevan. Se usa como señal barata para detectar una ingesta
+ * degradada: si la URL apunta a un carrusel pero el scraper solo pudo recuperar
+ * la portada, el referente quedó incompleto y NO hay que generar con él.
+ */
+export function hasCarouselHint(raw: string): boolean {
+  try {
+    const u = new URL(raw.trim());
+    return u.searchParams.has("img_index");
+  } catch {
+    return false;
+  }
+}

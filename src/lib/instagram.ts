@@ -12,8 +12,93 @@
 import { writeFile } from "fs/promises";
 import { existsSync } from "fs";
 import path from "path";
-import puppeteer, { type Browser, type Page } from "puppeteer";
-import { normalizeInstagramUrl } from "./instagram-url";
+import puppeteer, { type Page } from "puppeteer";
+import { normalizeInstagramUrl, hasCarouselHint } from "./instagram-url";
+
+/**
+ * Cookie de sesión de Instagram para pasar el muro de login cuando se scrapea
+ * desde un servidor (Cloud Run y demás IPs de datacenter, que Instagram sirve
+ * con un HTML recortado SIN el JSON del post → solo se rescata la portada). En
+ * la compu de una diseñadora (IP residencial) no hace falta: el JSON llega igual.
+ *
+ * Es el valor de la cookie `sessionid` de una cuenta de Instagram logueada
+ * (DevTools → Application → Cookies → instagram.com → sessionid). Se inyecta como
+ * secreto en el server; sin ella, el scraping desde datacenter cae al fallback.
+ */
+function instagramSessionId(): string | undefined {
+  const raw = process.env.IG_SESSIONID || process.env.INSTAGRAM_SESSIONID;
+  return raw && raw.trim() ? raw.trim() : undefined;
+}
+
+/** Setea la cookie `sessionid` en una página antes de navegar a instagram.com. */
+async function applyInstagramSession(page: Page): Promise<void> {
+  const sessionId = instagramSessionId();
+  if (!sessionId) return;
+  await page.setCookie({
+    name: "sessionid",
+    value: sessionId,
+    domain: ".instagram.com",
+    path: "/",
+    httpOnly: true,
+    secure: true,
+    sameSite: "None",
+  });
+}
+
+interface ProxyConfig {
+  /** http://host:port — SIN credenciales (Chrome no las acepta en --proxy-server). */
+  server: string;
+  username?: string;
+  password?: string;
+}
+
+/**
+ * Proxy residencial para scrapear Instagram desde el server. IG bloquea las IPs
+ * de datacenter (Cloud Run) pero sirve el post completo a IPs residenciales — que
+ * es la condición exacta que funciona en la compu de una diseñadora, SIN cookie ni
+ * login. Un proxy residencial hace que la request salga por una IP de casa, así
+ * que suele resolver el problema sin el riesgo de que IG trabe una cuenta (que sí
+ * tiene [[instagram cookie]]). Formato del env: http://usuario:pass@host:puerto.
+ */
+function instagramProxy(): ProxyConfig | undefined {
+  const raw = process.env.IG_PROXY;
+  if (!raw || !raw.trim()) return undefined;
+  try {
+    const u = new URL(raw.trim());
+    return {
+      server: `${u.protocol}//${u.host}`,
+      username: u.username ? decodeURIComponent(u.username) : undefined,
+      password: u.password ? decodeURIComponent(u.password) : undefined,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/** Autentica el proxy (si trae credenciales) — debe correr antes de navegar. */
+async function applyProxyAuth(page: Page, proxy: ProxyConfig | undefined): Promise<void> {
+  if (proxy?.username) {
+    await page.authenticate({ username: proxy.username, password: proxy.password ?? "" });
+  }
+}
+
+/**
+ * Bloquea recursos pesados (imágenes, media, fuentes, CSS) en la página de
+ * extracción. El JSON del post viene en el HTML + los <script>, así que no hace
+ * falta bajar nada más — y sobre un proxy residencial (que se paga por banda),
+ * evitar los MB de thumbnails del feed recorta el gasto y acelera la carga.
+ */
+async function blockHeavyRequests(page: Page): Promise<void> {
+  await page.setRequestInterception(true);
+  page.on("request", (req) => {
+    const type = req.resourceType();
+    if (type === "image" || type === "media" || type === "font" || type === "stylesheet") {
+      req.abort().catch(() => {});
+    } else {
+      req.continue().catch(() => {});
+    }
+  });
+}
 
 function findChrome(): string | undefined {
   if (process.env.PUPPETEER_EXECUTABLE_PATH) return process.env.PUPPETEER_EXECUTABLE_PATH;
@@ -95,17 +180,22 @@ function collectImageUrls(node: unknown, out: string[], seen: Set<object>): void
  * caller la reutiliza para bajar las imágenes desde el mismo origen instagram.com
  * (con Referer/cookies), que es lo que evita el 403 del CDN. El caller cierra.
  */
-async function extractImageUrls(page: Page, postUrl: string): Promise<string[]> {
-  await page.setUserAgent(
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
-  );
-  await page.goto(postUrl, { waitUntil: "networkidle2", timeout: 30000 });
+interface ExtractResult {
+  /** URLs de imagen, en orden, dedup. */
+  urls: string[];
+  /**
+   * true si NO se pudo leer el JSON del post y hubo que caer al `og:image`
+   * (solo la portada). Señal de scraping degradado: Instagram sirvió una página
+   * recortada (muro de login / bloqueo de IP) y el referente quedó incompleto.
+   */
+  usedFallback: boolean;
+}
 
-  // Textos crudos de todos los <script type="application/json">.
+/** Lee los <script type="application/json"> y junta las URLs de imagen. */
+async function readJsonImageUrls(page: Page): Promise<string[]> {
   const jsonBlobs: string[] = await page.$$eval('script[type="application/json"]', (nodes) =>
     nodes.map((n) => n.textContent || "").filter((t) => t.includes("image_versions2") || t.includes("carousel_media") || t.includes("display_url"))
   );
-
   const urls: string[] = [];
   const seen = new Set<object>();
   for (const blob of jsonBlobs) {
@@ -115,17 +205,39 @@ async function extractImageUrls(page: Page, postUrl: string): Promise<string[]> 
       // blob no-JSON o parcial: ignorar
     }
   }
+  return urls;
+}
 
+async function extractImageUrls(page: Page, postUrl: string): Promise<ExtractResult> {
+  await page.setUserAgent(
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+  );
+  // La cookie de sesión (si está) hace que Instagram sirva el HTML completo con
+  // el JSON del post también desde IPs de datacenter — sin ella, un server suele
+  // recibir solo la portada.
+  await applyInstagramSession(page);
+  await page.goto(postUrl, { waitUntil: "networkidle2", timeout: 30000 });
+
+  // El JSON de hidratación a veces llega después de networkidle2. Si el primer
+  // intento no trae nada, esperamos a que aparezca el script y releemos una vez.
+  let urls = await readJsonImageUrls(page);
   if (urls.length === 0) {
-    // Fallback DOM: og:image (al menos la portada).
-    const og = await page
-      .$eval('meta[property="og:image"]', (el) => el.getAttribute("content") || "")
-      .catch(() => "");
-    if (og) urls.push(og);
+    await page
+      .waitForSelector('script[type="application/json"]', { timeout: 5000 })
+      .catch(() => {});
+    urls = await readJsonImageUrls(page);
   }
 
-  // Dedup preservando orden.
-  return [...new Set(urls)];
+  if (urls.length > 0) {
+    // Dedup preservando orden.
+    return { urls: [...new Set(urls)], usedFallback: false };
+  }
+
+  // Fallback DOM: og:image (al menos la portada). Marca ingesta degradada.
+  const og = await page
+    .$eval('meta[property="og:image"]', (el) => el.getAttribute("content") || "")
+    .catch(() => "");
+  return { urls: og ? [og] : [], usedFallback: true };
 }
 
 /**
@@ -194,24 +306,51 @@ export async function downloadInstagramReference(
   if (!postUrl) throw new Error("URL de Instagram inválida");
 
   const executablePath = findChrome();
+  const proxy = instagramProxy();
   const browser = await puppeteer.launch({
     headless: true,
     protocolTimeout: 60000,
     ...(executablePath ? { executablePath } : {}),
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu"],
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-gpu",
+      ...(proxy ? [`--proxy-server=${proxy.server}`] : []),
+    ],
   });
   hooks.onBrowserReady?.();
 
   const page = await browser.newPage();
   const imgPage = await browser.newPage();
+  await applyProxyAuth(page, proxy);
+  await applyProxyAuth(imgPage, proxy);
+  // Con proxy (metered) la página de extracción no baja imágenes/CSS: solo el JSON.
+  if (proxy) await blockHeavyRequests(page);
   try {
     hooks.onExtractStart?.();
-    const imageUrls = await extractImageUrls(page, postUrl);
+    const { urls: imageUrls, usedFallback } = await extractImageUrls(page, postUrl);
     if (imageUrls.length === 0) {
       throw new Error(
         "No se pudieron extraer imágenes del post (¿privado, borrado, o Instagram pide login?). Probá subir capturas del referente a mano."
       );
     }
+
+    // GUARD anti-basura: si Instagram no dio el JSON del post y hubo que caer a
+    // la portada (usedFallback), o si la URL apunta a un carrusel pero solo se
+    // recuperó 1 lámina, el referente está INCOMPLETO. Antes se seguía de largo
+    // y el agente generaba un carrusel de 1 lámina inventada (institucional) que
+    // se marcaba como válido — el peor resultado posible. Mejor fallar claro:
+    // así el job queda failed con una causa accionable en vez de entregar basura.
+    const looksLikeCarousel = hasCarouselHint(rawUrl);
+    if (usedFallback || (looksLikeCarousel && imageUrls.length < 2)) {
+      const sessionHint = instagramSessionId()
+        ? "La cookie IG_SESSIONID quizás venció — renovala."
+        : "Configurá IG_SESSIONID en el server (cookie de sesión de Instagram) para scrapear posts completos desde la nube, o subí las capturas del referente a mano.";
+      throw new Error(
+        `Instagram no devolvió el carrusel completo desde el servidor: solo se pudo leer ${imageUrls.length} ${imageUrls.length === 1 ? "imagen (la portada)" : "imágenes"}. ${sessionHint}`
+      );
+    }
+
     hooks.onExtracted?.(imageUrls.length);
 
     const slides: DownloadedSlide[] = [];

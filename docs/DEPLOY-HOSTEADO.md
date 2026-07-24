@@ -88,6 +88,43 @@ hosteado, poné en `.env.hosted` un `CLAUDE_RUNNER_OAUTH_TOKEN` (un
 `claude setup-token` de la cuenta que deba pagar esas generaciones) y
 reiniciá: `docker compose -f docker-compose.hosted.yml up -d`.
 
+### Bajar el referente desde el server — OBLIGATORIO para la cola
+
+El server baja el referente scrapeando Instagram. Desde una IP de datacenter
+(Cloud Run) Instagram lo trata como bot y sirve un muro de login: el scraper
+solo consigue el logo de IG y el job falla con "carrusel incompleto". Desde una
+IP residencial (la compu de una diseñadora) el post baja completo sin login. Hay
+dos formas de darle al server una salida "residencial":
+
+**Opción A — Proxy residencial (RECOMENDADO).** La request sale por una IP de
+casa: la condición exacta que ya funciona en local, sin cookie ni cuenta de IG
+(no arriesga que IG trabe ninguna cuenta). Contratá un proveedor (Bright Data,
+Oxylabs, IPRoyal, Smartproxy/Decodo, etc.) que te da una URL
+`http://usuario:pass@host:puerto`. Bajamos solo el HTML/JSON del post (se
+bloquean imágenes/CSS en la extracción) para gastar poca banda del proxy.
+
+- **Docker (compose):** `IG_PROXY=http://user:pass@host:puerto` en `.env.hosted`.
+- **Cloud Run:**
+  ```bash
+  printf '%s' 'http://user:pass@gate.proveedor.com:7000' | gcloud secrets create IG_PROXY --data-file=- --replication-policy=automatic
+  bash deploy/gcp-setup.sh                        # da acceso al SA de runtime
+  ADD_IG_PROXY=1 bash deploy/cloudrun-deploy.sh   # (o ADD_IG_PROXY=1 en deploy/gcp.env)
+  ```
+
+**Opción B — Cookie de sesión (`IG_SESSIONID`).** Alternativa sin proxy. Es el
+valor de la cookie `sessionid` de una cuenta IG logueada (DevTools → Application
+→ Cookies → instagram.com → `sessionid`). ⚠ Usá una cuenta **descartable**, no la
+de la marca: IG puede trabar la cuenta al detectar el uso automatizado desde
+datacenter. Vence cada tanto → si la ingesta vuelve a fallar, renovala.
+
+- **Docker:** `IG_SESSIONID=<valor>` en `.env.hosted`.
+- **Cloud Run:** `gcloud secrets create IG_SESSIONID …` + `bash deploy/gcp-setup.sh`
+  + `ADD_IG_SESSIONID=1 bash deploy/cloudrun-deploy.sh`. Renovar:
+  `gcloud secrets versions add IG_SESSIONID --data-file=-` y redeploy.
+
+Se pueden combinar (proxy + cookie) para máxima robustez. Tras configurar,
+**Reintentá** los jobs que habían fallado por referente incompleto.
+
 ## Seguridad — qué protege qué
 
 | Pieza | Qué hace |

@@ -81,7 +81,17 @@ for b in "$BUCKET_DATA" "$BUCKET_UPLOADS"; do
     --member="serviceAccount:${RUNTIME_EMAIL}" --role=roles/storage.objectAdmin >/dev/null
 done
 # Acceso a los secretos.
-for s in AUTH_SECRET INTERNAL_API_TOKEN; do
+SECRETS_TO_BIND="AUTH_SECRET INTERNAL_API_TOKEN"
+# La cookie de Instagram (IG_SESSIONID) se crea a mano con su valor; si ya existe,
+# dale acceso al runtime también. Re-correr este script tras crearla la wirea.
+if gcloud secrets describe IG_SESSIONID >/dev/null 2>&1; then
+  SECRETS_TO_BIND="$SECRETS_TO_BIND IG_SESSIONID"
+fi
+# Idem para el proxy residencial del scraping (IG_PROXY), si ya existe.
+if gcloud secrets describe IG_PROXY >/dev/null 2>&1; then
+  SECRETS_TO_BIND="$SECRETS_TO_BIND IG_PROXY"
+fi
+for s in $SECRETS_TO_BIND; do
   gcloud secrets add-iam-policy-binding "$s" \
     --member="serviceAccount:${RUNTIME_EMAIL}" --role=roles/secretmanager.secretAccessor >/dev/null
 done
