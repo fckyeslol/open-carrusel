@@ -122,7 +122,7 @@ function handleEvent(
  * normal (un carrusel sobre "límites" no dispara esto).
  */
 const USAGE_LIMIT_RE =
-  /usage limit reached|usage limit will reset|reached your usage limit|rate limit|rate.?limited|429|too many requests|quota (?:exceeded|reached)|insufficient quota|out of (?:credits?|quota)|limit will reset at/i;
+  /usage limit reached|usage limit will reset|reached your usage limit|hit your (?:usage|session) limit|session limit|rate limit|rate.?limited|429|too many requests|quota (?:exceeded|reached)|insufficient quota|out of (?:credits?|quota)|limit will reset at|resets? \d{1,2}:\d{2}/i;
 
 /**
  * ¿Este resultado indica que la CUENTA llegó a su límite (vs. un error cualquiera)?
