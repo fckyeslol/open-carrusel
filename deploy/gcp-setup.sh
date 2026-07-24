@@ -96,6 +96,16 @@ for role in roles/run.admin roles/artifactregistry.writer roles/cloudbuild.build
     --member="serviceAccount:${CI_EMAIL}" --role="$role" >/dev/null
 done
 
+echo "▶ Permisos de la SA de Cloud Build (push a Artifact Registry)"
+# Los builds regionales corren como la SA por defecto de Compute; necesita poder
+# pushear la imagen. Aplica tanto al build manual como al de GitHub Actions.
+PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
+COMPUTE_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+gcloud artifacts repositories add-iam-policy-binding "$AR_REPO" \
+  --location="$REGION" \
+  --member="serviceAccount:${COMPUTE_SA}" \
+  --role=roles/artifactregistry.writer >/dev/null
+
 echo "▶ Workload Identity Federation (GitHub → CI SA, sin llaves)"
 POOL=github
 PROVIDER=github-provider

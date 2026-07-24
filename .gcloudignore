@@ -11,3 +11,10 @@ public/uploads
 !.env.hosted.example
 .playwright-mcp
 scratchpad
+# Artefactos de render y basura de trabajo (no van a la imagen).
+public/exports
+impeccable
+/*.png
+/*.jpeg
+/*.txt
+public/__preview.html
