@@ -77,17 +77,60 @@ const MAX_GENERATION_PASSES = 8;
  * Corta antes del tope si dos pasadas seguidas no agregan ni una lámina (el agente
  * está trabado): mejor fallar con un mensaje claro que girar en falso.
  */
+interface GenerationOutcome {
+  /** Cuántas láminas terminó teniendo el carrusel. */
+  produced: number;
+  /** Texto del evento `result` del último turno del agente (su resumen/explicación). */
+  lastResult: string;
+  /** Cola del stderr del último subproceso Claude (errores de CLI: auth, budget, etc.). */
+  lastStderr: string;
+  /** Exit code del último subproceso: null = lo mató el timeout de 8 min (o una señal). */
+  lastExitCode: number | null;
+}
+
+/**
+ * Comprime el diagnóstico del agente para adjuntarlo a un fallo de generación. Sin
+ * esto, "no produjo láminas" no dice NADA de por qué — y en el server hosteado no
+ * tenemos los logs a mano. Lo que el agente dijo al cerrar (401 del proxy interno,
+ * límite de uso, python que no corre) casi siempre está en `result` o en el stderr;
+ * si no dejó nada y salió con código nulo, casi seguro lo cortó el timeout de 8 min.
+ */
+function generationDiagnosis(o: Pick<GenerationOutcome, "lastResult" | "lastStderr" | "lastExitCode">): string {
+  const result = o.lastResult.trim();
+  const stderr = o.lastStderr.trim();
+  const parts: string[] = [];
+  if (result) parts.push(`El agente terminó diciendo: «${result.slice(-400)}»`);
+  if (stderr) parts.push(`stderr: ${stderr.slice(-300)}`);
+  if (!parts.length) {
+    parts.push(
+      o.lastExitCode === null
+        ? "el agente no dejó mensaje y salió por señal — casi seguro lo cortó el timeout de 8 min (o el token del worker sin cupo)"
+        : `el agente no dejó mensaje (exit=${o.lastExitCode})`
+    );
+  }
+  return ` — ${parts.join(" · ")}`;
+}
+
 async function generateAllSlides(
   carouselId: string,
   referenceCount: number,
   systemPrompt: string
-): Promise<number> {
+): Promise<GenerationOutcome> {
   let sessionId: string | undefined;
   let stalls = 0;
+  let lastResult = "";
+  let lastStderr = "";
+  let lastExitCode: number | null = null;
+  const outcome = async (): Promise<GenerationOutcome> => ({
+    produced: (await getCarousel(carouselId))?.slides.length ?? 0,
+    lastResult,
+    lastStderr,
+    lastExitCode,
+  });
 
   for (let pass = 0; pass < MAX_GENERATION_PASSES; pass++) {
     const before = (await getCarousel(carouselId))?.slides.length ?? 0;
-    if (before >= referenceCount) return before;
+    if (before >= referenceCount) return outcome();
 
     const message =
       pass === 0
@@ -101,16 +144,20 @@ async function generateAllSlides(
       cwd: process.cwd(),
       env: runnerSpawnEnv(),
     });
+    // Guardá el diagnóstico del turno ANTES de decidir cortar/seguir.
+    if (gen.resultText) lastResult = gen.resultText;
+    if (gen.stderr) lastStderr = gen.stderr;
+    lastExitCode = gen.exitCode;
     if (gen.exitCode && gen.exitCode !== 0) {
       throw new Error(
-        `Claude terminó con código ${gen.exitCode}. ${gen.stderr.slice(-400) || ""}`.trim()
+        `Claude terminó con código ${gen.exitCode}.${generationDiagnosis({ lastResult, lastStderr, lastExitCode })}`.trim()
       );
     }
     // La sesión permite reanudar la conversación en la próxima pasada.
     if (gen.sessionId) sessionId = gen.sessionId;
 
     const after = (await getCarousel(carouselId))?.slides.length ?? 0;
-    if (after >= referenceCount) return after;
+    if (after >= referenceCount) return outcome();
 
     // Sin progreso: no reanudes eternamente si el agente no avanza.
     if (after <= before) {
@@ -121,7 +168,7 @@ async function generateAllSlides(
     }
   }
 
-  return (await getCarousel(carouselId))?.slides.length ?? 0;
+  return outcome();
 }
 
 /** Base loopback donde el curl de Claude escribe las láminas (mismo server local). */
@@ -224,17 +271,17 @@ async function processAssignment(jobId: string): Promise<void> {
       runnerInternalToken()
     );
 
-    const produced = await generateAllSlides(carousel.id, referenceCount, systemPrompt);
+    const gen = await generateAllSlides(carousel.id, referenceCount, systemPrompt);
 
     // 3. Render a PNG (verifica que la generación produjo TODAS las láminas).
     await setStatus(jobId, "rendering");
     const finalCarousel = await getCarousel(carousel.id);
     if (!finalCarousel || finalCarousel.slides.length === 0) {
-      throw new Error("La generación no produjo láminas");
+      throw new Error(`La generación no produjo láminas.${generationDiagnosis(gen)}`);
     }
-    if (produced < referenceCount) {
+    if (gen.produced < referenceCount) {
       throw new Error(
-        `La generación quedó incompleta: ${produced} de ${referenceCount} láminas. Reintentá el job.`
+        `La generación quedó incompleta: ${gen.produced} de ${referenceCount} láminas. Reintentá el job.${generationDiagnosis(gen)}`
       );
     }
     const files = await exportAllSlides(finalCarousel.slides, finalCarousel.aspectRatio);
