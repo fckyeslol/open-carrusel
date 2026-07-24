@@ -15,11 +15,14 @@ const USERS_FILE = "users.json";
 export interface User {
   id: string;
   /** Identificador de login, minúsculas, sin espacios. */
+  /** Identificador de login: puede ser un usuario simple o un email. */
   username: string;
   displayName: string;
   passwordHash: string;
   /** CLAUDE_CODE_OAUTH_TOKEN cifrado (AES-256-GCM). Ausente hasta que lo pegue. */
   claudeTokenEnc?: string;
+  /** JWT de Prewave de la diseñadora, cifrado (AES-256-GCM). Para la cola 30x. */
+  prewaveTokenEnc?: string;
   /** true tras un alta o reseteo por CLI: la UI fuerza cambio de contraseña. */
   mustChangePassword?: boolean;
   createdAt: string;
@@ -32,12 +35,13 @@ interface UsersFile {
 
 const EMPTY: UsersFile = { users: [] };
 
-/** Vista segura para la UI: sin hash ni token cifrado. */
+/** Vista segura para la UI: sin hash ni tokens cifrados. */
 export interface PublicUser {
   id: string;
   username: string;
   displayName: string;
   hasClaudeToken: boolean;
+  hasPrewaveToken: boolean;
   mustChangePassword: boolean;
 }
 
@@ -47,6 +51,7 @@ export function toPublicUser(user: User): PublicUser {
     username: user.username,
     displayName: user.displayName,
     hasClaudeToken: Boolean(user.claudeTokenEnc),
+    hasPrewaveToken: Boolean(user.prewaveTokenEnc),
     mustChangePassword: Boolean(user.mustChangePassword),
   };
 }
@@ -75,10 +80,13 @@ export async function createUser(input: {
   username: string;
   displayName: string;
   password: string;
+  /** Default true (fuerza cambio al primer login). false para altas con pass fija. */
+  requirePasswordChange?: boolean;
 }): Promise<User> {
   const username = input.username.trim().toLowerCase();
-  if (!/^[a-z0-9._-]{2,32}$/.test(username)) {
-    throw new Error("Usuario inválido: solo minúsculas, números, punto, guion (2-32 chars)");
+  // Acepta usuario simple o email (login por email): letras, números, . _ + - @
+  if (!/^[a-z0-9._+@-]{2,64}$/.test(username)) {
+    throw new Error("Usuario/email inválido");
   }
   const now = new Date().toISOString();
   const user: User = {
@@ -86,7 +94,7 @@ export async function createUser(input: {
     username,
     displayName: input.displayName.trim() || username,
     passwordHash: hashPassword(input.password),
-    mustChangePassword: true,
+    mustChangePassword: input.requirePasswordChange ?? true,
     createdAt: now,
     updatedAt: now,
   };
@@ -139,6 +147,31 @@ export async function getClaudeToken(id: string): Promise<string | null> {
   const user = await getUserById(id);
   if (!user?.claudeTokenEnc) return null;
   return decryptSecret(user.claudeTokenEnc);
+}
+
+/** Guarda el JWT de Prewave de la diseñadora (cifrado en reposo). */
+export async function setPrewaveToken(id: string, token: string): Promise<User> {
+  const trimmed = token.trim();
+  // Los JWT de Prewave tienen 3 segmentos separados por punto (header.payload.firma).
+  if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(trimmed)) {
+    throw new Error("Eso no parece un JWT de Prewave válido (header.payload.firma)");
+  }
+  return patchUser(id, (u) => ({ ...u, prewaveTokenEnc: encryptSecret(trimmed) }));
+}
+
+export async function clearPrewaveToken(id: string): Promise<User> {
+  return patchUser(id, (u) => {
+    const next = { ...u };
+    delete next.prewaveTokenEnc;
+    return next;
+  });
+}
+
+/** Descifra el token de Prewave de la diseñadora. null si aún no lo configuró. */
+export async function getPrewaveToken(id: string): Promise<string | null> {
+  const user = await getUserById(id);
+  if (!user?.prewaveTokenEnc) return null;
+  return decryptSecret(user.prewaveTokenEnc);
 }
 
 export async function changePassword(id: string, current: string, next: string): Promise<User> {
