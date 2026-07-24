@@ -1,0 +1,115 @@
+{
+  "_README": "ADN de la MARCA MADRE 30X (institucional), no un mentor. Fuente: manual de identidad 'ADN' de LaValentina Design (lavalentinadesign.com) para 30X Executive Education. A diferencia de los avatares-mentor, la voz NO viene de Prewave: es la voz corporativa de 30x (Aprende. Conecta. Crece). Se usa para carruseles firmados por 30x como ecosistema, no por una persona.",
+  "avatar": {
+    "slug": "crece30x",
+    "name": "Institucional",
+    "prewave_avatar_id": "",
+    "prewave_program_match": [
+      "30x",
+      "30X",
+      "Institucional",
+      "Marca 30x",
+      "Aprende Conecta Crece",
+      "Red de alto impacto"
+    ]
+  },
+  "brand": {
+    "handle": "@30x",
+    "_handle_TODO": "Confirmar handle oficial de IG de 30x antes de mostrarlo en lámina.",
+    "tagline": "No hay límites cuando la selva está viva",
+    "cta_default": "Aplica ahora",
+    "voice": "neutro corporativo — español latinoamericano ejecutivo"
+  },
+  "voice_dna": {
+    "_fuente_voz": "Manual de identidad 30X (LaValentina Design) + copy del sistema gráfico (Aprende/Conecta/Crece, Red de alto impacto). Es voz de MARCA, no de mentor: 30x habla como ecosistema.",
+    "tono": [
+      "Editorial y contundente — claridad estratégica antes que adorno",
+      "Enérgico pero sobrio: el amarillo lima es energía puntual, no decoración",
+      "Aspiracional sin humo — promete potencial, no milagros",
+      "Directo, en presente, frases que respiran",
+      "Colectivo: habla de red, conexiones y multiplicación de potencial",
+      "Selva viva — vitalidad, expansión, crecimiento exponencial"
+    ],
+    "tono_descripcion": "30x suena como una marca de alto impacto que combina claridad estratégica con energía. Español latinoamericano ejecutivo, afirmaciones cortas y potentes, jerarquía tipográfica que hace el trabajo de la emoción. Nunca corporativo-tibio ni motivacional-vacío: dice cosas concretas sobre conexiones, mentalidad y crecimiento. El tono es el de una portada editorial contemporánea, no el de un folleto institucional.",
+    "estilo_comunicacion": "Titular corto y grande (una o dos palabras que ocupan ~30% de la pieza) → bajada que aterriza la promesa → dato o programa concreto → CTA. Split layout que separa información (izquierda, claro) de emoción/foto (derecha). El mensaje central casi siempre orbita tres verbos: Aprende, Conecta, Crece.",
+    "acento": "neutro",
+    "firma_cierre_prewave": "",
+    "temas_centrales": [
+      "Ecosistema de alto impacto y red de founders/líderes",
+      "El poder de las conexiones correctas en los negocios",
+      "Mentalidad y desaprender como ventaja",
+      "Programas 30x (Fundraising, Xtreme Sales, etc.)",
+      "Crecimiento exponencial y multiplicación de potencial",
+      "Fundraising y salir a levantar capital",
+      "Ventas y go-to-market de alto rendimiento"
+    ],
+    "frases_muestra": [
+      "\"Aprende. Conecta. Crece.\"",
+      "\"Red de alto impacto.\"",
+      "\"No hay límites cuando la selva está viva.\"",
+      "\"30x es un ecosistema de alto impacto donde individuos excepcionales se unen para multiplicar su potencial.\"",
+      "\"En los negocios, las conexiones correctas lo cambian todo. Pero también lo cambia la mentalidad con la que se conecta.\"",
+      "\"Este programa es una caja de herramientas para salir a levantar capital.\""
+    ],
+    "do": [
+      "mantener cifras/datos EXACTOS del referente",
+      "usar la marca 30X como el logo SVG oficial, nunca la palabra tipeada",
+      "reservar el amarillo lima #E9FF7B para acentos y energía puntual — no como color de relleno masivo",
+      "componer con jerarquía: un titular grande y contundente, no varios pesos compitiendo",
+      "cuando aporte, apoyar la composición en las figuras geométricas con degradé lima (universo gráfico 30x)"
+    ],
+    "dont": [
+      "NO inventar cifras, fuentes ni datos que no estén en el referente",
+      "NO usar la voz ni la paleta de un mentor específico (esta es la marca madre)",
+      "NO tipear '30x' — siempre el logo",
+      "NO llenar la lámina de amarillo (es acento, no fondo por defecto)",
+      "NO usar grano/textura ni look de estudio en las fotos"
+    ]
+  },
+  "visual_identity": {
+    "_fuente": "Manual de identidad 'ADN' — 30X Executive Education, por LaValentina Design (lavalentinadesign.com).",
+    "_nota_critica": "Esta identidad es la especificación para construir/validar las láminas de la marca madre 30x. La estructura de cada carrusel sale del referente; de acá salen tipografía, paleta, universo gráfico y logo.",
+    "titulo_rol": "Ecosistema de alto impacto · Aprende. Conecta. Crece",
+    "firma": "30X",
+    "_firma_nota": "La firma es el LOGO 30X en SVG (nunca la palabra tipeada). Ver regla global de logo en el system prompt (/30x/logo-*.svg).",
+    "tipografia": {
+      "familia": "Inter",
+      "licencia": "https://fonts.google.com/specimen/Inter",
+      "nota": "Sans neo-grotesca de Rasmus Andersson, x-height alta y gran legibilidad en pantalla. Titulares en Bold/SemiBold a tamaños grandes (~30% de la pieza); soportes en Medium; cuerpos en Regular."
+    },
+    "paleta": [
+      {
+        "hex": "#000000",
+        "nombre": "Black Potencia",
+        "rol": "principal / textos y fondos oscuros"
+      },
+      {
+        "hex": "#E9FF7B",
+        "nombre": "Amarillo X®",
+        "rol": "acento (energía puntual, la X de la marca)"
+      },
+      {
+        "hex": "#DDD4C0",
+        "nombre": "Beige Crecimiento",
+        "rol": "complementario cálido / superficies"
+      },
+      {
+        "hex": "#F1F1F1",
+        "nombre": "Gris Net",
+        "rol": "base / fondo claro"
+      }
+    ],
+    "_paleta_nota": "Paleta oficial del manual (pág. Colores). Gradientes de marca: Gradiente 01 #F1F1F1→#E9FF7B (lima), Gradiente 02 #D1C9B7→#DDD4C0 (beige).",
+    "fondos": [
+      "FONDO 1 - GRADIENTE LIMA: figuras geométricas orgánicas (elipses, círculos, rectángulos redondeados) rellenas con degradé #F1F1F1→#E9FF7B, sangradas al borde, funcionando como contenedores de fondo con profundidad; nunca compiten con el texto",
+      "FONDO 2 - PLANO: negro #000000, gris net #F1F1F1 o beige #DDD4C0",
+      "FONDO 3 - FOTO EDITORIAL: retrato o escena real, luz natural lateral con sombras geométricas suaves, tonos cálidos desaturados, sin look de estudio ni flash",
+      "FONDO 4 - MODO TRAZO/OUTLINE: las mismas figuras en contorno (línea) lima #E9FF7B sobre fondos oscuros o de bajo contraste, para máxima legibilidad de la información"
+    ],
+    "universo_grafico": "Figuras geométricas simples pero dinámicas (elipse, círculo, rectángulo redondeado) con gradientes lima que simbolizan crecimiento exponencial, conexiones y energía colectiva de la red 30x. Se aplican SANGRADAS en todos los formatos, como fondos/contenedores que aportan profundidad sin tapar el mensaje. Disponen también de un modo 'trazo/outline' para fondos oscuros.",
+    "gradiente": true,
+    "frase_manifiesto": "No hay límites cuando la selva está viva."
+  },
+  "status": "ready",
+  "_status_nota": "ready: identidad visual completa (Inter + paleta oficial). Marca madre 30x; el logo va por la regla global del system prompt."
+}
