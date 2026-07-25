@@ -61,6 +61,12 @@ if [ -n "${CLAUDE_TOKEN_COOLDOWN_MIN:-}" ]; then
   ENV_VARS="${ENV_VARS},CLAUDE_TOKEN_COOLDOWN_MIN=${CLAUDE_TOKEN_COOLDOWN_MIN}"
 fi
 
+# --concurrency=80: requests HTTP simultáneas por instancia. NO bajarlo para
+#   "limitar generaciones": la generación pesada (Puppeteer + subproceso Claude)
+#   ya está capada aparte por el runner (THIRTYX_MAX_CONCURRENT). Con max-instances=1,
+#   un concurrency bajo estrangula el tráfico web liviano (chunks JS, polling, SSE)
+#   y Cloud Run devuelve 429 "no available instance" hasta para el propio bundle,
+#   dejando la app en "Cargando…". Estuvo en 4 y rompía el arranque de la página.
 # --no-cpu-throttling: CPU siempre asignada — el subproceso de Claude (hasta
 #   8 min) y el streaming SSE necesitan CPU fuera del ciclo request/response.
 # --execution-environment gen2: requerido para montar volúmenes GCS.
@@ -73,7 +79,7 @@ gcloud run deploy "$SERVICE" \
   --service-account="$RUNTIME_SA_EMAIL" \
   --execution-environment=gen2 \
   --min-instances=1 --max-instances=1 \
-  --concurrency=4 \
+  --concurrency=80 \
   --cpu=2 --memory=4Gi --cpu-boost --no-cpu-throttling \
   --timeout=3600 \
   --ingress=internal-and-cloud-load-balancing \

@@ -29,6 +29,21 @@ gcloud compute backend-services add-backend "$BACKEND_NAME" \
   --global --network-endpoint-group="$NEG_NAME" \
   --network-endpoint-group-region="$REGION" 2>/dev/null || echo "  (backend ya agregado)"
 
+# Backend CDN (mismo NEG) SOLO para assets inmutables. La instancia de Cloud Run
+# es una sola con concurrency acotado: sin CDN, cada page load gasta slots bajando
+# los bundles de /_next/static y satura la instancia (429 "no available instance",
+# hasta en el propio JS → app en "Cargando…"). Cacheados en el edge, no tocan la
+# instancia. USE_ORIGIN_HEADERS: cachea solo lo que el origen marca cacheable
+# (los chunks vienen `public, max-age=31536000, immutable`). NO cachear el resto:
+# el HTML de páginas manda s-maxage y cachearlo traería skew de versión por deploy.
+echo "▶ Backend CDN para /_next/static"
+gcloud compute backend-services create "${BACKEND_NAME}-cdn" \
+  --global --load-balancing-scheme=EXTERNAL_MANAGED \
+  --enable-cdn --cache-mode=USE_ORIGIN_HEADERS 2>/dev/null || echo "  (ya existía)"
+gcloud compute backend-services add-backend "${BACKEND_NAME}-cdn" \
+  --global --network-endpoint-group="$NEG_NAME" \
+  --network-endpoint-group-region="$REGION" 2>/dev/null || echo "  (backend cdn ya agregado)"
+
 echo "▶ Certificado gestionado para $APP_DOMAIN"
 gcloud compute ssl-certificates create "$CERT_NAME" \
   --domains="$APP_DOMAIN" --global 2>/dev/null || echo "  (ya existía)"
@@ -36,6 +51,12 @@ gcloud compute ssl-certificates create "$CERT_NAME" \
 echo "▶ URL map + proxy HTTPS + forwarding rule (443)"
 gcloud compute url-maps create "$URLMAP_NAME" \
   --default-service="$BACKEND_NAME" 2>/dev/null || echo "  (ya existía)"
+# Enrutá /_next/static/* al backend CDN; todo lo demás sigue al backend normal.
+gcloud compute url-maps add-path-matcher "$URLMAP_NAME" --global \
+  --path-matcher-name=cdn-static \
+  --default-service="$BACKEND_NAME" \
+  --backend-service-path-rules="/_next/static/*=${BACKEND_NAME}-cdn" \
+  --new-hosts="*" 2>/dev/null || echo "  (path matcher ya existía)"
 gcloud compute target-https-proxies create oc-https-proxy \
   --url-map="$URLMAP_NAME" --ssl-certificates="$CERT_NAME" 2>/dev/null || echo "  (ya existía)"
 gcloud compute forwarding-rules create oc-https-fr \

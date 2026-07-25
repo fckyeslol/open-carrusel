@@ -19,7 +19,12 @@ interface Assignment {
   updatedAt: string;
 }
 
-const POLL_MS = 8000;
+/** Cadencia del poll rápido (lectura local — pinta el board). */
+const POLL_OK_MS = 8000;
+/** Techo del backoff cuando el server responde con error (p. ej. 429). */
+const POLL_MAX_MS = 60000;
+/** Cadencia del pull pesado de Prewave (encola briefs nuevos), en background. */
+const SYNC_MS = 30000;
 
 /** Estados en curso (aún generándose). */
 const GENERATING = ["received", "claiming", "ingesting", "generating", "rendering"];
@@ -47,28 +52,88 @@ export function ReviewBoard() {
       .catch(() => {});
   }, []);
 
-  const sync = useCallback(async () => {
+  // Lectura RÁPIDA: solo la base local (GET /mine), sin tocar Prewave. Gatea el
+  // primer render y refresca el estado en vivo. Devuelve true si respondió OK.
+  const loadMine = useCallback(async (): Promise<boolean> => {
     try {
-      const res = await fetch("/api/thirtyx/sync-mine", { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "No se pudo sincronizar con Prewave");
-      } else {
-        setError(null);
+      const res = await fetch("/api/thirtyx/mine");
+      // El 429 de Cloud Run ("no available instance") no es JSON: parseá con red.
+      let data: { error?: string; assignments?: Assignment[] } = {};
+      try {
+        data = await res.json();
+      } catch {
+        /* cuerpo no-JSON (p. ej. página de error del proxy) */
       }
+      if (!res.ok) {
+        setError(
+          data.error ||
+            (res.status === 429
+              ? "El servidor está ocupado; reintentando…"
+              : "No se pudieron cargar tus pedidos")
+        );
+        return false;
+      }
+      setError(null);
       setAssignments(data.assignments || []);
+      return true;
     } catch {
-      setError("Error de red al sincronizar");
+      setError("Error de red al cargar");
+      return false;
     } finally {
       setLoaded(true);
     }
   }, []);
 
+  // Pull PESADO de Prewave (design-queue + enqueue-30x de briefs nuevos). Corre en
+  // background y NO gatea el render: si trae asignaciones, refresca; si falla, se
+  // ignora en silencio (el poll rápido sigue mostrando lo local). Devuelve true si OK.
+  const syncPrewave = useCallback(async (): Promise<boolean> => {
+    try {
+      const res = await fetch("/api/thirtyx/sync-mine", { method: "POST" });
+      let data: { assignments?: Assignment[] } = {};
+      try {
+        data = await res.json();
+      } catch {
+        /* cuerpo no-JSON */
+      }
+      if (res.ok && data.assignments) setAssignments(data.assignments);
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  // Dos ritmos independientes, ambos con setTimeout recursivo (nunca apilan requests):
+  //   • loadMine cada POLL_OK_MS: barato, pinta y refresca. Backoff en error.
+  //   • syncPrewave cada SYNC_MS: caro, en background, encola briefs nuevos.
   useEffect(() => {
-    sync();
-    const id = setInterval(sync, POLL_MS);
-    return () => clearInterval(id);
-  }, [sync]);
+    let cancelled = false;
+    let fastTimer: ReturnType<typeof setTimeout> | null = null;
+    let slowTimer: ReturnType<typeof setTimeout> | null = null;
+    let delay = POLL_OK_MS;
+
+    const fastTick = async () => {
+      const ok = await loadMine();
+      if (cancelled) return;
+      delay = ok ? POLL_OK_MS : Math.min(delay * 2, POLL_MAX_MS);
+      fastTimer = setTimeout(fastTick, delay);
+    };
+
+    const slowTick = async () => {
+      await syncPrewave();
+      if (cancelled) return;
+      slowTimer = setTimeout(slowTick, SYNC_MS);
+    };
+
+    fastTick(); // pinta el board lo antes posible
+    slowTick(); // primer pull de Prewave en background, y se re-agenda solo
+
+    return () => {
+      cancelled = true;
+      if (fastTimer) clearTimeout(fastTimer);
+      if (slowTimer) clearTimeout(slowTimer);
+    };
+  }, [loadMine, syncPrewave]);
 
   const approve = useCallback(
     async (jobId: string) => {
@@ -81,12 +146,12 @@ export function ReviewBoard() {
           const d = await res.json().catch(() => ({}));
           setError(d.error || "No se pudo aprobar el pedido");
         }
-        await sync();
+        await loadMine();
       } finally {
         busyRef.current.delete(jobId);
       }
     },
-    [sync]
+    [loadMine]
   );
 
   const retry = useCallback(
@@ -95,12 +160,12 @@ export function ReviewBoard() {
       busyRef.current.add(jobId);
       try {
         await fetch(`/api/thirtyx/assignments/${jobId}/retry`, { method: "POST" });
-        await sync();
+        await loadMine();
       } finally {
         busyRef.current.delete(jobId);
       }
     },
-    [sync]
+    [loadMine]
   );
 
   // Regenerar desde 0 un pedido que ya está por revisar: descarta el borrador actual
