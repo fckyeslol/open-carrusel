@@ -147,6 +147,9 @@ export function VisualEditor({
   // siga activo al cambiar de lámina (el componente se remonta, el clip no).
   const [hasClip, setHasClip] = useState(() => sharedClip.length > 0);
   const [scale, setScale] = useState(0);
+  // Último zoom medido, sin re-suscribir el listener de mensajes: el runtime lo
+  // necesita para medir la tolerancia del imán en px de pantalla.
+  const scaleRef = useRef(1);
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -184,7 +187,11 @@ export function VisualEditor({
     if (!el) return;
     const measure = () => {
       const r = el.getBoundingClientRect();
-      if (r.width && r.height) setScale(Math.min(r.width / W, r.height / H));
+      if (!r.width || !r.height) return;
+      const s = Math.min(r.width / W, r.height / H);
+      setScale(s);
+      scaleRef.current = s;
+      iframeRef.current?.contentWindow?.postMessage({ oc: "scale", value: s }, "*");
     };
     const obs = new ResizeObserver(measure);
     obs.observe(el);
@@ -278,10 +285,12 @@ export function VisualEditor({
         sharedClip = m.html;
         setHasClip(m.html.length > 0);
       }
-      // La lámina terminó de montar: le sembramos el portapapeles compartido, así
-      // el Ctrl+V / "Pegar" trae lo copiado en la lámina anterior.
-      else if (m.oc === "ready" && sharedClip.length) {
-        send({ oc: "setClip", html: sharedClip });
+      // La lámina terminó de montar: le pasamos el zoom (para que la tolerancia del
+      // imán se mida en px de pantalla) y le sembramos el portapapeles compartido,
+      // así el Ctrl+V / "Pegar" trae lo copiado en la lámina anterior.
+      else if (m.oc === "ready") {
+        send({ oc: "scale", value: scaleRef.current });
+        if (sharedClip.length) send({ oc: "setClip", html: sharedClip });
       }
     };
     window.addEventListener("message", onMsg);
@@ -570,7 +579,10 @@ export function VisualEditor({
               tipografía se aplican solo a esa parte. Arrastrá para mover; en texto, las{" "}
               <b>esquinas</b> escalan la tipografía y los <b>laterales</b> ajustan el ancho.
               El <b>círculo rosa con ↻</b> arriba del elemento lo rota: arrastralo en
-              la dirección del giro (imán cada 45°). <b>Copiar</b> (Ctrl+C) y{" "}
+              la dirección del giro (imán cada 45°). Al mover o redimensionar aparecen{" "}
+              <b>guías inteligentes</b>: violeta cuando se alinea con otro elemento,
+              rosa con el centro, los márgenes o los bordes de la lámina. Mantené{" "}
+              <b>Alt</b> para mover libre, sin imán. <b>Copiar</b> (Ctrl+C) y{" "}
               <b>Pegar</b> (Ctrl+V) funcionan entre láminas: copiá el logo o un texto,
               cambiá de lámina y pegalo.
             </p>

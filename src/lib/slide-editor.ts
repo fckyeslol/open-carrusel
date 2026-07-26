@@ -62,7 +62,7 @@ export const EDITOR_RUNTIME = String.raw`
     +'.oc-deg{position:absolute;left:0;top:0;background:#ff3b7f;color:#fff;font:600 13px/1.35 -apple-system,system-ui,sans-serif;padding:2px 9px;border-radius:6px;white-space:nowrap;pointer-events:none;z-index:2147483002;display:none;box-shadow:0 2px 8px rgba(0,0,0,.35)}'
     +'.oc-rotating,.oc-rotating *{cursor:grabbing !important}'
     +'.oc-box{position:absolute;outline:2px solid #4f7cff;outline-offset:1px}'
-    +'.oc-gl{position:absolute;background:#ff3b7f}'
+    +'.oc-gl{position:absolute;left:0;top:0;background:#ff3b7f;z-index:2}'
     // Placeholder de imagen cargando/rota: vive ACÁ (hoja data-oc-ui, que nunca se
     // serializa) y no en el style inline del <img>, para que el recuadro gris no
     // quede horneado en el HTML guardado si se serializa antes del onload.
@@ -253,17 +253,116 @@ export const EDITOR_RUNTIME = String.raw`
   // capa de guías: se crea UNA vez y solo se muestra/oculta (sin churn de DOM)
   var gl=document.createElement('div'); gl.setAttribute('data-oc-ui','1');
   gl.style.cssText='position:absolute;left:0;top:0;width:'+W+'px;height:'+H+'px;pointer-events:none;z-index:2147483001';
-  var gV=document.createElement('div'), gH=document.createElement('div');
-  gV.style.cssText='position:absolute;top:0;left:0;width:1px;height:'+H+'px;background:#ff3b7f;display:none';
-  gH.style.cssText='position:absolute;left:0;top:0;height:1px;width:'+W+'px;background:#ff3b7f;display:none';
-  gl.appendChild(gV); gl.appendChild(gH); document.body.appendChild(gl);
+  document.body.appendChild(gl);
   // Badge con los grados en vivo mientras se rota. Vive en la capa de guías (que
   // nunca se reconstruye), así persiste durante todo el arrastre.
   var degBadge=document.createElement('div'); degBadge.className='oc-deg'; degBadge.setAttribute('data-oc-ui','1');
   gl.appendChild(degBadge);
-  function guides(gx,gy){
-    if(gx!=null){ gV.style.display='block'; gV.style.transform='translateX('+gx+'px)'; } else gV.style.display='none';
-    if(gy!=null){ gH.style.display='block'; gH.style.transform='translateY('+gy+'px)'; } else gH.style.display='none';
+
+  // ── guías inteligentes ───────────────────────────────────────────────────────
+  // Pool de líneas reutilizables: en un arrastre puede haber varias alineaciones
+  // simultáneas (borde izquierdo con un texto + centro con el lienzo + base con
+  // una imagen), así que no alcanza con una vertical y una horizontal fijas.
+  var glPool=[];
+  function guideEl(i){
+    while(glPool.length<=i){
+      var d=document.createElement('div'); d.className='oc-gl'; d.style.display='none';
+      gl.appendChild(d); glPool.push(d);
+    }
+    return glPool[i];
+  }
+  /** Pinta la lista de guías (axis 'x'|'y', v = coordenada, a..b = tramo, canvas = del lienzo). */
+  function drawGuides(list){
+    for(var i=0;i<list.length;i++){
+      var g=list[i], d=guideEl(i);
+      d.style.display='block';
+      // Rosa = referencia del lienzo (bordes, centro, márgenes); violeta = otro elemento.
+      d.style.background=g.canvas?'#ff3b7f':'#7c3aed';
+      if(g.axis==='x'){
+        d.style.width='1px'; d.style.height=Math.max(1,g.b-g.a)+'px';
+        d.style.transform='translate('+g.v+'px,'+g.a+'px)';
+      } else {
+        d.style.height='1px'; d.style.width=Math.max(1,g.b-g.a)+'px';
+        d.style.transform='translate('+g.a+'px,'+g.v+'px)';
+      }
+    }
+    for(var j=list.length;j<glPool.length;j++) glPool[j].style.display='none';
+  }
+  function clearGuides(){ for(var j=0;j<glPool.length;j++) glPool[j].style.display='none'; }
+
+  // Zoom del lienzo en el padre (el iframe se pinta escalado). La tolerancia de
+  // imán se mide en px de PANTALLA: sin esto, a 35% de zoom un margen de 9px de
+  // lámina son 3px visuales y el imán se siente muerto.
+  var viewScale=1;
+  function tol(){ return Math.max(4, Math.round(7/Math.max(0.12,viewScale))); }
+  var MARGIN=60;   // margen de seguridad de la lámina
+
+  /** ¿El elemento comparte árbol con la selección? (a sí mismo, sus padres o hijos
+   *  no se les hace snap: sus bordes son los del propio elemento que se mueve.) */
+  function inSelTree(el){
+    for(var i=0;i<sels.length;i++){
+      if(sels[i]===el || sels[i].contains(el) || el.contains(sels[i])) return true;
+    }
+    return false;
+  }
+  /**
+   * Snapshot de referencias de alineación: bordes y centro de cada elemento con
+   * cuerpo real, más los bordes/centro/márgenes del lienzo. Se calcula UNA vez al
+   * empezar el arrastre (medir el DOM en cada mousemove costaría el 60fps).
+   */
+  var SNAP_MAX=240;
+  function collectSnap(){
+    var xs=[], ys=[];
+    function px(v,a,b,c){ xs.push({v:v,a:a,b:b,canvas:c}); }
+    function py(v,a,b,c){ ys.push({v:v,a:a,b:b,canvas:c}); }
+    px(0,0,H,1); px(MARGIN,0,H,1); px(W/2,0,H,1); px(W-MARGIN,0,H,1); px(W,0,H,1);
+    py(0,0,W,1); py(MARGIN,0,W,1); py(H/2,0,W,1); py(H-MARGIN,0,W,1); py(H,0,W,1);
+    var all=document.querySelectorAll('body *'), n=0;
+    for(var i=0;i<all.length && n<SNAP_MAX;i++){
+      var el=all[i], t=el.tagName;
+      if(t==='SCRIPT'||t==='STYLE'||t==='LINK') continue;
+      if(el.hasAttribute&&(el.hasAttribute('data-oc-ui')||el.hasAttribute('data-oc-tex'))) continue;
+      if(el.closest&&el.closest('[data-oc-ui]')) continue;
+      if(el.ownerSVGElement) continue;   // formas internas de un svg: aporta el raíz
+      if(inSelTree(el)) continue;
+      var r=el.getBoundingClientRect();
+      if(r.width<2||r.height<2) continue;
+      // Contenedor a lámina completa: sus bordes ya están como bordes del lienzo.
+      if(r.width>=W*0.98&&r.height>=H*0.98) continue;
+      px(r.left,r.top,r.bottom,0); px((r.left+r.right)/2,r.top,r.bottom,0); px(r.right,r.top,r.bottom,0);
+      py(r.top,r.left,r.right,0); py((r.top+r.bottom)/2,r.left,r.right,0); py(r.bottom,r.left,r.right,0);
+      n++;
+    }
+    return {xs:xs, ys:ys};
+  }
+  /** Corrección mínima para que alguno de los candidatos caiga sobre una referencia. */
+  function snapAxis(cands,targets,t){
+    var best=null;
+    for(var i=0;i<cands.length;i++){
+      for(var j=0;j<targets.length;j++){
+        var d=targets[j].v-cands[i];
+        if(Math.abs(d)<=t && (!best||Math.abs(d)<Math.abs(best))) best=d;
+      }
+    }
+    return best;
+  }
+  /** Todas las referencias que quedaron EXACTAS tras el snap, para pintarlas. */
+  function hitGuides(cands,targets,axis,lo,hi){
+    var out=[], seen={};
+    for(var i=0;i<cands.length;i++){
+      for(var j=0;j<targets.length;j++){
+        var tg=targets[j];
+        if(Math.abs(tg.v-cands[i])>0.6) continue;
+        var k=axis+':'+Math.round(tg.v)+':'+(tg.canvas?1:0);
+        if(seen[k]) continue;
+        seen[k]=1;
+        // La guía se extiende del elemento movido a su referencia (como Canva);
+        // las del lienzo cruzan la lámina entera.
+        out.push({axis:axis, v:tg.v, canvas:tg.canvas,
+          a: tg.canvas?tg.a:Math.min(tg.a,lo), b: tg.canvas?tg.b:Math.max(tg.b,hi)});
+      }
+    }
+    return out;
   }
   function report(){
     reportLayers();   // el panel de capas se mantiene al día con cada cambio/selección
@@ -308,7 +407,7 @@ export const EDITOR_RUNTIME = String.raw`
       x:Math.round(er.left), y:Math.round(er.top), w:Math.round(er.width), h:Math.round(er.height),
       canUndo: hist.length>0});
   }
-  function clearSel(){ sels=[]; savedRange=null; paint(); guides(); report(); }
+  function clearSel(){ sels=[]; savedRange=null; paint(); clearGuides(); report(); }
   function select(el, additive, solo){
     if(!el){ if(!additive) clearSel(); return; }
     var ms = solo ? [el] : members(el);
@@ -404,10 +503,17 @@ export const EDITOR_RUNTIME = String.raw`
     snap();
     sels.forEach(makeMovable);
     // rects cacheados: durante el arrastre NO se vuelve a medir (cero reflows)
-    drag={sx:x, sy:y,
+    var rects=sels.map(function(el){ var r=el.getBoundingClientRect();
+      return {left:r.left, top:r.top, width:r.width, height:r.height}; });
+    // Caja envolvente de TODA la selección: el snap trabaja sobre ella, así un
+    // grupo se alinea como una unidad (y no por su primer miembro).
+    var bb={left:Infinity, top:Infinity, right:-Infinity, bottom:-Infinity};
+    rects.forEach(function(r){
+      bb.left=Math.min(bb.left,r.left); bb.top=Math.min(bb.top,r.top);
+      bb.right=Math.max(bb.right,r.left+r.width); bb.bottom=Math.max(bb.bottom,r.top+r.height); });
+    drag={sx:x, sy:y, bbox:bb,
       start:sels.map(function(el){ return (delta.get(el)||[0,0]).slice(); }),
-      rects:sels.map(function(el){ var r=el.getBoundingClientRect();
-        return {left:r.left, top:r.top, width:r.width, height:r.height}; })};
+      rects:rects, snap:collectSnap()};
     showHandles(false);
     e.preventDefault();
   }, true);
@@ -448,25 +554,33 @@ export const EDITOR_RUNTIME = String.raw`
   function flush(){
     raf=0;
     if(!pend) return;
-    var x=pend.x, y=pend.y; pend=null;
+    var x=pend.x, y=pend.y, noSnap=pend.alt; pend=null;
     if(rot){ doRotate(x,y); return; }
-    if(rz){ doResize(x,y); return; }
+    if(rz){ doResize(x,y,noSnap); return; }
     if(!drag||!sels.length) return;
     var dx=x-drag.sx, dy=y-drag.sy;
-    // snap calculado desde los rects cacheados (sin medir el DOM)
-    var r0=drag.rects[0], gx=null, gy=null;
-    var cx=r0.left+dx+r0.width/2, cy=r0.top+dy+r0.height/2;
-    if(Math.abs(cx-W/2)<9){ dx+=W/2-cx; gx=W/2; }
-    else if(Math.abs(r0.left+dx-60)<9){ dx+=60-(r0.left+dx); gx=60; }
-    else if(Math.abs((r0.left+dx+r0.width)-(W-60))<9){ dx+=(W-60)-(r0.left+dx+r0.width); gx=W-60; }
-    if(Math.abs(cy-H/2)<9){ dy+=H/2-cy; gy=H/2; }
+    // ── snap inteligente: bordes/centro de la selección contra bordes/centros de
+    //    los demás elementos y del lienzo. Todo desde los rects cacheados al
+    //    empezar el arrastre → cero reflows en el mousemove. Alt lo desactiva. ──
+    var bb=drag.bbox, gs=[];
+    if(!noSnap && drag.snap){
+      var t=tol();
+      var cxs=[bb.left+dx, (bb.left+bb.right)/2+dx, bb.right+dx];
+      var sx2=snapAxis(cxs, drag.snap.xs, t);
+      if(sx2!=null){ dx+=sx2; cxs=[bb.left+dx,(bb.left+bb.right)/2+dx,bb.right+dx]; }
+      var cys=[bb.top+dy, (bb.top+bb.bottom)/2+dy, bb.bottom+dy];
+      var sy2=snapAxis(cys, drag.snap.ys, t);
+      if(sy2!=null){ dy+=sy2; cys=[bb.top+dy,(bb.top+bb.bottom)/2+dy,bb.bottom+dy]; }
+      gs=hitGuides(cxs, drag.snap.xs, 'x', bb.top+dy, bb.bottom+dy)
+        .concat(hitGuides(cys, drag.snap.ys, 'y', bb.left+dx, bb.right+dx));
+    }
     for(var i=0;i<sels.length;i++) applyT(sels[i], drag.start[i][0]+dx, drag.start[i][1]+dy);
     offsetBoxes(drag.rects, dx, dy);
-    guides(gx,gy);
+    drawGuides(gs);
   }
   window.addEventListener('mousemove', function(e){
     if(!drag&&!rz&&!rot) return;
-    pend={x:e.clientX,y:e.clientY};
+    pend={x:e.clientX,y:e.clientY,alt:e.altKey};
     if(!raf) raf=requestAnimationFrame(flush);
   });
   window.addEventListener('mouseup', function(){
@@ -476,8 +590,8 @@ export const EDITOR_RUNTIME = String.raw`
     // Se auto-apaga en el próximo tick: si el navegador NO emite ese click
     // (targets distintos), el flag no puede comerse el siguiente clic real.
     if(rot){ rot=null; squelchNext(); document.body.classList.remove('oc-rotating'); degBadge.style.display='none'; paint(); report(); serialize(); return; }
-    if(rz){ rz=null; squelchNext(); paint(); report(); serialize(); return; }
-    if(drag){ drag=null; squelchNext(); guides(); showHandles(true); paint(); report(); serialize(); }
+    if(rz){ rz=null; squelchNext(); clearGuides(); paint(); report(); serialize(); return; }
+    if(drag){ drag=null; squelchNext(); clearGuides(); showHandles(true); paint(); report(); serialize(); }
   });
   function squelchNext(){ squelch=true; setTimeout(function(){ squelch=false; },0); }
 
@@ -532,14 +646,36 @@ export const EDITOR_RUNTIME = String.raw`
     rz={el:el, sx:e.clientX, sy:e.clientY, w:r.width, h:r.height, corner:corner,
         left:parseFloat(el.style.left)||0, top:parseFloat(el.style.top)||0,
         fs:parseFloat(cs.fontSize)||0,
-        isText: isTxt};
+        isText: isTxt,
+        rect:{left:r.left, top:r.top, right:r.right, bottom:r.bottom},
+        snap:collectSnap()};
     e.preventDefault(); e.stopPropagation();
   }
-  function doResize(x,y){
+  function doResize(x,y,noSnap){
     var dx=x-rz.sx, dy=y-rz.sy, c=rz.corner;
     var leftSide=(c==='nw'||c==='sw'||c==='w'), topSide=(c==='nw'||c==='ne'||c==='n');
-    var wDelta=leftSide?-dx:dx, hDelta=topSide?-dy:dy;
     var isCorner=(c.length===2);
+    // ── el borde que se arrastra también hace imán: redimensionar hasta tocar el
+    //    borde de otro elemento o el margen es la mitad del trabajo de composición.
+    //    En n/s manda el eje vertical; en el resto (esquinas y laterales), el
+    //    horizontal — es el eje que gobierna la escala. ─────────────────────────
+    var rr=rz.rect, gs=[];
+    if(!noSnap && rz.snap){
+      var tt=tol();
+      if(c==='n'||c==='s'){
+        var eY=(topSide?rr.top:rr.bottom)+dy;
+        var sY=snapAxis([eY], rz.snap.ys, tt);
+        if(sY!=null){ dy+=sY; eY+=sY; }
+        gs=hitGuides([eY], rz.snap.ys, 'y', rr.left, rr.right);
+      } else {
+        var eX=(leftSide?rr.left:rr.right)+dx;
+        var sX=snapAxis([eX], rz.snap.xs, tt);
+        if(sX!=null){ dx+=sX; eX+=sX; }
+        gs=hitGuides([eX], rz.snap.xs, 'x', rr.top, rr.bottom);
+      }
+    }
+    drawGuides(gs);
+    var wDelta=leftSide?-dx:dx, hDelta=topSide?-dy:dy;
     if(rz.isText){
       if(isCorner){ // esquina → escalar la tipografía (proporcional, por el eje horizontal)
         var ratio=Math.max(0.15,(rz.w+wDelta)/Math.max(1,rz.w));
@@ -1231,6 +1367,7 @@ export const EDITOR_RUNTIME = String.raw`
     else if(m.oc==='setImgSrc') setImgSrc(m.url);
     else if(m.oc==='setBg') setBg(m.value);
     else if(m.oc==='setTexture') setTexture(m.url, m.opacity);
+    else if(m.oc==='scale'){ viewScale=Number(m.value)||1; }
     else if(m.oc==='deselect') clearSel();
     else if(m.oc==='selectLayer') selectLayer(m.id);
     else if(m.oc==='reorderLayers') reorderLayers(m.ids);
