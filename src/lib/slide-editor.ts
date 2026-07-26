@@ -344,6 +344,7 @@ export const EDITOR_RUNTIME = String.raw`
     var pos={nw:[bb.left,bb.top],ne:[bb.right,bb.top],sw:[bb.left,bb.bottom],se:[bb.right,bb.bottom]};
     handles.forEach(function(h){ var p=pos[h.c]; if(!p) return;
       h.el.style.transform='translate('+(p[0]-7)+'px,'+(p[1]-7)+'px)'; });
+    syncShadows();   // igual que syncOne: la sombra sigue al dueño en vivo, no al soltar
   }
   function showHandles(v){ handles.forEach(function(h){ h.el.style.display=v?'block':'none'; }); }
   // capa de guías: se crea UNA vez y solo se muestra/oculta (sin churn de DOM)

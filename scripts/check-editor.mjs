@@ -362,6 +362,43 @@ async function main() {
     // Un miembro que vive DENTRO de otro miembro: el padre ya se lo lleva puesto.
     // Si además se le suma el desplazamiento absoluto, se mueve el doble y sale
     // volando fuera de su contenedor.
+    // Cruce de las dos features: la sombra de puntos es un elemento aparte y la
+    // multi-selección la excluye a propósito, así que hay que sincronizarla a mano
+    // durante el gesto. Al soltar siempre queda bien (serialize la recalza); lo que
+    // se verifica acá es que no vaya atrasada EN VIVO.
+    console.log("\nSombra durante la escala de un conjunto");
+    await reset();
+    await page.mouse.click(800, 300); // #sq
+    await new Promise((r) => setTimeout(r, 60));
+    await page.evaluate(() => window.postMessage({ oc: "apply", prop: "shadow", value: "dots" }, "*"));
+    await new Promise((r) => setTimeout(r, 140));
+    await page.evaluate(() => window.postMessage({ oc: "deselect" }, "*"));
+    await new Promise((r) => setTimeout(r, 60));
+    // La banda tiene que tomar DOS elementos: con uno solo no hay escala de
+    // conjunto sino un resize normal, que ya sincroniza por otro camino.
+    await drag(page, 50, 120, 980, 480); // #t1 + #sq (la sombra queda afuera)
+    const scaled = await selCount(page);
+    check("la banda arma un conjunto de 2 (no un resize suelto)", scaled === 2, `sel=${scaled}`);
+    if (scaled === 2) {
+      const bbS = await page.evaluate(() => {
+        const q = ["#t1", "#sq"].map((s) => document.querySelector(s).getBoundingClientRect());
+        return {
+          right: Math.max(...q.map((r) => r.right)),
+          bottom: Math.max(...q.map((r) => r.bottom)),
+        };
+      });
+      await drag(page, bbS.right, bbS.bottom, bbS.right + 100, bbS.bottom, { keepDown: true });
+      const live = await page.evaluate(() => {
+        const sh = document.querySelector("[data-oc-shadow-for]");
+        const own = document.querySelector("#sq").getBoundingClientRect();
+        return { sh: sh ? sh.getBoundingClientRect().width : -1, own: own.width };
+      });
+      await page.mouse.up();
+      await new Promise((r) => setTimeout(r, 80));
+      check("la sombra acompaña el gesto en vivo, no recién al soltar",
+        live.sh > 0 && Math.abs(live.sh - live.own) < 4, `sombra=${live.sh} dueño=${live.own}`);
+    }
+
     console.log("\nMiembro anidado dentro de otro miembro");
     await reset();
     await page.mouse.click(900, 1150); // #nested, lejos de #deep
