@@ -20,6 +20,10 @@ AI-powered Instagram carousel builder. Next.js 16 + React 19 + TypeScript + Tail
   palette instead of generic taste), `slide-rules.mjs` (30x-specific failure modes)
 - `scripts/slide-check.mjs` — Renders a slide to PNG and lists its defects. Closes the generation
   loop: the agent renders, reads the PNG, fixes, and re-checks before moving on
+- `scripts/check-editor.mjs` (`npm run check:editor`) — Smoke test for `EDITOR_RUNTIME`. That
+  runtime lives inside a template string, so TypeScript never compiles it and a typo only shows up
+  by opening the editor by hand. The script loads the real runtime in Chromium and drives the mouse
+  (select, marquee, drag, resize, group scale). Run it after touching `slide-editor.ts`
 - `src/lib/data.ts` — JSON storage with proper async-mutex and atomic writes
 - `src/lib/carousels.ts` — Carousel and slide CRUD with version history
 - `src/lib/claude-path.ts` — Portable Claude CLI discovery

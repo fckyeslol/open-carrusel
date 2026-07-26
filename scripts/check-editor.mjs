@@ -38,11 +38,16 @@ async function loadRuntime() {
   return rest;
 }
 
-/** Lámina de prueba: tres elementos con coordenadas conocidas. */
+/**
+ * Lámina de prueba con coordenadas conocidas. #barra es un <div> decorativo tal
+ * como lo escribe el agente: sin texto y sin data-oc-shape (ese atributo lo pone
+ * solo la librería de formas del editor).
+ */
 const SLIDE = `
 <div id="root" style="position:relative;width:${W}px;height:${H}px;background:#f6f5f0">
   <div id="t1" style="position:absolute;left:100px;top:200px;width:320px;font-size:52px;font-family:Inter;color:#111">Titulo uno</div>
   <div id="t2" style="position:absolute;left:100px;top:640px;width:320px;font-size:38px;font-family:Inter;color:#111">Segundo texto</div>
+  <div id="barra" style="position:absolute;left:100px;top:800px;width:180px;height:8px;background:#ff3b7f"></div>
   <div id="sq" data-oc-shape="1" style="position:absolute;left:700px;top:200px;width:200px;height:200px;background:#4f7cff"></div>
   <div id="nested" style="position:absolute;left:600px;top:900px;width:360px;height:300px;background:#ffffff">
     <div id="deep" data-oc-shape="1" style="position:absolute;left:40px;top:40px;width:120px;height:120px;background:#ff3b7f"></div>
@@ -223,9 +228,39 @@ async function main() {
     await page.keyboard.up("Control");
     check(
       "Ctrl+A selecciona todos los elementos reales (no contenedores)",
-      (await selCount(page)) === 4,
+      (await selCount(page)) === 5,
       `sel=${await selCount(page)}`
     );
+
+    // Un bloque decorativo (barra, tarjeta, bloque de color) no es texto, ni IMG,
+    // ni lleva data-oc-shape — pero el clic SÍ lo toma. Si la banda y Ctrl+A no lo
+    // ven, escalar el conjunto deja la barra en su tamaño viejo y rompe la
+    // composición en silencio.
+    console.log("\nBloques decorativos");
+    await reset();
+    await page.mouse.click(150, 804); // dentro de #barra
+    await new Promise((r) => setTimeout(r, 60));
+    check("el clic toma un div decorativo", (await selCount(page)) === 1, `sel=${await selCount(page)}`);
+    await reset();
+    await drag(page, 50, 560, 520, 900); // toca #t2 y #barra
+    check("la banda también lo toma", (await selCount(page)) === 2, `sel=${await selCount(page)}`);
+    const barInAll = await page.evaluate(() => {
+      window.postMessage({ oc: "deselect" }, "*");
+      return true;
+    });
+    void barInAll;
+    await reset();
+    await page.keyboard.down("Control");
+    await page.keyboard.press("a");
+    await page.keyboard.up("Control");
+    const barSelected = await page.evaluate(() => {
+      const b = document.querySelector("#barra").getBoundingClientRect();
+      return [...document.querySelectorAll(".oc-box")].some((x) => {
+        const r = x.getBoundingClientRect();
+        return Math.abs(r.left - b.left) < 2 && Math.abs(r.top - b.top) < 2;
+      });
+    });
+    check("Ctrl+A también lo toma", barSelected);
 
     console.log("\nEscala proporcional del conjunto");
     await reset();
@@ -263,6 +298,75 @@ async function main() {
       Math.abs(t2s.top - (200 + (640 - 200) * 1.5)) < 3,
       `t2.top=${t2s.top} esperado=${200 + (640 - 200) * 1.5}`
     );
+
+    // El overlay se REPOSICIONA durante el gesto, no se reconstruye: si la escala
+    // llamara paint() por frame, tiraría abajo cajas, envolvente y listeners 60
+    // veces por segundo. Se comprueba marcando el nodo y viendo que sobreviva.
+    await reset();
+    await drag(page, 50, 120, 520, 780);
+    const gboxBefore = await page.evaluate(() => {
+      const g = document.querySelector(".oc-gbox");
+      g.setAttribute("data-probe", "1");
+      const q = ["#t1", "#t2"].map((s) => document.querySelector(s).getBoundingClientRect());
+      return {
+        w: g.getBoundingClientRect().width,
+        right: Math.max(...q.map((r) => r.right)),
+        bottom: Math.max(...q.map((r) => r.bottom)),
+      };
+    });
+    // Agarrar la esquina SE de verdad y quedarse apretado a mitad del gesto.
+    await drag(page, gboxBefore.right, gboxBefore.bottom, gboxBefore.right + 120, gboxBefore.bottom,
+      { keepDown: true });
+    const surviving = await page.evaluate(() => {
+      const g = document.querySelector(".oc-gbox");
+      return { probe: g && g.getAttribute("data-probe"), w: g && g.getBoundingClientRect().width };
+    });
+    await page.mouse.up();
+    await new Promise((r) => setTimeout(r, 60));
+    check("la envolvente sigue el gesto", surviving.w > gboxBefore.w + 40,
+      `${gboxBefore.w} → ${surviving.w}`);
+    check("no reconstruye el overlay durante la escala", surviving.probe === "1",
+      `probe=${surviving.probe}`);
+
+    // Un miembro que vive DENTRO de otro miembro: el padre ya se lo lleva puesto.
+    // Si además se le suma el desplazamiento absoluto, se mueve el doble y sale
+    // volando fuera de su contenedor.
+    console.log("\nMiembro anidado dentro de otro miembro");
+    await reset();
+    await page.mouse.click(900, 1150); // #nested, lejos de #deep
+    await new Promise((r) => setTimeout(r, 60));
+    await page.keyboard.down("Shift");
+    await page.mouse.click(700, 1000); // #deep
+    await page.keyboard.up("Shift");
+    await new Promise((r) => setTimeout(r, 60));
+    check("selecciona contenedor + hijo", (await selCount(page)) === 2, `sel=${await selCount(page)}`);
+    // Esquina NW → el ancla es la esquina opuesta, así que el contenedor SE MUEVE.
+    await drag(page, 600, 900, 420, 900);
+    const nestedAfter = await rectOf(page, "nested");
+    const deepAfter = await rectOf(page, "deep");
+    check("el contenedor escala x1.5 desde el ancla opuesta",
+      Math.abs(nestedAfter.left - 420) < 2 && Math.abs(nestedAfter.width - 540) < 2,
+      `nested=(${nestedAfter.left}, w=${nestedAfter.width})`);
+    check("el hijo escala una sola vez (no se va afuera)",
+      Math.abs(deepAfter.left - nestedAfter.left - 60) < 3 &&
+        Math.abs(deepAfter.top - nestedAfter.top - 60) < 3,
+      `offset=(${deepAfter.left - nestedAfter.left}, ${deepAfter.top - nestedAfter.top}) esperado=(60, 60)`);
+    check("y su tamaño sí escala (120 → 180)", Math.abs(deepAfter.width - 180) < 3, `w=${deepAfter.width}`);
+
+    // Lo mismo al arrastrar: el hijo hereda el transform del padre.
+    await reset();
+    await page.mouse.click(900, 1150);
+    await new Promise((r) => setTimeout(r, 60));
+    await page.keyboard.down("Shift");
+    await page.mouse.click(700, 1000);
+    await page.keyboard.up("Shift");
+    await new Promise((r) => setTimeout(r, 60));
+    const preDrag = { nested: await rectOf(page, "nested"), deep: await rectOf(page, "deep") };
+    await drag(page, 900, 1150, 780, 1150, { altDuring: true }); // Alt = sin imán
+    const postDrag = { nested: await rectOf(page, "nested"), deep: await rectOf(page, "deep") };
+    check("arrastrar contenedor + hijo mueve al hijo una sola vez",
+      Math.abs(postDrag.deep.left - preDrag.deep.left - (postDrag.nested.left - preDrag.nested.left)) < 2,
+      `padre movió ${postDrag.nested.left - preDrag.nested.left}, hijo ${postDrag.deep.left - preDrag.deep.left}`);
 
     console.log("\nDuplicar un grupo");
     await reset();

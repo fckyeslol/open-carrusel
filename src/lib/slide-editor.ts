@@ -172,9 +172,9 @@ export const EDITOR_RUNTIME = String.raw`
 
   // ── overlay persistente: se crea al cambiar la selección y se REPOSICIONA
   //    (nunca se reconstruye) durante el arrastre → sin jank. ──────────────────
-  var boxes=[], handles=[], rotLine=null;
+  var boxes=[], handles=[], rotLine=null, gbox=null;
   function paint(){
-    ui.innerHTML=''; boxes=[]; handles=[]; rotLine=null;
+    ui.innerHTML=''; boxes=[]; handles=[]; rotLine=null; gbox=null;
     sels.forEach(function(el){
       var r=el.getBoundingClientRect();
       var b=document.createElement('div'); b.className='oc-box';
@@ -226,7 +226,7 @@ export const EDITOR_RUNTIME = String.raw`
       var gb=document.createElement('div'); gb.className='oc-gbox';
       gb.style.cssText+=';width:'+(bb.right-bb.left)+'px;height:'+(bb.bottom-bb.top)+'px'
         +';transform:translate('+bb.left+'px,'+bb.top+'px)';
-      ui.appendChild(gb);
+      ui.appendChild(gb); gbox=gb;
       [['nw',bb.left,bb.top,'nwse'],['ne',bb.right,bb.top,'nesw'],
        ['sw',bb.left,bb.bottom,'nesw'],['se',bb.right,bb.bottom,'nwse']].forEach(function(c){
         var h=document.createElement('div'); h.className='oc-h';
@@ -280,6 +280,24 @@ export const EDITOR_RUNTIME = String.raw`
       var o=h.c==='rot'?16:7;   // el handle de rotación es más grande (32px)
       h.el.style.transform='translate('+(p[0]-o)+'px,'+(p[1]-o)+'px)'; });
     placeRotLine(r);
+  }
+  /** Re-mide TODA la multi-selección y acomoda cajas, envolvente y esquinas.
+   *  El equivalente de syncOne para la escala de grupo: sin esto habría que
+   *  llamar paint() en cada frame, que borra el overlay entero y lo reconstruye
+   *  (nodos + listeners nuevos por frame), justo lo que este overlay evita. */
+  function syncGroup(){
+    if(!gbox) return;
+    for(var i=0;i<sels.length;i++){
+      var r=sels[i].getBoundingClientRect(), b=boxes[i]; if(!b) continue;
+      b.style.width=r.width+'px'; b.style.height=r.height+'px';
+      b.style.transform='translate('+r.left+'px,'+r.top+'px)';
+    }
+    var bb=selBBox();
+    gbox.style.width=(bb.right-bb.left)+'px'; gbox.style.height=(bb.bottom-bb.top)+'px';
+    gbox.style.transform='translate('+bb.left+'px,'+bb.top+'px)';
+    var pos={nw:[bb.left,bb.top],ne:[bb.right,bb.top],sw:[bb.left,bb.bottom],se:[bb.right,bb.bottom]};
+    handles.forEach(function(h){ var p=pos[h.c]; if(!p) return;
+      h.el.style.transform='translate('+(p[0]-7)+'px,'+(p[1]-7)+'px)'; });
   }
   function showHandles(v){ handles.forEach(function(h){ h.el.style.display=v?'block':'none'; }); }
   // capa de guías: se crea UNA vez y solo se muestra/oculta (sin churn de DOM)
@@ -493,9 +511,27 @@ export const EDITOR_RUNTIME = String.raw`
     return true;
   }
   /**
-   * Elementos "de primera" (texto, imagen, forma) que tocan el rectángulo dado.
-   * Se queda con el más interno cuando uno contiene a otro, para no agarrar el
-   * contenedor y su contenido a la vez.
+   * ¿El elemento pinta algo propio? Una barra, un bloque de color o una tarjeta
+   * son <div> pelados: no son texto, ni IMG, ni llevan data-oc-shape (ese atributo
+   * lo pone SOLO la librería de formas del editor, no el HTML que genera el
+   * agente). El clic sí los toma — candidateAt cae en ellos como último recurso —
+   * así que la banda y Ctrl+A tienen que verlos igual, o escalar el conjunto deja
+   * la barra del título en su tamaño viejo y rompe la composición.
+   * Los contenedores de layout no pintan nada y quedan afuera solos.
+   */
+  function paintsSomething(el){
+    var cs=getComputedStyle(el);
+    if(cs.backgroundImage&&cs.backgroundImage!=='none') return true;
+    var bg=cs.backgroundColor||'';
+    if(bg&&bg!=='transparent'&&!/rgba\(\s*0,\s*0,\s*0,\s*0\s*\)/.test(bg)) return true;
+    if(cs.boxShadow&&cs.boxShadow!=='none') return true;
+    return (parseFloat(cs.borderTopWidth)||0)>0 || (parseFloat(cs.borderRightWidth)||0)>0
+        || (parseFloat(cs.borderBottomWidth)||0)>0 || (parseFloat(cs.borderLeftWidth)||0)>0;
+  }
+  /**
+   * Elementos "de primera" (texto, imagen, forma, bloque decorativo) que tocan el
+   * rectángulo dado. Se queda con el más interno cuando uno contiene a otro, para
+   * no agarrar el contenedor y su contenido a la vez.
    */
   function elementsInRect(q){
     var out=[], all=document.querySelectorAll('body *'), root=rootEl();
@@ -505,11 +541,14 @@ export const EDITOR_RUNTIME = String.raw`
       if(el.hasAttribute&&(el.hasAttribute('data-oc-ui')||el.hasAttribute('data-oc-tex'))) continue;
       if(el.closest&&el.closest('[data-oc-ui]')) continue;
       if(el===root||el.ownerSVGElement) continue;
-      if(!(isTextEl(el)||t==='IMG'||(el.getAttribute&&el.getAttribute('data-oc-shape'))||isSvgRoot(el))) continue;
       if(tooBig(el)) continue;
       var r=el.getBoundingClientRect();
       if(r.width<1||r.height<1) continue;
       if(r.right<q.left||r.left>q.right||r.bottom<q.top||r.top>q.bottom) continue;
+      // paintsSomething mide estilo computado: va último, cuando ya se descartó
+      // todo lo que se podía descartar con tag, atributo y geometría.
+      if(!(isTextEl(el)||t==='IMG'||(el.getAttribute&&el.getAttribute('data-oc-shape'))||isSvgRoot(el))
+         && !paintsSomething(el)) continue;
       out.push(el);
     }
     return out.filter(function(el){
@@ -533,9 +572,15 @@ export const EDITOR_RUNTIME = String.raw`
     grz={corner:corner, sx:e.clientX, bb:bb,
       items:sels.map(function(el){
         var r=el.getBoundingClientRect(), cs=getComputedStyle(el);
+        // ¿Su left/top cuelgan de OTRO miembro de la selección? Entonces el padre
+        // ya se lo lleva puesto al reposicionarse: sumarle además el desplazamiento
+        // absoluto lo movería dos veces y saldría volando fuera de la tarjeta.
+        // Solo le toca su parte propia del escalado (ver doGroupResize).
+        var op=el.offsetParent, ar=(op&&sels.indexOf(op)>=0)?op.getBoundingClientRect():null;
         return {el:el,
           sl:parseFloat(el.style.left)||0, st:parseFloat(el.style.top)||0,
           rl:r.left, rt:r.top, w:r.width, h:r.height,
+          ancRl:ar?ar.left:null, ancRt:ar?ar.top:null,
           fs:parseFloat(cs.fontSize)||0,
           ls:cs.letterSpacing==='normal'?0:(parseFloat(cs.letterSpacing)||0),
           isText:isTextEl(el), isImg:el.tagName==='IMG',
@@ -556,8 +601,15 @@ export const EDITOR_RUNTIME = String.raw`
       var el=it.el;
       // Posición: el punto se aleja/acerca del ancla con el mismo factor. Se
       // corrige sobre el left/top REAL sumando el desplazamiento visual.
-      el.style.left=Math.round(it.sl+(ax+(it.rl-ax)*k-it.rl))+'px';
-      el.style.top=Math.round(it.st+(ay+(it.rt-ay)*k-it.rt))+'px';
+      if(it.ancRl!=null){
+        // Cuelga de otro miembro: el padre ya aporta su propio desplazamiento, así
+        // que acá va SOLO la separación interna estirada por k.
+        el.style.left=Math.round(it.sl+(it.rl-it.ancRl)*(k-1))+'px';
+        el.style.top=Math.round(it.st+(it.rt-it.ancRt)*(k-1))+'px';
+      } else {
+        el.style.left=Math.round(it.sl+(ax+(it.rl-ax)*k-it.rl))+'px';
+        el.style.top=Math.round(it.st+(ay+(it.rt-ay)*k-it.rt))+'px';
+      }
       if(it.isText){
         el.style.fontSize=(Math.round(Math.max(6,it.fs*k)*100)/100)+'px';
         el.style.width=Math.max(8,Math.round(it.w*k))+'px';
@@ -568,7 +620,7 @@ export const EDITOR_RUNTIME = String.raw`
         else if(!it.isLine) el.style.height=Math.max(2,Math.round(it.h*k))+'px';
       }
     });
-    paint(); showHandles(false);
+    syncGroup();
   }
 
   // ── selección PARCIAL de texto: si el usuario marca un tramo dentro del texto
@@ -680,6 +732,11 @@ export const EDITOR_RUNTIME = String.raw`
       bb.right=Math.max(bb.right,r.left+r.width); bb.bottom=Math.max(bb.bottom,r.top+r.height); });
     drag={sx:x, sy:y, bbox:bb,
       start:sels.map(function(el){ return (delta.get(el)||[0,0]).slice(); }),
+      // Un miembro que vive DENTRO de otro ya viaja con el transform del padre:
+      // aplicarle además el suyo lo movería el doble. Se lo deja quieto y va de
+      // arrastrado (su caja del overlay sí se corre, porque en pantalla se mueve).
+      rides:sels.map(function(el){
+        return sels.some(function(o){ return o!==el && o.contains(el); }); }),
       rects:rects, snap:collectSnap()};
     showHandles(false);
     e.preventDefault();
@@ -743,7 +800,10 @@ export const EDITOR_RUNTIME = String.raw`
       gs=hitGuides(cxs, drag.snap.xs, 'x', bb.top+dy, bb.bottom+dy)
         .concat(hitGuides(cys, drag.snap.ys, 'y', bb.left+dx, bb.right+dx));
     }
-    for(var i=0;i<sels.length;i++) applyT(sels[i], drag.start[i][0]+dx, drag.start[i][1]+dy);
+    for(var i=0;i<sels.length;i++){
+      if(drag.rides[i]) continue;
+      applyT(sels[i], drag.start[i][0]+dx, drag.start[i][1]+dy);
+    }
     offsetBoxes(drag.rects, dx, dy);
     drawGuides(gs);
   }
