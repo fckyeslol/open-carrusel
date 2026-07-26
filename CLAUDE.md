@@ -20,10 +20,14 @@ AI-powered Instagram carousel builder. Next.js 16 + React 19 + TypeScript + Tail
   palette instead of generic taste), `slide-rules.mjs` (30x-specific failure modes)
 - `scripts/slide-check.mjs` — Renders a slide to PNG and lists its defects. Closes the generation
   loop: the agent renders, reads the PNG, fixes, and re-checks before moving on
-- `scripts/check-editor.mjs` (`npm run check:editor`) — Smoke test for `EDITOR_RUNTIME`. That
-  runtime lives inside a template string, so TypeScript never compiles it and a typo only shows up
-  by opening the editor by hand. The script loads the real runtime in Chromium and drives the mouse
-  (select, marquee, drag, resize, group scale). Run it after touching `slide-editor.ts`
+- `src/lib/slide-editor.ts` — `EDITOR_RUNTIME`: the ~2000-line editor injected into the
+  preview iframe (selection, drag with smart guides, groups, layers, text ranges, effects).
+  It lives inside a `String.raw` template, so **TypeScript does not check it** — a stray
+  backtick silently breaks the build and a logic error only shows up by hand. Verify with
+  `npm run check:editor`, which loads the real runtime in Chromium and drives the
+  mouse. Add a check there for anything you change
+- `src/lib/strip-slide-background.mjs` — background stripping for "PNG sin fondo". Standalone
+  because it runs inside the Puppeteer page (`page.evaluate`)
 - `src/lib/data.ts` — JSON storage with proper async-mutex and atomic writes
 - `src/lib/carousels.ts` — Carousel and slide CRUD with version history
 - `src/lib/claude-path.ts` — Portable Claude CLI discovery
@@ -49,6 +53,7 @@ All at localhost:3000:
 - `GET/POST /api/templates` — Templates
 - `POST /api/upload` — Image upload (PNG/JPG/WebP only, max 10MB)
 - `POST /api/remove-bg` — Remove background from an /uploads/ image (local ONNX model, returns new transparent PNG)
+- `POST /api/image-fx` — Bake a raster effect into an /uploads/ image (currently `pixelate`; returns a new PNG). Every other editor effect is CSS/SVG so preview and export match — this one exists because SVG filters have no downsampling primitive
 - `GET /api/fonts` — Google Fonts list
 - `GET /avatar-assets/{slug}/{kind}/{file}` — Serve per-avatar brand assets from `30x/avatars/`
 

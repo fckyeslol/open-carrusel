@@ -16,6 +16,8 @@
 import { readFile } from "fs/promises";
 import path from "path";
 import puppeteer from "puppeteer";
+import sharp from "sharp";
+import { stripBackgroundInPage } from "../src/lib/strip-slide-background.mjs";
 
 const ROOT = process.cwd();
 const W = 1080;
@@ -389,7 +391,7 @@ async function main() {
       });
       await drag(page, bbS.right, bbS.bottom, bbS.right + 100, bbS.bottom, { keepDown: true });
       const live = await page.evaluate(() => {
-        const sh = document.querySelector("[data-oc-shadow-for]");
+        const sh = document.querySelector('[data-oc-role="dots"]');
         const own = document.querySelector("#sq").getBoundingClientRect();
         return { sh: sh ? sh.getBoundingClientRect().width : -1, own: own.width };
       });
@@ -954,7 +956,7 @@ async function main() {
       page.evaluate((sel) => {
         const own = document.querySelector(sel);
         const id = own.getAttribute("data-oc-id");
-        const sh = id && document.querySelector(`[data-oc-shadow-for="${id}"]`);
+        const sh = id && document.querySelector(`[data-oc-owner="${id}"][data-oc-role="dots"]`);
         if (!sh) return null;
         const r = sh.getBoundingClientRect();
         return { left: r.left, top: r.top, width: r.width, height: r.height };
@@ -1008,7 +1010,7 @@ async function main() {
       "y rota con él",
       (await page.evaluate(() => {
         const id = document.querySelector("#tarjeta").getAttribute("data-oc-id");
-        return document.querySelector(`[data-oc-shadow-for="${id}"]`).style.rotate;
+        return document.querySelector(`[data-oc-owner="${id}"][data-oc-role="dots"]`).style.rotate;
       })).indexOf("20") === 0
     );
     // Cambiar de preset no acumula capas.
@@ -1016,13 +1018,13 @@ async function main() {
     await new Promise((r) => setTimeout(r, 120));
     check(
       "volver a aplicar 'puntos' no apila capas",
-      (await page.evaluate(() => document.querySelectorAll("[data-oc-shadow-for]").length)) === 1
+      (await page.evaluate(() => document.querySelectorAll('[data-oc-owner][data-oc-role="dots"]').length)) === 1
     );
     await page.evaluate(() => window.postMessage({ oc: "apply", prop: "shadow", value: "soft" }, "*"));
     await new Promise((r) => setTimeout(r, 120));
     check(
       "cambiar a otra sombra saca la capa de puntos",
-      (await page.evaluate(() => document.querySelectorAll("[data-oc-shadow-for]").length)) === 0
+      (await page.evaluate(() => document.querySelectorAll('[data-oc-owner][data-oc-role="dots"]').length)) === 0
     );
 
     console.log("\nLa sombra de puntos no es un objeto aparte");
@@ -1050,7 +1052,7 @@ async function main() {
     await page.evaluate(() => window.postMessage({ oc: "apply", prop: "remove", value: true }, "*"));
     await new Promise((r) => setTimeout(r, 150));
     const afterDel = await page.evaluate(() => ({
-      shadows: document.querySelectorAll("[data-oc-shadow-for]").length,
+      shadows: document.querySelectorAll('[data-oc-owner][data-oc-role="dots"]').length,
       owner: !!document.querySelector("#tarjeta"),
     }));
     check(
@@ -1120,6 +1122,411 @@ async function main() {
     await new Promise((r) => setTimeout(r, 120));
     const filt = await page.evaluate(() => document.querySelector("#porhoja").style.filter);
     check("sombra y desenfoque conviven en 'filter'", /drop-shadow/.test(filt) && /blur\(6px\)/.test(filt), filt);
+
+    // ── Fase 7: exportar sin fondo ────────────────────────────────────────────
+    // El fondo pintado en un wrapper ANIDADO es el caso que sobrevivía al export.
+    const SLIDE_EXPORT = `
+<div id="lienzo" style="position:relative;width:${W}px;height:${H}px">
+  <div id="wrapper" style="position:absolute;inset:0;background:linear-gradient(135deg,#2A2320,#C77E97)">
+    <div id="capa" style="position:absolute;inset:0;background:#15142B">
+      <div data-oc-tex="1" style="position:absolute;inset:0;background-image:radial-gradient(#fff 2px,transparent 3px);mix-blend-mode:overlay;opacity:.8"></div>
+      <div id="titulo" style="position:absolute;left:100px;top:400px;font-size:80px;font-family:Inter;color:#EBFF6F;font-weight:800">Titular</div>
+      <div id="pastilla" data-oc-shape="1" style="position:absolute;left:100px;top:600px;width:300px;height:120px;background:#EBFF6F;border-radius:60px"></div>
+    </div>
+  </div>
+</div>`;
+
+    console.log("\nExportar sin fondo");
+    await page.setContent(
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+*{margin:0;padding:0;box-sizing:border-box}html,body{width:${W}px;height:${H}px;overflow:hidden;background:#f6f5f0}
+</style></head><body>${SLIDE_EXPORT}</body></html>`,
+      { waitUntil: "domcontentloaded" }
+    );
+    await new Promise((r) => setTimeout(r, 120));
+    // Se ejecuta la MISMA función que usa el export real.
+    await page.evaluate(stripBackgroundInPage);
+    const stripped = await page.evaluate(() => {
+      const bg = (sel) => getComputedStyle(document.querySelector(sel)).backgroundColor;
+      const bgi = (sel) => getComputedStyle(document.querySelector(sel)).backgroundImage;
+      return {
+        body: bg("body"),
+        lienzo: bg("#lienzo"),
+        wrapperImg: bgi("#wrapper"),
+        capa: bg("#capa"),
+        textura: getComputedStyle(document.querySelector("[data-oc-tex]")).display,
+        titulo: getComputedStyle(document.querySelector("#titulo")).color,
+        pastilla: bg("#pastilla"),
+      };
+    });
+    const transp = (v) => v === "rgba(0, 0, 0, 0)" || v === "transparent";
+    check("limpia el fondo del body", transp(stripped.body), stripped.body);
+    check("limpia el degradado del wrapper anidado", stripped.wrapperImg === "none", stripped.wrapperImg);
+    check("limpia el color de la capa anidada", transp(stripped.capa), stripped.capa);
+    check("apaga la textura", stripped.textura === "none", stripped.textura);
+    check("no toca el color del texto", stripped.titulo === "rgb(235, 255, 111)", stripped.titulo);
+    check("no toca el relleno de las formas", stripped.pastilla === "rgb(235, 255, 111)", stripped.pastilla);
+
+    // Y el PNG real: la esquina tiene que quedar transparente y la forma opaca.
+    const shot = await page.screenshot({
+      type: "png",
+      clip: { x: 0, y: 0, width: W, height: H },
+      captureBeyondViewport: false,
+      omitBackground: true,
+    });
+    const png = sharp(shot).ensureAlpha();
+    const corner = await png.clone().extract({ left: 4, top: 4, width: 1, height: 1 }).raw().toBuffer();
+    const onShape = await sharp(shot)
+      .ensureAlpha()
+      .extract({ left: 200, top: 650, width: 1, height: 1 })
+      .raw()
+      .toBuffer();
+    check("el PNG exportado tiene la esquina transparente", corner[3] === 0, `alfa=${corner[3]}`);
+    check(
+      "y el contenido opaco con su color",
+      onShape[3] === 255 && onShape[0] > 200 && onShape[1] > 240,
+      `rgba=${[...onShape].join(",")}`
+    );
+
+    // ── Fase 8: biblioteca de efectos ─────────────────────────────────────────
+    console.log("\nEfectos de filtro");
+    await pageFor(SLIDE_SHADOW);
+    await page.mouse.click(400, 380);
+    await new Promise((r) => setTimeout(r, 60));
+
+    const FILTROS = [
+      ["grain", "feTurbulence"],
+      ["noise", "feTurbulence"],
+      ["duotone", "feComponentTransfer"],
+      ["chromatic", "feOffset"],
+      ["emboss", "feConvolveMatrix"],
+      ["bevel", "feSpecularLighting"],
+      ["motion", "feGaussianBlur"],
+      ["distort", "feDisplacementMap"],
+    ];
+    for (const [kind, primitiva] of FILTROS) {
+      await page.evaluate(
+        (k) => window.postMessage({ oc: "apply", prop: "fx", value: { kind: k, value: 60 } }, "*"),
+        kind
+      );
+      await new Promise((r) => setTimeout(r, 90));
+      const st = await page.evaluate(
+        (k) => {
+          const el = document.querySelector("#tarjeta");
+          const f = document.querySelector(`filter[id$="-${k}"]`);
+          return {
+            filter: el.style.filter,
+            tienePrimitiva: f ? f.innerHTML : "",
+            enConfig: !!JSON.parse(el.getAttribute("data-oc-fx") || "{}")[k],
+          };
+        },
+        kind
+      );
+      check(
+        `${kind}: crea su filtro y lo aplica`,
+        new RegExp(`url\\(["']?#ocfx-[^)"']+-${kind}["']?\\)`).test(st.filter) &&
+          st.tienePrimitiva.includes(primitiva) &&
+          st.enConfig,
+        `filter="${st.filter}"`
+      );
+      // Apagarlo lo saca del filter Y borra su <filter> de las defs.
+      await page.evaluate(
+        (k) => window.postMessage({ oc: "apply", prop: "fx", value: { kind: k, value: null } }, "*"),
+        kind
+      );
+      await new Promise((r) => setTimeout(r, 90));
+    }
+    const limpio = await page.evaluate(() => ({
+      filter: document.querySelector("#tarjeta").style.filter,
+      defs: document.querySelectorAll('filter[id^="ocfx-"]').length,
+      attr: document.querySelector("#tarjeta").getAttribute("data-oc-fx"),
+    }));
+    check("apagar un efecto lo borra de las defs", limpio.defs === 0, `defs=${limpio.defs}`);
+    check("y deja el filter vacío", limpio.filter === "", `filter="${limpio.filter}"`);
+    check("sin dejar rastro en data-oc-fx", limpio.attr === null, `attr=${limpio.attr}`);
+
+    console.log("\nEfectos, sombra y desenfoque comparten 'filter' sin pisarse");
+    await pageFor(SLIDE_SHADOW);
+    await page.mouse.click(400, 380);
+    await new Promise((r) => setTimeout(r, 60));
+    await page.evaluate(() =>
+      window.postMessage({ oc: "apply", prop: "fx", value: { kind: "grain", value: 50 } }, "*")
+    );
+    await new Promise((r) => setTimeout(r, 90));
+    await page.evaluate(() => window.postMessage({ oc: "apply", prop: "blur", value: 5 }, "*"));
+    await new Promise((r) => setTimeout(r, 90));
+    await page.evaluate(() =>
+      window.postMessage(
+        { oc: "apply", prop: "shadowCustom", value: { x: 4, y: 8, blur: 16, spread: 0, color: "#000000" } },
+        "*"
+      )
+    );
+    await new Promise((r) => setTimeout(r, 90));
+    const combinado = await page.evaluate(() => document.querySelector("#tarjeta").style.filter);
+    check(
+      "conviven desenfoque y efecto",
+      /blur\(5px\)/.test(combinado) && /url\(["']?#ocfx-.*-grain["']?\)/.test(combinado),
+      combinado
+    );
+    // La tarjeta no es imagen: la sombra va por box-shadow, no por filter.
+    check(
+      "la sombra de una caja no se mete en el filter",
+      !/drop-shadow/.test(combinado) &&
+        /4px 8px 16px/.test(await page.evaluate(() => document.querySelector("#tarjeta").style.boxShadow))
+    );
+    // En una imagen, los tres juntos.
+    await pageFor(SLIDE_IMG);
+    const ir = await rectOf(page, "porhoja");
+    await page.mouse.click(ir.left + 20, ir.top + 20);
+    await new Promise((r) => setTimeout(r, 60));
+    for (const msg of [
+      { oc: "apply", prop: "fx", value: { kind: "duotone", value: { i: 80, a: "#15142B", b: "#EBFF6F" } } },
+      { oc: "apply", prop: "blur", value: 3 },
+      { oc: "apply", prop: "shadowCustom", value: { x: 0, y: 12, blur: 20, spread: 0, color: "#000000" } },
+    ]) {
+      await page.evaluate((m) => window.postMessage(m, "*"), msg);
+      await new Promise((r) => setTimeout(r, 90));
+    }
+    const tres = await page.evaluate(() => document.querySelector("#porhoja").style.filter);
+    check(
+      "en una imagen: sombra + desenfoque + duotono a la vez",
+      /drop-shadow/.test(tres) && /blur\(3px\)/.test(tres) && /url\(["']?#ocfx-/.test(tres),
+      tres
+    );
+
+    console.log("\nSuperficies (capas vinculadas)");
+    await pageFor(SLIDE_SHADOW);
+    await page.mouse.click(400, 380);
+    await new Promise((r) => setTimeout(r, 60));
+    for (const [kind, marca] of [
+      ["frost", "backdrop-filter"],
+      ["radial", "mask-image"],
+      ["crt", "repeating-linear-gradient"],
+    ]) {
+      await page.evaluate(
+        (k) => window.postMessage({ oc: "apply", prop: "fxLayer", value: { kind: k, value: 60 } }, "*"),
+        kind
+      );
+      await new Promise((r) => setTimeout(r, 110));
+      const lay = await page.evaluate((k) => {
+        const el = document.querySelector("#tarjeta");
+        const id = el.getAttribute("data-oc-id");
+        const l = document.querySelector(`[data-oc-owner="${id}"][data-oc-fxkind="${k}"]`);
+        if (!l) return null;
+        const lr = l.getBoundingClientRect();
+        const er = el.getBoundingClientRect();
+        return {
+          css: l.getAttribute("style") || "",
+          calza: Math.abs(lr.left - er.left) < 2 && Math.abs(lr.width - er.width) < 2,
+          encima: l.compareDocumentPosition(el) === Node.DOCUMENT_POSITION_PRECEDING,
+        };
+      }, kind);
+      check(`${kind}: crea la capa y calza con el elemento`, !!lay && lay.calza, lay ? "no calza" : "sin capa");
+      check(`${kind}: usa su técnica CSS`, !!lay && lay.css.includes(marca), lay?.css.slice(0, 60));
+      check(`${kind}: la capa va encima del elemento`, !!lay && lay.encima);
+      await page.evaluate(
+        (k) => window.postMessage({ oc: "apply", prop: "fxLayer", value: { kind: k, value: null } }, "*"),
+        kind
+      );
+      await new Promise((r) => setTimeout(r, 90));
+    }
+    check(
+      "apagarlas las quita",
+      (await page.evaluate(() => document.querySelectorAll("[data-oc-fxkind]").length)) === 0
+    );
+
+    // Material: usa el PNG horneado y sigue al elemento al moverlo.
+    await page.evaluate(() =>
+      window.postMessage(
+        { oc: "apply", prop: "fxLayer", value: { kind: "material", value: { i: 70, slug: "papel-arrugado", base: "" } } },
+        "*"
+      )
+    );
+    await new Promise((r) => setTimeout(r, 120));
+    check(
+      "el material apunta al PNG horneado",
+      (await page.evaluate(() => {
+        const id = document.querySelector("#tarjeta").getAttribute("data-oc-id");
+        const l = document.querySelector(`[data-oc-owner="${id}"][data-oc-fxkind="material"]`);
+        return l ? l.style.backgroundImage : "";
+      })).includes("/textures/papel-arrugado.png")
+    );
+    await drag(page, 400, 380, 400 + 120, 380 + 60, { altDuring: true });
+    const matSigue = await page.evaluate(() => {
+      const el = document.querySelector("#tarjeta");
+      const id = el.getAttribute("data-oc-id");
+      const l = document.querySelector(`[data-oc-owner="${id}"][data-oc-fxkind="material"]`);
+      const a = l.getBoundingClientRect();
+      const b = el.getBoundingClientRect();
+      return Math.abs(a.left - b.left) < 2 && Math.abs(a.top - b.top) < 2;
+    });
+    check("y sigue al elemento al moverlo", matSigue);
+
+    console.log("\nLos efectos viajan al export");
+    // Lo que se serializa tiene que llevar las defs del filtro y la capa: si no, el
+    // preview mostraría el efecto y el PNG saldría sin él.
+    const conFx = await page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          const onMsg = (e) => {
+            if (e.data && e.data.oc === "html") {
+              window.removeEventListener("message", onMsg);
+              resolve(e.data.html);
+            }
+          };
+          window.addEventListener("message", onMsg);
+          window.postMessage({ oc: "apply", prop: "fx", value: { kind: "emboss", value: 55 } }, "*");
+        })
+    );
+    check("serializa el <filter> del efecto", /<filter[^>]*ocfx-/.test(conFx), "sin filter en el HTML");
+    check(
+      "serializa la referencia url(#…) en el elemento",
+      /url\((?:&quot;|["'])?#ocfx-/.test(conFx),
+      (conFx.match(/filter:[^;"]*/) || [""])[0]
+    );
+    check("serializa la capa de material", /data-oc-fxkind="material"/.test(conFx));
+    check("y no serializa la UI del editor", !/data-oc-ui/.test(conFx));
+    // Render real del HTML serializado: el efecto tiene que aplicarse de nuevo.
+    await page.setContent(
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+*{margin:0;padding:0;box-sizing:border-box}html,body{width:${W}px;height:${H}px;overflow:hidden}
+</style></head><body>${conFx}</body></html>`,
+      { waitUntil: "domcontentloaded" }
+    );
+    await new Promise((r) => setTimeout(r, 150));
+    const reHidratado = await page.evaluate(() => {
+      const el = document.querySelector("#tarjeta");
+      const m = /url\(["']?#(ocfx-[^)"']+)["']?\)/.exec(el.style.filter || "");
+      return { filtro: el.style.filter, existeDef: m ? !!document.getElementById(m[1]) : false };
+    });
+    check(
+      "el HTML exportado resuelve el filtro (la def viaja con él)",
+      reHidratado.existeDef,
+      reHidratado.filtro
+    );
+
+    // Los filtros SVG podrían no aplicarse y nadie se daría cuenta hasta ver el
+    // PNG. Se renderiza de verdad y se miran los píxeles.
+    console.log("\nLos efectos se ven en el PNG");
+    /**
+     * Screenshot SIN la UI del editor: los handles (círculos blancos) y la caja de
+     * selección se dibujan justo sobre los bordes del elemento y contaminarían la
+     * medición. El export real tampoco los tiene.
+     */
+    const limpiar = async () => {
+      await page.evaluate(() => window.postMessage({ oc: "deselect" }, "*"));
+      await new Promise((r) => setTimeout(r, 120));
+    };
+    /** Color RGB del píxel (x,y) de un screenshot de la página actual. */
+    const pixelAt = async (x, y) => {
+      await limpiar();
+      const shot = await page.screenshot({
+        type: "png",
+        clip: { x: 0, y: 0, width: W, height: H },
+        captureBeyondViewport: false,
+      });
+      const raw = await sharp(shot)
+        .ensureAlpha()
+        .extract({ left: x, top: y, width: 1, height: 1 })
+        .raw()
+        .toBuffer();
+      return [raw[0], raw[1], raw[2]];
+    };
+    /** Desvío estándar del canal rojo en un recorte: mide el grano. */
+    const rugosidad = async (x, y, n) => {
+      await limpiar();
+      const shot = await page.screenshot({
+        type: "png",
+        clip: { x: 0, y: 0, width: W, height: H },
+        captureBeyondViewport: false,
+      });
+      const raw = await sharp(shot)
+        .ensureAlpha()
+        .extract({ left: x, top: y, width: n, height: n })
+        .raw()
+        .toBuffer();
+      const vals = [];
+      for (let i = 0; i < raw.length; i += 4) vals.push(raw[i]);
+      const m = vals.reduce((a, b) => a + b, 0) / vals.length;
+      return Math.sqrt(vals.reduce((a, b) => a + (b - m) ** 2, 0) / vals.length);
+    };
+
+    const GRIS = `
+<div id="root" style="position:relative;width:${W}px;height:${H}px;background:#ffffff">
+  <div id="plano" data-oc-shape="1" style="position:absolute;left:200px;top:200px;width:400px;height:400px;background:#808080"></div>
+</div>`;
+    await pageFor(GRIS);
+    const grisBase = await pixelAt(400, 400);
+    check(
+      "el cuadro arranca gris plano",
+      Math.abs(grisBase[0] - 128) < 4 && Math.abs(grisBase[0] - grisBase[2]) < 4,
+      grisBase.join(",")
+    );
+    const planoLiso = await rugosidad(300, 300, 40);
+    check("y sin grano", planoLiso < 1.5, `desvío=${planoLiso.toFixed(2)}`);
+
+    const seleccionarPlano = async () => {
+      await page.mouse.click(400, 400);
+      await new Promise((r) => setTimeout(r, 80));
+    };
+    await seleccionarPlano();
+    await page.evaluate(() =>
+      window.postMessage(
+        { oc: "apply", prop: "fx", value: { kind: "duotone", value: { i: 100, a: "#000080", b: "#ffff00" } } },
+        "*"
+      )
+    );
+    await new Promise((r) => setTimeout(r, 200));
+    const duoPix = await pixelAt(400, 400);
+    // Gris medio con duotono navy→amarillo cae en la mitad de la rampa: R y G
+    // suben mucho y B baja. Lo importante es que YA NO es gris.
+    check(
+      "el duotono cambia el color de verdad en el PNG",
+      Math.abs(duoPix[0] - duoPix[2]) > 40,
+      `rgb=${duoPix.join(",")}`
+    );
+    await seleccionarPlano();
+    await page.evaluate(() =>
+      window.postMessage({ oc: "apply", prop: "fx", value: { kind: "duotone", value: null } }, "*")
+    );
+    await new Promise((r) => setTimeout(r, 150));
+
+    await seleccionarPlano();
+    await page.evaluate(() =>
+      window.postMessage({ oc: "apply", prop: "fx", value: { kind: "grain", value: 90 } }, "*")
+    );
+    await new Promise((r) => setTimeout(r, 200));
+    const conGrano = await rugosidad(300, 300, 40);
+    check(
+      "el granulado agrega grano medible",
+      conGrano > planoLiso + 3,
+      `desvío ${planoLiso.toFixed(2)} → ${conGrano.toFixed(2)}`
+    );
+    // Y no se derrama fuera de la silueta del elemento.
+    const afuera = await pixelAt(100, 100);
+    check(
+      "sin pintar fuera del elemento",
+      afuera[0] > 250 && afuera[1] > 250 && afuera[2] > 250,
+      afuera.join(",")
+    );
+    await seleccionarPlano();
+    await page.evaluate(() =>
+      window.postMessage({ oc: "apply", prop: "fx", value: { kind: "grain", value: null } }, "*")
+    );
+    await new Promise((r) => setTimeout(r, 150));
+
+    // Motion blur: el borde duro tiene que quedar degradado.
+    await seleccionarPlano();
+    await page.evaluate(() =>
+      window.postMessage({ oc: "apply", prop: "fx", value: { kind: "motion", value: 70 } }, "*")
+    );
+    await new Promise((r) => setTimeout(r, 200));
+    const bordeIzq = await pixelAt(196, 400); // 4px afuera del borde original
+    check(
+      "el motion blur derrama el borde hacia afuera",
+      bordeIzq[0] < 250,
+      `rgb=${bordeIzq.join(",")}`
+    );
 
     console.log("\nSerialización");
     await reset();
