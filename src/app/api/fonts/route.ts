@@ -1,13 +1,23 @@
 import { NextResponse } from "next/server";
 
-// Curated list of Google Fonts that work well for social media carousels
+// Curated list of Google Fonts that work well for social media carousels.
+// Las primeras son las tipografías de marca de los avengers 30x (fuente: los
+// adn.json de 30x/avatars/): tienen que estar en el selector o la marca de un
+// avatar no se puede elegir a mano en la config. Deben coincidir con EDITOR_FONTS
+// de src/lib/slide-editor.ts.
 const POPULAR_FONTS = [
-  { name: "Inter", category: "sans-serif" },
-  { name: "Playfair Display", category: "serif" },
+  // avengers 30x
+  { name: "Instrument Serif", category: "serif" }, // Cinthya Sánchez
+  { name: "Open Sans", category: "sans-serif" }, // Guillermo Jaramillo
+  { name: "Inter", category: "sans-serif" }, // Andrés Bilbao
+  { name: "Arimo", category: "sans-serif" }, // Daniel Bilbao
+  { name: "Playfair Display", category: "serif" }, // Cora Bilbao (titulares) · Alejandra Deik
+  { name: "Poppins", category: "sans-serif" }, // Cora Bilbao (cuerpo) · Maria Jose Echeverri
+  { name: "Bricolage Grotesque", category: "sans-serif" }, // Dylan Rosemberg
+  { name: "Nunito Sans", category: "sans-serif" }, // Liz Hernández
+  // resto
   { name: "Montserrat", category: "sans-serif" },
-  { name: "Poppins", category: "sans-serif" },
   { name: "Roboto", category: "sans-serif" },
-  { name: "Open Sans", category: "sans-serif" },
   { name: "Lato", category: "sans-serif" },
   { name: "Oswald", category: "sans-serif" },
   { name: "Raleway", category: "sans-serif" },

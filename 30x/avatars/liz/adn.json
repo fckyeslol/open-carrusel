@@ -1,10 +1,11 @@
 {
   "avatar": {
     "slug": "liz",
-    "name": "Liz Hernandez",
+    "name": "Liz Hernández",
     "prewave_avatar_id": "<uuid opcional>",
     "prewave_program_match": [
-      "Liz Hernandez"
+      "Liz Hernandez",
+      "Liz Hernández"
     ]
   },
   "brand": {
@@ -45,22 +46,30 @@
         "rol": "complementario base 30x (fondo claro)"
       },
       {
-        "hex": "#000000",
-        "nombre": "Negro",
+        "hex": "#130320",
+        "nombre": "Violeta Noche",
         "rol": "oscuro / textos"
       },
       {
-        "hex": "#C0C7D0",
+        "hex": "#E0A6F0",
         "nombre": "Lila",
         "rol": "complementario"
       },
       {
-        "hex": "#8177FE",
-        "nombre": "Magenta",
+        "hex": "#615AB8",
+        "nombre": "Violeta",
         "rol": "principal (acento)"
       }
     ],
-    "_paleta_nota": "ADN 8, pág. 45 (hex confirmados con su etiqueta). El manual nombra 'Lila' al swatch #C0C7D0 (que en realidad es un gris azulado) — se respeta el naming del manual.",
+    "_paleta_nota": "ADN 8, pág. 45. Los tres colores propios de Liz son Violeta #615AB8 (acento), Lila #E0A6F0 (complementario) y Violeta Noche #130320 (textos y fondos oscuros).",
+    "_paleta_fuente_hex": "Hex canónicos entregados por el equipo de marca 30x (2026-07-26). Corrigen los tres valores anteriores, que estaban mal: el acento se había cargado como #8177FE, el complementario como #C0C7D0 (un gris azulado copiado del ADN de Daniel Bilbao, no un lila) y el oscuro como #000000 negro puro. El hueso #F6F5F0 es el denominador común de las 8 marcas y ocupa ~40% del uso de color de cada mentor.",
+    "_paleta_hex_previos_nota": "Hex que este avatar tenía mal antes del 2026-07-26 → su valor canónico. Lo consume scripts/repalette-carousels.mjs para migrar los carruseles ya creados. Al corregir otro hex en el futuro, sumar la entrada acá.",
+    "_paleta_hex_previos": {
+      "#8177FE": "#615AB8",
+      "#C0C7D0": "#E0A6F0",
+      "#000000": "#130320"
+    },
+    "_paleta_reparto": "El hueso #F6F5F0 cubre ~40% de la pieza (fondos y aire). El 60% restante se reparte entre Violeta, Lila y Violeta Noche.",
     "fondos": [
       "FONDO 1 - IMAGEN",
       "FONDO 2 - PLANO",

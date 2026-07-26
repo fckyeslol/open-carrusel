@@ -71,25 +71,67 @@ function mix(hex, amt) {
 }
 
 /**
+ * Clasifica una entrada de paleta por el `rol` que declara el manual de ADN.
+ * Devuelve "background" | "text" | "accent" | "complement" | null (sin rol útil).
+ *
+ * Los roles del manual vienen en prosa ("complementario base 30x (fondo claro)",
+ * "principal (acento)", "oscuro / textos"), así que se leen por palabras clave.
+ * El orden de los ifs es el que resuelve las frases mixtas: "complementario base
+ * 30x (fondo claro)" es FONDO, no complementario, y "principal / textos y fondos
+ * oscuros" es TEXTO, no acento.
+ */
+function clasificarRol(rol) {
+  const r = String(rol || "").toLowerCase();
+  if (!r) return null;
+  if (/fondo claro|base\b|\bbase\/|fondo\/base/.test(r)) return "background";
+  if (/texto/.test(r)) return "text";
+  if (/acento|principal/.test(r)) return "accent";
+  if (/complementario|superficie/.test(r)) return "complement";
+  return null;
+}
+
+/**
  * Deriva los 5 roles de color de Open Carrusel desde la paleta del ADN.
- * background = el más claro; primary(texto) = el más oscuro; accent = el más
- * saturado de los intermedios; secondary = el segundo más oscuro; surface = un
- * matiz del fondo.
+ *
+ * Manda el `rol` que declara el manual: es una decisión de marca, no algo que se
+ * pueda adivinar. Sin esto la heurística de luminancia/saturación le erraba al
+ * acento de varios avatares (a Alejandra le daba el azul en vez del cian; a
+ * Andrés el naranja del degradé en vez de la lima) y dejaba el `secondary`
+ * duplicando el acento, así que el complementario del avatar no llegaba nunca al
+ * prompt.
+ *
+ * Cuando una entrada no declara rol (o el ADN no trae paleta con roles) cae a la
+ * heurística vieja: background = el más claro; primary(texto) = el más oscuro;
+ * secondary = el segundo más oscuro; accent = el más saturado de los intermedios.
  */
 function deriveColors(paleta) {
-  const hexes = (paleta || []).map((p) => p.hex).filter(Boolean).map(norm);
+  const entradas = (paleta || []).filter((p) => p?.hex && parseHex(p.hex));
+  const hexes = entradas.map((p) => norm(p.hex));
   if (hexes.length === 0) {
     return { primary: "#2A2320", secondary: "#5a4f48", accent: "#E5ACBF", background: "#F6F5F0", surface: "#eceae3" };
   }
+
+  // Primer hex declarado para cada rol del manual (el manual los lista en orden).
+  const porRol = {};
+  for (const p of entradas) {
+    const rol = clasificarRol(p.rol);
+    if (rol && !porRol[rol]) porRol[rol] = norm(p.hex);
+  }
+
   const byLum = [...hexes].sort((a, b) => luminance(a) - luminance(b)); // oscuro→claro
-  const background = byLum[byLum.length - 1];
-  const primary = byLum[0];
-  const secondary = byLum.length > 2 ? byLum[1] : mix(primary, 0.25);
+  const background = porRol.background || byLum[byLum.length - 1];
+  const primary = porRol.text || byLum[0];
   // acento: el más saturado que no sea el fondo ni el texto principal
-  const candidates = hexes.filter((h) => h !== background && h !== primary);
+  const candidatos = hexes.filter((h) => h !== background && h !== primary);
   const accent =
-    (candidates.length ? candidates : hexes).slice().sort((a, b) => saturation(b) - saturation(a))[0] ||
+    porRol.accent ||
+    (candidatos.length ? candidatos : hexes).slice().sort((a, b) => saturation(b) - saturation(a))[0] ||
     "#E5ACBF";
+  const secondary =
+    porRol.complement ||
+    // sin complementario declarado: el segundo más oscuro, evitando repetir el acento
+    byLum.slice(1).find((h) => h !== accent && h !== background) ||
+    (byLum.length > 2 ? byLum[1] : mix(primary, 0.25));
   const surface = mix(background, -0.04);
   return { primary, secondary, accent, background, surface };
 }
@@ -152,6 +194,55 @@ function buildAssetRules(assets) {
   return lines.join("\n");
 }
 
+/**
+ * Familia de CUERPO del avatar.
+ *
+ * Casi todos los avengers mandan una sola familia por ADN y la usan en titular y
+ * cuerpo (decisión de marca, no descuido — ver slide-profile.mjs → 'single-font').
+ * Cora Bilbao es la excepción: Playfair Display en titulares y Poppins en cuerpo,
+ * así que el ADN puede declarar `tipografia.familia_cuerpo` y esto la respeta.
+ */
+function bodyFamily(tipografia) {
+  const cuerpo = tipografia?.familia_cuerpo;
+  return (typeof cuerpo === "string" && cuerpo.trim()) || tipografia?.familia || null;
+}
+
+/** Línea de tipografía del prompt: una familia, o el par titular/cuerpo si hay dos. */
+function buildTypographyRule(tipografia) {
+  const titular = tipografia?.familia;
+  if (!titular) return "";
+  const cuerpo = bodyFamily(tipografia);
+  const base =
+    cuerpo && cuerpo !== titular
+      ? `Tipografía de marca: DOS familias, y no se cruzan — "${titular}" SOLO para titulares y remates, ` +
+        `"${cuerpo}" para cuerpo, kickers, datos, fuentes y pies. Nunca al revés.`
+      : `Tipografía de marca: ${titular} (única familia del avatar: titulares y cuerpo).`;
+  return tipografia?.nota ? `${base} ${tipografia.nota}` : base;
+}
+
+/**
+ * Paleta canónica en el prompt, con hex, nombre y rol tal como los declara el
+ * manual — incluidos los colores de degradé, que no entran en los 5 roles que
+ * deriveColors() le pasa a brand.colors y que sin esto el agente no vería nunca.
+ *
+ * Cierra con el reparto 40/60: el hueso es el denominador común de las 8 marcas.
+ */
+function buildPaletteRule(vi) {
+  const paleta = (vi?.paleta || []).filter((p) => p?.hex);
+  if (!paleta.length) return "";
+  const items = paleta.map((p) => {
+    const etiqueta = [p.nombre, p.rol].filter(Boolean).join(" — ");
+    return etiqueta ? `${p.hex} (${etiqueta})` : p.hex;
+  });
+  const lineas = [
+    `Paleta canónica del avatar: ${items.join(" · ")}. ` +
+      "Los tintes y sombras de estos hex son válidos; un color que no salga de esta paleta, no.",
+  ];
+  if (vi._paleta_reparto) lineas.push(vi._paleta_reparto);
+  if (vi._paleta_nota) lineas.push(`Nota de paleta: ${vi._paleta_nota}`);
+  return lineas.join("\n");
+}
+
 function buildDesignRules(adn, assets) {
   const vi = adn.visual_identity || {};
   const voice = adn.voice_dna || {};
@@ -161,7 +252,10 @@ function buildDesignRules(adn, assets) {
   if (vi.titulo_rol) lines.push(`Posicionamiento / kicker: ${vi.titulo_rol}.`);
   if (vi.firma) lines.push(`Firma de cierre (última lámina): "${vi.firma}".`);
   if (brand.cta_default) lines.push(`CTA por defecto: "${brand.cta_default}".`);
-  if (vi.tipografia?.familia) lines.push(`Tipografía de marca: ${vi.tipografia.familia} (usar para titulares).`);
+  const tipografia = buildTypographyRule(vi.tipografia);
+  if (tipografia) lines.push(tipografia);
+  const paleta = buildPaletteRule(vi);
+  if (paleta) lines.push(paleta);
   if (Array.isArray(vi.fondos) && vi.fondos.length) lines.push(`Tratamientos de fondo disponibles: ${vi.fondos.join(", ")}.`);
   // ── Voz (fuente: sección Avatares de Prewave, volcada al adn.json) ───────────
   if (voice.acento && voice.acento !== "neutro")
@@ -255,6 +349,7 @@ export async function importAvatars({ avatarsDir = DEFAULT_AVATARS_DIR, quiet = 
       continue;
     }
 
+    const bodyFont = bodyFamily(vi.tipografia) || family;
     const colors = deriveColors(paleta);
     const name = adn.avatar?.name || slug;
     const exampleSlideHtml = await readExampleHtml(slug);
@@ -269,7 +364,7 @@ export async function importAvatars({ avatarsDir = DEFAULT_AVATARS_DIR, quiet = 
       brand: {
         name: `30X — ${name}`,
         colors,
-        fonts: { heading: family, body: family },
+        fonts: { heading: family, body: bodyFont },
         customFonts: [],
         logoPath: assets.logo[0] || null,
         styleKeywords: buildKeywords(adn),
@@ -285,8 +380,9 @@ export async function importAvatars({ avatarsDir = DEFAULT_AVATARS_DIR, quiet = 
       avatarSlug: slug,
       avatarStatus: adn.status || "draft",
     });
+    const fuentes = bodyFont === family ? family : `${family} + ${bodyFont}`;
     say(
-      `  ✓ ${slug.padEnd(16)} ${family.padEnd(20)} bg ${colors.background} · text ${colors.primary} · accent ${colors.accent}` +
+      `  ✓ ${slug.padEnd(16)} ${fuentes.padEnd(32)} bg ${colors.background} · text ${colors.primary} · accent ${colors.accent} · 2º ${colors.secondary}` +
         (exampleSlideHtml ? "  [+formato]" : "  [sin formato aún]") +
         (assetCount ? `  [${assetCount} assets]` : "  [sin assets]")
     );

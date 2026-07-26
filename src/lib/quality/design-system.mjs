@@ -180,6 +180,10 @@ export function construirDesignSystem(preset) {
       fonts.heading,
       fonts.body,
       adn?.visual_identity?.tipografia?.familia,
+      // Avatares con dos familias (Cora: Playfair Display + Poppins) declaran la
+      // de cuerpo aparte. Sin esto el detector marca la fuente de cuerpo del
+      // propio ADN como deriva de identidad.
+      adn?.visual_identity?.tipografia?.familia_cuerpo,
       ...referencia.fuentes,
       ...customFonts.map((f) => f?.family || f?.name),
     ].filter((f) => typeof f === 'string' && f.trim()),

@@ -27,6 +27,27 @@ AI-powered Instagram carousel builder. Next.js 16 + React 19 + TypeScript + Tail
   `referencias/`), versioned in git. Drop files in; `scripts/import-avatars.mjs` picks them up on
   next launch (sets `logoPath`, lists asset URLs in the preset's designRules). Served at
   `/avatar-assets/<slug>/<kind>/<file>` by `src/app/avatar-assets/[slug]/[...file]/route.ts`
+- `scripts/repalette-carousels.mjs` — Re-paints already-stored carousels when a brand hex is
+  corrected in an ADN (reads `visual_identity._paleta_hex_previos`). Dry-run by default
+
+## Avatar Identity
+
+Each avatar's identity lives in `30x/avatars/<slug>/adn.json` — the single source of truth. Three
+things flow out of it, all keyed by the **directory name** (not `avatar.slug`):
+
+- `scripts/import-avatars.mjs` derives `data/style-presets.json`: `tipografia.familia` →
+  `fonts.heading`, optional `tipografia.familia_cuerpo` → `fonts.body` (only Cora Bilbao has two
+  families), and `paleta[].rol` → the app's 5 color roles. The declared `rol` wins over any
+  luminance/saturation guess, so palette wording matters — see `_TEMPLATE/adn.json`
+- `public/30x-slides/<slug>/formato-*.html` are the avatar's reference formats. The importer picks
+  the first one as `exampleSlideHtml`, which the system prompt injects as "ADN del avatar". Their
+  hardcoded hexes must track the ADN palette or the agent copies stale colors
+- `src/lib/quality/design-system.mjs` unions ADN + preset + reference-slide colors and fonts, so
+  drift is measured against the avatar's real identity
+
+`#F6F5F0` ("30% White") is the shared base across all mentors and carries ~40% of each piece; the
+remaining 60% is the avatar's own 3–4 colors. Font pickers must list all avatar families:
+`EDITOR_FONTS` in `src/lib/slide-editor.ts` and `POPULAR_FONTS` in `src/app/api/fonts/route.ts`.
 
 ## API Routes
 

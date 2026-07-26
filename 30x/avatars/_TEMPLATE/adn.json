@@ -34,10 +34,15 @@
     "titulo_rol": "<rol como aparece en el manual>",
     "firma": "<cómo firma, p.ej. '/ Nombre.'>",
     "tipografia": {
+      "_nota": "familia = la de TITULARES (y también la de cuerpo si el avatar usa una sola, que es el caso normal). familia_cuerpo solo si el manual manda DOS familias (p. ej. Cora Bilbao: Playfair Display en titulares, Poppins en cuerpo) — si va vacía, el cuerpo hereda familia.",
       "familia": "",
-      "licencia": ""
+      "licencia": "",
+      "familia_cuerpo": "",
+      "licencia_cuerpo": ""
     },
+    "_paleta_nota_roles": "El `rol` de cada color no es decorativo: import-avatars.mjs lo lee para mapear la paleta a los 5 roles de la app. Usar el vocabulario del manual — 'complementario base 30x (fondo claro)' = fondo, 'oscuro / textos' = texto, 'principal (acento)' = acento, 'complementario' = secundario, 'gradiente' = solo degradé. El hueso #F6F5F0 va en todos los mentores y ocupa ~40% del uso de color.",
     "paleta": [],
+    "_paleta_reparto": "El hueso #F6F5F0 cubre ~40% de la pieza (fondos y aire). El 60% restante se reparte entre los 3-4 colores propios del avatar.",
     "fondos": [
       "FONDO 1 - IMAGEN",
       "FONDO 2 - PLANO",

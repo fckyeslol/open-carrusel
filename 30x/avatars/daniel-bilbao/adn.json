@@ -93,6 +93,8 @@
       }
     ],
     "_paleta_nota": "ADN 3, pág. 19 (hex confirmados con su etiqueta). El manual no rotula los roles PRINCIPAL/COMPLEMENTARIO en esta página; los roles de arriba son la lectura visual razonable — confirmar al construir el lienzo.",
+    "_paleta_fuente_hex": "Hex verificados contra la especificación del equipo de marca 30x (2026-07-26): coinciden con los del manual, sin cambios. El hueso #F6F5F0 es el denominador común de las 8 marcas y ocupa ~40% del uso de color de cada mentor.",
+    "_paleta_reparto": "El hueso #F6F5F0 cubre ~40% de la pieza (fondos y aire). El 60% restante se reparte entre Azul, Acero y Azul Noche.",
     "fondos": [
       "FONDO 1 - FOTO MENTOR",
       "FONDO 2 - IMAGEN",
