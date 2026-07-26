@@ -29,9 +29,15 @@ marcados como revisados y ninguna ronda futura los va a mirar.
 2. Para cada rama `claude/*` de origin (excluí la del revisor):
    `git rev-list --count origin/claude/session-review-agent-m9y214..<rama>`
 
-   Descartá una rama si:
-   - `git diff origin/main <rama>` sale vacío → ya fue squash-mergeada a main;
-   - está en la lista de abandonadas de abajo.
+   Descartá las que estén en la lista de abandonadas de abajo.
+
+   No busques detectarlas por contenido. La regla que había acá —"descartala si
+   `git diff origin/main <rama>` sale vacío"— sólo funcionaba en la ventana
+   entre el squash-merge y el commit siguiente de main; después el diff nunca
+   más vuelve a salir vacío. Compararlas contra los archivos que la rama toca
+   tampoco sirve: `CLAUDE.md` lo tocan todas. La lista se mantiene a mano y es
+   corta; cuando descartes una, anotala abajo **con el motivo**, que es lo que
+   evita que alguien la resucite sin querer.
 
 3. Si no queda ninguna con commits nuevos: **terminá el turno en silencio.** Sin
    texto, sin resumen, sin "todo en orden". El silencio es la señal de que no
