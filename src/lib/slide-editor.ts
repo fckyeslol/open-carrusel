@@ -112,6 +112,9 @@ export const EDITOR_RUNTIME = String.raw`
     return true;
   }
   function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  var FMT_SEL='span,strong,em,b,i,u,s,mark,font,a,code,small,sub,sup,del,ins,abbr';
+  /** ¿El texto tiene tramos con formato propio (negrita de una palabra, etc.)? */
+  function hasFormat(el){ return !!(el.querySelector && el.querySelector(FMT_SEL)); }
   // Lee el texto conservando los saltos de línea (<br> → \n) para el textarea.
   function readText(el){
     var clone=el.cloneNode(true);
@@ -122,6 +125,41 @@ export const EDITOR_RUNTIME = String.raw`
   function tooBig(el){
     var r=el.getBoundingClientRect();
     return (r.width*r.height) > (W*H*0.80);
+  }
+  /**
+   * Caja de LAYOUT del elemento, sin la rotación.
+   *
+   * getBoundingClientRect() de un elemento rotado devuelve la caja que envuelve la
+   * silueta girada, que es más grande que la caja real y está corrida. Usar ese
+   * rect para fijar left/top/width (posicionar con precisión, alinear, redimensionar)
+   * hacía saltar y crecer cualquier elemento con giro. Se mide con la rotación
+   * apagada un instante y se restaura.
+   */
+  function layoutRect(el){
+    var inline=el.style.rotate||'', comp=getComputedStyle(el).rotate||'';
+    var rotated=(inline&&inline!=='none')||(comp&&comp!=='none');
+    if(!rotated) return el.getBoundingClientRect();
+    el.style.rotate='none';
+    var r=el.getBoundingClientRect();
+    var out={left:r.left, top:r.top, right:r.right, bottom:r.bottom, width:r.width, height:r.height};
+    if(inline) el.style.rotate=inline; else el.style.rotate='';
+    return out;
+  }
+  /**
+   * Valor base del transform para el arrastre.
+   *
+   * Antes se leía SOLO el transform inline. Una lámina que centra con
+   * transform:translate(-50%,-50%) desde un <style> tiene el inline vacío, así que
+   * el translate del arrastre PISABA la regla de la hoja y la imagen saltaba media
+   * caja de golpe: el bug de "la imagen se va a otro lado del que la suelto".
+   * Cayendo al transform computado (una matrix, válida como valor) la base se
+   * conserva y el arrastre suma sobre la posición real.
+   */
+  function baseTransform(el){
+    var inline=el.style.transform||'';
+    if(inline) return inline;
+    var c=getComputedStyle(el).transform;
+    return (!c||c==='none') ? '' : c;
   }
   function members(el){
     var g=el.getAttribute && el.getAttribute('data-oc-g');
@@ -159,6 +197,10 @@ export const EDITOR_RUNTIME = String.raw`
       }
       if(el===document.body||el===document.documentElement||el===rootEl()) continue;
       if(el.closest && el.closest('[data-oc-ui]')) continue;
+      // Capa bloqueada: transparente al clic (se toma desde el panel de capas).
+      if(isLocked(el) || (el.closest && el.closest('[data-oc-lock]'))) continue;
+      // Capa de sombra: es parte del elemento, no un objeto aparte.
+      if(el.hasAttribute && el.hasAttribute('data-oc-shadow-for')) continue;
       // svgHit cuenta como "tinta real": el punto tocó una forma dentro del svg,
       // así que un svg-overlay a lámina completa sigue siendo seleccionable.
       if(tooBig(el)){ if((el.tagName==='IMG'||svgHit)&&!bigImg) bigImg=el; continue; }
@@ -181,7 +223,10 @@ export const EDITOR_RUNTIME = String.raw`
       b.style.cssText='position:absolute;left:0;top:0;width:'+r.width+'px;height:'+r.height+'px;transform:translate('+r.left+'px,'+r.top+'px)';
       ui.appendChild(b); boxes.push(b);
     });
-    if(sels.length===1){
+    // Una capa bloqueada muestra su caja (para saber cuál es) pero sin handles:
+    // no se redimensiona ni se rota hasta desbloquearla.
+    var anyLocked=sels.some(isLocked);
+    if(sels.length===1 && !anyLocked){
       var el0=sels[0];
       var isTxt = isTextEl(el0);
       var r=el0.getBoundingClientRect();
@@ -221,7 +266,7 @@ export const EDITOR_RUNTIME = String.raw`
     // ── multi-selección: caja envolvente punteada + 4 esquinas para escalar el
     //    conjunto manteniendo las proporciones (posición, tamaño y tipografía de
     //    cada miembro se escalan con el mismo factor). ──────────────────────────
-    else if(sels.length>1){
+    else if(sels.length>1 && !anyLocked){
       var bb=selBBox();
       var gb=document.createElement('div'); gb.className='oc-gbox';
       gb.style.cssText+=';width:'+(bb.right-bb.left)+'px;height:'+(bb.bottom-bb.top)+'px'
@@ -280,6 +325,7 @@ export const EDITOR_RUNTIME = String.raw`
       var o=h.c==='rot'?16:7;   // el handle de rotación es más grande (32px)
       h.el.style.transform='translate('+(p[0]-o)+'px,'+(p[1]-o)+'px)'; });
     placeRotLine(r);
+    syncShadows();
   }
   /** Re-mide TODA la multi-selección y acomoda cajas, envolvente y esquinas.
    *  El equivalente de syncOne para la escala de grupo: sin esto habría que
@@ -373,6 +419,7 @@ export const EDITOR_RUNTIME = String.raw`
       if(t==='SCRIPT'||t==='STYLE'||t==='LINK') continue;
       if(el.hasAttribute&&(el.hasAttribute('data-oc-ui')||el.hasAttribute('data-oc-tex'))) continue;
       if(el.closest&&el.closest('[data-oc-ui]')) continue;
+      if(el.hasAttribute&&el.hasAttribute('data-oc-shadow-for')) continue;   // decoración, no referencia
       if(el.ownerSVGElement) continue;   // formas internas de un svg: aporta el raíz
       if(inSelTree(el)) continue;
       var r=el.getBoundingClientRect();
@@ -417,7 +464,9 @@ export const EDITOR_RUNTIME = String.raw`
   function report(){
     reportLayers();   // el panel de capas se mantiene al día con cada cambio/selección
     if(!sels.length){ post({oc:'sel',none:true}); return; }
-    var el=sels[0], cs=getComputedStyle(el), er=el.getBoundingClientRect();
+    // er = caja de layout (sin rotación): es la que gobiernan los campos X/Y/W/H,
+    // así que el panel muestra el mismo número que después se puede escribir.
+    var el=sels[0], cs=getComputedStyle(el), er=layoutRect(el);
     var isText = isTextEl(el), isSvg = isSvgRoot(el);
     // Con un tramo de texto marcado, la tipografía reportada es la DEL TRAMO:
     // así el panel muestra el peso/color/tamaño real de lo que se va a cambiar.
@@ -430,8 +479,18 @@ export const EDITOR_RUNTIME = String.raw`
       isImage: el.tagName==='IMG',
       src: el.tagName==='IMG' ? (el.getAttribute('src')||'') : '',
       imgHist: el.tagName==='IMG' ? readImgHist(el) : [],
+      // Encaje actual: 'auto' = alto natural (sin object-fit y con height:auto).
+      fit: el.tagName==='IMG'
+        ? ((el.style.height==='auto'||!parseFloat(el.style.height)) && !el.style.objectFit
+            ? 'auto' : (cs.objectFit||'fill'))
+        : '',
       text: isText ? readText(el) : '',
       range: !!rh,
+      // El texto tiene tramos con formato propio: el panel lo avisa, porque editar
+      // desde el campo conserva el formato pero conviene saber que está ahí.
+      hasFormat: isText && hasFormat(el),
+      // Fondo del contenedor que abraza al texto ('' = no hay caja pintada).
+      boxBg: isText ? (function(){ var a=bgAncestor(el); return a?toHex(getComputedStyle(a).backgroundColor):''; })() : '',
       fontFamily:(ct.fontFamily||'').split(',')[0].replace(/['"]/g,'').trim(),
       fontSize:Math.round(parseFloat(ct.fontSize)||0),
       color:toHex(ct.color), fontWeight:ct.fontWeight,
@@ -541,6 +600,8 @@ export const EDITOR_RUNTIME = String.raw`
       if(el.hasAttribute&&(el.hasAttribute('data-oc-ui')||el.hasAttribute('data-oc-tex'))) continue;
       if(el.closest&&el.closest('[data-oc-ui]')) continue;
       if(el===root||el.ownerSVGElement) continue;
+      if(isLocked(el)||isHidden(el)) continue;
+      if(el.hasAttribute&&el.hasAttribute('data-oc-shadow-for')) continue;   // sombra: parte del elemento
       if(tooBig(el)) continue;
       var r=el.getBoundingClientRect();
       if(r.width<1||r.height<1) continue;
@@ -717,6 +778,7 @@ export const EDITOR_RUNTIME = String.raw`
     // (squelch) y Shift/Ctrl+clic para descartar — o Alt+clic para tomar un
     // miembro suelto del grupo — no llegaban nunca a ejecutarse.
     if(e.shiftKey||e.ctrlKey||e.metaKey||e.altKey) return;
+    if(sels.some(isLocked)) return;   // capa bloqueada: no se mueve
     if(sels[0].getAttribute('contenteditable')==='true') return;
     savedRange=null;   // agarrar el elemento entero = adiós al tramo marcado
     snap();
@@ -752,14 +814,21 @@ export const EDITOR_RUNTIME = String.raw`
       // Formas DENTRO de un svg: left/top no les aplican jamás, pero el transform
       // CSS sí (Chromium). Van siempre por transform, ignorando su display.
       mode.set(el,'transform');
-      if(!baseTf.has(el)) baseTf.set(el, el.style.transform||'');
+      if(!baseTf.has(el)) baseTf.set(el, baseTransform(el));
     } else if(cs.display==='inline'){
       mode.set(el,'offset');
       if(cs.position==='static') el.style.position='relative';
-      baseOff.set(el,[parseFloat(el.style.left)||0, parseFloat(el.style.top)||0]);
+      // El punto de partida sale del estilo COMPUTADO, no solo del inline: un
+      // inline con position:relative y left/top declarados en un <style> tenía
+      // base 0 y al primer arrastre saltaba al origen de su flujo. (En un
+      // static el computado es 'auto' y cae a 0, que es el arranque correcto de un
+      // position:relative recién puesto.)
+      var bl=parseFloat(el.style.left); if(isNaN(bl)) bl=parseFloat(cs.left);
+      var bt=parseFloat(el.style.top);  if(isNaN(bt)) bt=parseFloat(cs.top);
+      baseOff.set(el,[isNaN(bl)?0:bl, isNaN(bt)?0:bt]);
     } else {
       mode.set(el,'transform');
-      if(!baseTf.has(el)) baseTf.set(el, el.style.transform||'');
+      if(!baseTf.has(el)) baseTf.set(el, baseTransform(el));
     }
   }
   function applyT(el,nx,ny){
@@ -805,6 +874,7 @@ export const EDITOR_RUNTIME = String.raw`
       applyT(sels[i], drag.start[i][0]+dx, drag.start[i][1]+dy);
     }
     offsetBoxes(drag.rects, dx, dy);
+    syncShadows();   // la sombra de puntos sigue al elemento en vivo
     drawGuides(gs);
   }
   window.addEventListener('mousemove', function(e){
@@ -874,7 +944,7 @@ export const EDITOR_RUNTIME = String.raw`
     // left/top que no incluye el translate y "salta". En texto no aplica: su tamaño
     // lo maneja fontSize/width sin ancla, y fijarle el ancho reflowearía de golpe.
     if(!isTxt && !el.ownerSVGElement){ el.removeAttribute('data-oc-abs'); promoteAbsolute(el); }
-    var r=el.getBoundingClientRect();
+    var r=layoutRect(el);   // sin la rotación: si no, un elemento girado se agranda al tocarlo
     rz={el:el, sx:e.clientX, sy:e.clientY, w:r.width, h:r.height, corner:corner,
         left:parseFloat(el.style.left)||0, top:parseFloat(el.style.top)||0,
         fs:parseFloat(cs.fontSize)||0,
@@ -943,14 +1013,25 @@ export const EDITOR_RUNTIME = String.raw`
     syncOne();   // re-mide solo el elemento activo, sin reconstruir el overlay
   }
 
+  /**
+   * Entra en edición inline (lo que hace el doble clic). Es también el único modo
+   * en que se puede MARCAR un tramo de texto para darle formato propio: fuera de
+   * la edición, arrastrar sobre el texto mueve el elemento. Por eso el panel
+   * expone un botón que llama acá, en vez de dejarlo escondido en el doble clic.
+   */
+  function editText(t){
+    if(!t||!isTextEl(t)||isLocked(t)) return;
+    snap();
+    t.setAttribute('contenteditable','true'); t.focus();
+    var end=function(){
+      t.setAttribute('contenteditable','false'); t.removeEventListener('blur',end);
+      paint(); report(); serialize();
+    };
+    t.addEventListener('blur', end);
+    report();
+  }
   document.addEventListener('dblclick', function(e){
-    var t=candidateAt(e.clientX,e.clientY);
-    if(t && isTextEl(t)){
-      snap();
-      t.setAttribute('contenteditable','true'); t.focus();
-      var end=function(){ t.setAttribute('contenteditable','false'); t.removeEventListener('blur',end); paint(); report(); serialize(); };
-      t.addEventListener('blur', end);
-    }
+    editText(candidateAt(e.clientX,e.clientY));
   }, true);
 
   // ── teclado: undo, copy/paste, duplicar, borrar, nudge ───────────────────────
@@ -959,6 +1040,10 @@ export const EDITOR_RUNTIME = String.raw`
     var mod=e.ctrlKey||e.metaKey;
     if(mod && e.key.toLowerCase()==='z'){ e.preventDefault(); undo(); return; }
     if(ed) return;   // editando texto: Ctrl+A / Ctrl+C son del caret
+    // Enter sobre un texto seleccionado entra a editarlo (como en Canva).
+    if(e.key==='Enter' && sels.length===1 && isTextEl(sels[0])){
+      e.preventDefault(); editText(sels[0]); return;
+    }
     if(mod && e.key.toLowerCase()==='a'){ e.preventDefault(); selectAll(); return; }
     if(mod && e.key.toLowerCase()==='c'){ e.preventDefault(); copy(); return; }
     // Ctrl+V NO se intercepta acá: dejamos que dispare el evento 'paste' nativo,
@@ -967,6 +1052,7 @@ export const EDITOR_RUNTIME = String.raw`
     if((e.key==='Delete'||e.key==='Backspace') && sels.length){ e.preventDefault(); apply({prop:'remove'}); return; }
     if(e.key.indexOf('Arrow')===0 && sels.length){
       e.preventDefault();
+      if(sels.some(isLocked)) return;
       var s=e.shiftKey?10:1, dx=0, dy=0;
       if(e.key==='ArrowLeft')dx=-s; if(e.key==='ArrowRight')dx=s;
       if(e.key==='ArrowUp')dy=-s; if(e.key==='ArrowDown')dy=s;
@@ -1058,13 +1144,21 @@ export const EDITOR_RUNTIME = String.raw`
   function promoteAbsolute(el){
     if(el.ownerSVGElement) return;   // formas svg: position/left/top no existen
     if(el.getAttribute('data-oc-abs')) return;
-    var er=el.getBoundingClientRect();
+    // Sin la rotación: el rect de un elemento girado es su envolvente, no su caja.
+    var er=layoutRect(el);
     el.style.position='absolute';
     var op=el.offsetParent||document.body, opr=op.getBoundingClientRect();
     el.style.left=Math.round(er.left-opr.left)+'px';
     el.style.top=Math.round(er.top-opr.top)+'px';
     el.style.width=Math.round(er.width)+'px';
-    el.style.margin='0'; el.style.transform=''; delta.set(el,[0,0]);
+    el.style.margin='0';
+    // 'none', no '': vaciar el inline deja volver un transform declarado en un
+    // <style> (típico translate(-50%,-50%)) y el elemento se corre media caja.
+    el.style.transform='none';
+    // La posición quedó horneada en left/top, así que la contabilidad del arrastre
+    // (modo, base de transform/offset, delta) es vieja: si no se limpia, el próximo
+    // arrastre vuelve a sumar el transform anterior y el elemento salta.
+    mode.delete(el); baseTf.set(el,''); baseOff.delete(el); delta.set(el,[0,0]);
     el.setAttribute('data-oc-abs','1');
   }
   function moveTo(el,x,y){   // x,y en coordenadas de lienzo (origen 0,0)
@@ -1081,6 +1175,7 @@ export const EDITOR_RUNTIME = String.raw`
   }
   function align(kind){
     if(!sels.length) return;
+    if(sels.some(isLocked)) return;   // alinear mueve: una capa bloqueada no se mueve
     snap();
     var rects=sels.map(function(el){ return el.getBoundingClientRect(); });
     sels.forEach(promoteAbsolute);
@@ -1104,6 +1199,7 @@ export const EDITOR_RUNTIME = String.raw`
   }
   function distribute(axis){
     if(sels.length<3) return;
+    if(sels.some(isLocked)) return;
     snap();
     var items=sels.map(function(el){ return {el:el, r:el.getBoundingClientRect()}; });
     sels.forEach(promoteAbsolute);
@@ -1138,6 +1234,7 @@ export const EDITOR_RUNTIME = String.raw`
       var k=kids[i];
       if(k.hasAttribute && k.hasAttribute('data-oc-ui')) continue;
       if(k.hasAttribute && k.hasAttribute('data-oc-tex')) continue;   // la textura vive siempre al fondo
+      if(k.hasAttribute && k.hasAttribute('data-oc-shadow-for')) continue;   // sombra de un elemento
       if(k.tagName==='SCRIPT'||k.tagName==='STYLE'||k.tagName==='LINK') continue;
       var cs=getComputedStyle(k), z;
       if(cs.position==='static') z=-0.5;   // estático: pinta bajo lo posicionado
@@ -1159,40 +1256,146 @@ export const EDITOR_RUNTIME = String.raw`
     if(!id){ id='L'+(++ocIdSeq)+Math.floor(Math.random()*1e6).toString(36); el.setAttribute('data-oc-id',id); }
     return id;
   }
+  function isLocked(el){ return !!(el.getAttribute&&el.getAttribute('data-oc-lock')); }
+  function isHidden(el){ return !!(el.getAttribute&&el.getAttribute('data-oc-hide')); }
   function layerInfo(el){
-    if(el.tagName==='IMG') return {kind:'image', label:'Imagen'};
-    if(el.getAttribute && el.getAttribute('data-oc-g')) return {kind:'group', label:'Grupo'};
-    if(isSvgRoot(el) || (el.getAttribute && el.getAttribute('data-oc-shape'))) return {kind:'shape', label:'Forma'};
+    // Nombre puesto a mano en el panel: gana siempre.
+    var nm=el.getAttribute&&el.getAttribute('data-oc-name');
+    if(el.tagName==='IMG') return {kind:'image', label:nm||'Imagen'};
+    if(isSvgRoot(el) || (el.getAttribute && el.getAttribute('data-oc-shape'))) return {kind:'shape', label:nm||'Forma'};
+    if(nm) return {kind: isTextEl(el)?'text':'box', label:nm};
     var t=(el.textContent||'').replace(/\s+/g,' ').trim();
-    if(t) return {kind:'text', label: t.length>26 ? t.slice(0,26)+'…' : t};
+    if(t && isTextEl(el)) return {kind:'text', label: t.length>26 ? t.slice(0,26)+'…' : t};
+    if(t) return {kind:'box', label: t.length>22 ? t.slice(0,22)+'…' : t};
     return {kind:'box', label:'Elemento'};
   }
-  function reportLayers(){
-    var root=rootEl()||document.body;
-    var kids=layerChildrenOf(root);   // back-to-front
-    var selIds={};
-    sels.forEach(function(e){ if(e.getAttribute){ var id=e.getAttribute('data-oc-id'); if(id) selIds[id]=1; } });
-    var items=[];
+  /** ¿Vale abrir este elemento como carpeta de capas? Un texto (con sus <span>) o
+   *  una imagen son hojas; un contenedor con elementos adentro sí se expande. */
+  function isBranch(el){
+    if(el.tagName==='IMG'||isSvgRoot(el)||isTextEl(el)) return false;
+    return layerChildrenOf(el).length>0;
+  }
+  var LAYER_DEPTH=5;
+  /**
+   * Árbol de capas de un contenedor, FRONT primero. Los grupos (data-oc-g, que son
+   * hermanos marcados y no un contenedor del DOM) se reportan como un nodo virtual
+   * 'g:<id>' con sus miembros adentro, para poder expandirlos y moverlos como uno.
+   */
+  function layerTree(par, depth){
+    var kids=layerChildrenOf(par), items=[], doneG={};
     for(var i=kids.length-1;i>=0;i--){   // FRONT primero (como un panel de capas)
-      var el=kids[i], id=ensureLayerId(el), info=layerInfo(el);
-      items.push({id:id, kind:info.kind, label:info.label, selected: !!selIds[id]});
+      var el=kids[i];
+      var g=el.getAttribute&&el.getAttribute('data-oc-g');
+      if(g){
+        if(doneG[g]) continue;
+        doneG[g]=1;
+        var ms=[];
+        for(var j=kids.length-1;j>=0;j--){
+          if(kids[j].getAttribute&&kids[j].getAttribute('data-oc-g')===g) ms.push(kids[j]);
+        }
+        items.push({id:'g:'+g, kind:'group', label:'Grupo · '+ms.length+' elementos',
+          selected: ms.every(inSels), locked: ms.every(isLocked), hidden: ms.every(isHidden),
+          children: ms.map(function(m){ return layerNode(m, depth+1); })});
+        continue;
+      }
+      items.push(layerNode(el, depth));
     }
-    post({oc:'layers', items:items});
+    return items;
+  }
+  function inSels(el){ return sels.indexOf(el)>=0; }
+  function layerNode(el, depth){
+    var id=ensureLayerId(el), info=layerInfo(el);
+    return {id:id, kind:info.kind, label:info.label, selected:inSels(el),
+      locked:isLocked(el), hidden:isHidden(el),
+      children: (depth<LAYER_DEPTH && isBranch(el)) ? layerTree(el, depth+1) : []};
+  }
+  function reportLayers(){
+    post({oc:'layers', items:layerTree(rootEl()||document.body, 0)});
+  }
+  /** Elementos de una fila del panel (un id suelto, o los miembros de un grupo
+   *  en su orden visual actual: atrás→adelante). */
+  function resolveLayer(id){
+    if(String(id).indexOf('g:')===0){
+      var gid=String(id).slice(2);
+      var ms=[].slice.call(document.querySelectorAll('[data-oc-g="'+gid+'"]'));
+      if(!ms.length) return [];
+      var par=ms[0].parentElement;
+      return layerChildrenOf(par).filter(function(k){ return ms.indexOf(k)>=0; });
+    }
+    var el=document.querySelector('[data-oc-id="'+id+'"]');
+    return el?[el]:[];
   }
   function selectLayer(id){
-    var el=document.querySelector('[data-oc-id="'+id+'"]');
-    if(el) select(el, false, false);   // selección normal (agrupa si es grupo)
+    var els=resolveLayer(id);
+    if(!els.length) return;
+    // Desde el panel SÍ se puede tomar una capa bloqueada (para desbloquearla).
+    if(els.length>1){ sels=els.slice(); paint(); report(); }
+    else select(els[0], false, false);
   }
+  /** Reordena una fila dentro de su propio nivel (ids FRONT→BACK, como el panel). */
   function reorderLayers(ids){
-    if(!ids||!ids.length) return;
-    var root=rootEl()||document.body;
-    var byId={};
-    layerChildrenOf(root).forEach(function(el){ byId[el.getAttribute('data-oc-id')]=el; });
-    // ids vienen FRONT→BACK; applyLayerOrder espera BACK→FRONT.
-    var order=[];
-    for(var i=ids.length-1;i>=0;i--){ var el=byId[ids[i]]; if(el) order.push(el); }
-    if(!order.length) return;
-    snap(); applyLayerOrder(order); paint(); report(); serialize();
+    if(!ids||ids.length<2) return;
+    var order=[];   // front→back, elementos concretos
+    ids.forEach(function(id){
+      var els=resolveLayer(id);
+      for(var i=els.length-1;i>=0;i--) order.push(els[i]);   // grupo: front→back
+    });
+    if(order.length<2) return;
+    // Todos tienen que compartir padre: el arrastre solo reordena dentro del nivel.
+    var par=order[0].parentElement;
+    order=order.filter(function(el){ return el.parentElement===par; });
+    if(order.length<2) return;
+    snap();
+    applyLayerOrder(order.slice().reverse());   // applyLayerOrder espera BACK→FRONT
+    paint(); report(); serialize();
+  }
+  /** Sube/baja una fila un paso, o la manda del todo al frente/al fondo. */
+  function layerMove(id,dir){
+    var els=resolveLayer(id);   // back→front
+    if(!els.length) return;
+    snap();
+    var i;
+    // El orden de proceso conserva la jerarquía interna del grupo.
+    if(dir==='front'){ for(i=0;i<els.length;i++) restack(els[i],true); }
+    else if(dir==='back'){ for(i=els.length-1;i>=0;i--) restack(els[i],false); }
+    else if(dir==='up'){ for(i=els.length-1;i>=0;i--) restackStep(els[i],1); }
+    else if(dir==='down'){ for(i=0;i<els.length;i++) restackStep(els[i],-1); }
+    paint(); report(); serialize();
+  }
+  /**
+   * Bloquear u ocultar una capa. Se guardan como atributos, así viajan con la
+   * lámina y sobreviven a recargar el editor. Ojo: "oculta" apaga el elemento de
+   * verdad (display:none), así que tampoco sale en el export — es lo esperable
+   * cuando el HTML de la lámina ES el diseño.
+   */
+  function layerFlag(id,flag,value){
+    var els=resolveLayer(id);
+    if(!els.length) return;
+    snap();
+    els.forEach(function(el){
+      if(flag==='lock'){
+        if(value) el.setAttribute('data-oc-lock','1'); else el.removeAttribute('data-oc-lock');
+      } else {
+        if(value){ el.setAttribute('data-oc-hide','1'); el.style.display='none'; }
+        else {
+          el.removeAttribute('data-oc-hide');
+          if(el.style.display==='none') el.style.display='';
+        }
+      }
+    });
+    // Bloquear u ocultar lo seleccionado saca la selección: sus handles ya no aplican.
+    if(value) sels=sels.filter(function(s){ return els.indexOf(s)<0; });
+    paint(); report(); serialize();
+  }
+  function layerName(id,name){
+    var els=resolveLayer(id);
+    if(!els.length) return;
+    snap();
+    var n=String(name||'').trim().slice(0,60);
+    els.forEach(function(el){
+      if(n) el.setAttribute('data-oc-name',n); else el.removeAttribute('data-oc-name');
+    });
+    report(); serialize();
   }
   // Reasigna z-index secuencial según el orden dado (posicionando lo estático
   //   con relative, que no altera el layout). Sin tocar el DOM.
@@ -1204,9 +1407,30 @@ export const EDITOR_RUNTIME = String.raw`
   }
   // ── filtro compuesto: sombra (drop-shadow) y desenfoque (blur) conviven en la
   //    misma propiedad CSS 'filter'. Se leen/reescriben juntos para no pisarse. ──
+  /**
+   * Argumento de una función de 'filter', con paréntesis balanceados.
+   *
+   * Un regex /drop-shadow\(([^)]*)\)/ corta en el primer ')' — que en
+   * 'drop-shadow(rgb(0, 0, 0) 6px 10px 20px)' está DENTRO del rgb(). Chrome
+   * serializa cualquier color a rgb()/rgba(), así que tocar el desenfoque después
+   * de poner una sombra armaba un filter roto que el navegador descartaba entero:
+   * la sombra o el blur "se perdían" sin motivo visible.
+   */
+  function filterPart(el,name){
+    var s=el.style.filter||'', i=s.indexOf(name+'(');
+    if(i<0) return '';
+    var j=i+name.length+1, depth=1;
+    while(j<s.length && depth>0){
+      var c=s.charAt(j);
+      if(c==='(') depth++;
+      else if(c===')') depth--;
+      if(depth>0) j++;
+    }
+    return s.slice(i+name.length+1, j);
+  }
   function filterBlur(el){
-    var m=/blur\(([\d.]+)px\)/.exec(el.style.filter||'');
-    return m?parseFloat(m[1]):0;
+    var a=filterPart(el,'blur');
+    return a?(parseFloat(a)||0):0;
   }
   function composeFilter(el, dropStr, blurPx){
     var parts=[];
@@ -1214,6 +1438,82 @@ export const EDITOR_RUNTIME = String.raw`
     if(blurPx>0) parts.push('blur('+blurPx+'px)');
     el.style.filter=parts.join(' ');
   }
+  function fnum(x){ var n=parseFloat(x); return isNaN(n)?0:n; }
+
+  // ── sombras vinculadas al objeto ─────────────────────────────────────────────
+  // La sombra de puntos es un elemento real (una capa halftone detrás), así que
+  // antes se quedaba donde estaba: mover, redimensionar, rotar o reemplazar la
+  // imagen la dejaba huérfana. Ahora la capa declara a su dueño en
+  // data-oc-shadow-for y syncShadows() la vuelve a calzar después de CUALQUIER
+  // operación — corre dentro de serialize(), que es el paso común a todas, y en
+  // cada frame del arrastre para que se vea pegada en vivo.
+  function dotsOf(el){
+    var id=el.getAttribute&&el.getAttribute('data-oc-id');
+    if(!id) return null;
+    return document.querySelector('[data-oc-shadow-for="'+id+'"]');
+  }
+  function removeDots(el){
+    var d=dotsOf(el);
+    while(d){ d.remove(); d=dotsOf(el); }
+  }
+  function syncShadows(){
+    var list=document.querySelectorAll('[data-oc-shadow-for]');
+    if(!list.length) return;
+    for(var i=0;i<list.length;i++){
+      var sh=list[i];
+      var own=document.querySelector('[data-oc-id="'+sh.getAttribute('data-oc-shadow-for')+'"]');
+      if(!own){ sh.remove(); continue; }        // el dueño se borró: la sombra también
+      var ocs=getComputedStyle(own);
+      if(isHidden(own)||ocs.display==='none'){ sh.style.display='none'; continue; }
+      sh.style.display='';
+      var orr=layoutRect(own);
+      sh.style.width=Math.round(orr.width)+'px';
+      sh.style.height=Math.round(orr.height)+'px';
+      sh.style.borderRadius=ocs.borderRadius;
+      sh.style.rotate=own.style.rotate||'';
+      sh.style.zIndex=own.style.zIndex||'';
+      var ox=fnum(sh.getAttribute('data-oc-shadow-ox')), oy=fnum(sh.getAttribute('data-oc-shadow-oy'));
+      // El left/top se corrige contra el ancestro posicionado REAL (medido después
+      // de fijar el tamaño, que puede cambiar el rect).
+      var sr=sh.getBoundingClientRect();
+      sh.style.left=Math.round(fnum(sh.style.left)+(orr.left-sr.left)+ox)+'px';
+      sh.style.top=Math.round(fnum(sh.style.top)+(orr.top-sr.top)+oy)+'px';
+    }
+  }
+  /**
+   * Pasa un elemento estático a relative sin moverlo.
+   *
+   * Un top/left declarado en una hoja no hace NADA mientras el elemento es
+   * static, pero empieza a aplicarse al pasarlo a relative: poner una sombra le
+   * movía el elemento solo. Se neutralizan los cuatro desplazamientos.
+   */
+  function makeRelative(el){
+    if(getComputedStyle(el).position!=='static') return;
+    el.style.position='relative';
+    el.style.left='0px'; el.style.top='0px';
+    el.style.right='auto'; el.style.bottom='auto';
+  }
+  /** Capa de puntos halftone detrás del elemento, vinculada a él. */
+  function addDots(el,ox,oy,color){
+    var id=ensureLayerId(el);
+    removeDots(el);
+    makeRelative(el);
+    var dd=document.createElement('div');
+    dd.setAttribute('data-oc-dots','1');
+    dd.setAttribute('data-oc-shadow-for', id);
+    dd.setAttribute('data-oc-shadow-ox', String(ox));
+    dd.setAttribute('data-oc-shadow-oy', String(oy));
+    dd.style.cssText='position:absolute;left:0;top:0;width:10px;height:10px;pointer-events:none'
+      +';background-image:radial-gradient(circle, '+color+' 2.6px, transparent 3px);background-size:16px 16px';
+    el.parentElement.insertBefore(dd, el);
+    syncShadows();
+  }
+  // "Al frente / al fondo" DE VERDAD: reordenar entre los hermanos del padre
+  //   inmediato no alcanza cuando el elemento vive dentro de un contenedor —
+  //   quedaba adelante de sus hermanos pero seguía tapado por el contenedor de al
+  //   lado, y parecía que el botón "no hacía nada" o movía una sola posición.
+  //   Se recorre la cadena de ancestros hasta la raíz llevando cada eslabón a la
+  //   punta que toca: así la rama entera queda arriba (o abajo) de todo.
   function restack(el,toFront){
     var par=el.parentElement; if(!par) return;
     if(el.ownerSVGElement){
@@ -1222,9 +1522,17 @@ export const EDITOR_RUNTIME = String.raw`
       else par.insertBefore(el, par.firstElementChild);
       return;
     }
-    var order=layerSiblings(el); if(!order) return;
-    var rest=order.filter(function(k){ return k!==el; });
-    applyLayerOrder(toFront ? rest.concat([el]) : [el].concat(rest));
+    var root=rootEl(), node=el, guard=0;
+    while(node && node.parentElement && guard++<24){
+      var p=node.parentElement;
+      var order=layerChildrenOf(p);
+      if(order.length>1){
+        var rest=order.filter(function(k){ return k!==node; });
+        applyLayerOrder(toFront ? rest.concat([node]) : [node].concat(rest));
+      }
+      if(p===root||p===document.body) break;
+      node=p;
+    }
   }
   // Mueve el elemento UNA capa: dir>0 lo sube (hacia el frente), dir<0 lo baja.
   //   Intercambia con el vecino inmediato en el orden visual; si ya está en la
@@ -1245,6 +1553,108 @@ export const EDITOR_RUNTIME = String.raw`
     order[idx]=order[j]; order[j]=el;  // swap con el vecino inmediato
     applyLayerOrder(order);
   }
+  // ── editar el texto SIN perder el formato por tramos ─────────────────────────
+  // El campo de texto del panel reescribía el innerHTML completo en cada tecla, así
+  // que cualquier palabra en negrita o en otro color se borraba al tocar el texto:
+  // el formato parcial "a veces no funcionaba" porque se lo comía la propia edición.
+  // Ahora se calcula el tramo que cambió (prefijo y sufijo comunes) y se aplica solo
+  // ese tramo sobre los nodos de texto, dejando los <span> en su lugar.
+  function plainText(el){
+    var out='', w=document.createTreeWalker(el, NodeFilter.SHOW_TEXT|NodeFilter.SHOW_ELEMENT, null), n;
+    while((n=w.nextNode())){
+      if(n.nodeType===3) out+=n.nodeValue;
+      else if(n.tagName==='BR') out+='\n';
+    }
+    return out;
+  }
+  function setTextFlat(el,next){
+    el.innerHTML=String(next).split('\n').map(esc).join('<br>');
+  }
+  function setText(el,next){
+    next=String(next);
+    var cur=plainText(el);
+    if(cur===next) return;
+    // Sin formato interno: el camino directo es exacto y más barato.
+    if(!hasFormat(el)){ setTextFlat(el,next); return; }
+    var p=0, la=cur.length, lb=next.length;
+    while(p<la&&p<lb&&cur.charAt(p)===next.charAt(p)) p++;
+    var ea=la, eb=lb;
+    while(ea>p&&eb>p&&cur.charAt(ea-1)===next.charAt(eb-1)){ ea--; eb--; }
+    var ins=next.slice(p,eb), del=cur.slice(p,ea);
+    // Los saltos de línea son <br> (no texto): si el cambio los toca, se rehace plano.
+    if(ins.indexOf('\n')>=0||del.indexOf('\n')>=0){ setTextFlat(el,next); return; }
+    // Índices absolutos de cada nodo de texto, medidos ANTES de mutar.
+    var nodes=[], idx=0;
+    var w=document.createTreeWalker(el, NodeFilter.SHOW_TEXT|NodeFilter.SHOW_ELEMENT, null), n;
+    while((n=w.nextNode())){
+      if(n.nodeType===3){ nodes.push({n:n, start:idx, len:n.nodeValue.length}); idx+=n.nodeValue.length; }
+      else if(n.tagName==='BR') idx+=1;
+    }
+    if(!nodes.length){ setTextFlat(el,next); return; }
+    var placed=false;
+    for(var i=0;i<nodes.length;i++){
+      var nd=nodes[i], s=Math.max(p,nd.start), e=Math.min(ea,nd.start+nd.len);
+      if(e<=s) continue;                       // este nodo no cae en el tramo borrado
+      var v=nd.n.nodeValue, lo=s-nd.start;
+      nd.n.nodeValue=v.slice(0,lo)+(placed?'':ins)+v.slice(lo+(e-s));
+      placed=true;
+    }
+    if(!placed && ins){                        // inserción pura: no se borró nada
+      for(var j=0;j<nodes.length;j++){
+        var nj=nodes[j];
+        if(p>=nj.start && p<=nj.start+nj.len){
+          var vj=nj.n.nodeValue, lj=p-nj.start;
+          nj.n.nodeValue=vj.slice(0,lj)+ins+vj.slice(lj);
+          placed=true; break;
+        }
+      }
+      if(!placed){                             // al final del último nodo
+        var last=nodes[nodes.length-1];
+        last.n.nodeValue=last.n.nodeValue+ins;
+      }
+    }
+  }
+  /**
+   * Fondo de la CAJA de texto. Un texto suele venir dentro de un contenedor que
+   * lleva el color; "sin fondo" sobre el texto no cambiaba nada visible y parecía
+   * roto. Devuelve ese contenedor cuando abraza al texto (no un panel gigante).
+   */
+  function bgAncestor(el){
+    var node=el.parentElement, root=rootEl(), guard=0;
+    var er=el.getBoundingClientRect(), area=Math.max(1,er.width*er.height);
+    while(node && node!==root && node!==document.body && guard++<4){
+      var cs=getComputedStyle(node);
+      var painted=(cs.backgroundColor&&cs.backgroundColor!=='rgba(0, 0, 0, 0)'&&cs.backgroundColor!=='transparent')
+        || cs.backgroundImage!=='none';
+      if(painted){
+        var r=node.getBoundingClientRect();
+        return (r.width*r.height<=area*2.6 && !tooBig(node)) ? node : null;
+      }
+      node=node.parentElement;
+    }
+    return null;
+  }
+  /** Saca el formato de un tramo marcado, o de todo el texto si no hay tramo. */
+  function clearFormat(el){
+    var host=rangeHost();
+    if(host && host!==el && (host.getAttribute('data-oc-rs')||INLINE_TAGS[host.tagName])){
+      unwrap(host); savedRange=null; return;
+    }
+    // Todos los inline de formato, no solo los <span> que pone el editor: el
+    // formato parcial también llega como <strong>/<em> en el HTML de la lámina.
+    [].slice.call(el.querySelectorAll(FMT_SEL)).forEach(unwrap);
+    ['fontWeight','fontStyle','color','fontFamily','fontSize','letterSpacing',
+     'textDecoration','textShadow','webkitTextStroke','webkitTextFillColor']
+      .forEach(function(k){ el.style[k]=''; });
+    savedRange=null;
+  }
+  function unwrap(node){
+    var par=node.parentNode; if(!par) return;
+    while(node.firstChild) par.insertBefore(node.firstChild, node);
+    par.removeChild(node);
+    par.normalize();
+  }
+
   // Estilos "puros" que sirven igual sobre el elemento completo o sobre un <span>
   // de tramo (selección parcial). Los props estructurales (text, splitBg, x/y/w/h,
   // capas, remove) siguen viviendo en apply().
@@ -1278,6 +1688,17 @@ export const EDITOR_RUNTIME = String.raw`
     else if(p==='opacity'){ el.style.opacity=(v/100); }
     else if(p==='rotate'){ prepSvgRotate(el); el.style.rotate=((parseFloat(v)||0)%360+360)%360+'deg'; }
     else if(p==='radius'){ el.style.borderRadius=v+'px'; }
+    // ── encaje de una imagen dentro de su caja ──────────────────────────────────
+    // 'auto' vuelve al alto natural (la caja sigue a la proporción de la foto);
+    // cover/contain/fill necesitan un alto explícito para tener sentido, así que se
+    // hornea el actual — sin cambio visual, pero desde ahí el encaje manda.
+    else if(p==='fit'){
+      if(v==='auto'){ el.style.objectFit=''; el.style.height='auto'; }
+      else {
+        if(!parseFloat(el.style.height)) el.style.height=Math.round(layoutRect(el).height)+'px';
+        el.style.objectFit=v;
+      }
+    }
     else if(p==='letterSpacing'){ el.style.letterSpacing=v+'px'; }
     // line-height negativo es inválido en CSS y el navegador lo ignoraría en
     // silencio: se aplica con piso en 0 (= líneas totalmente colapsadas).
@@ -1319,20 +1740,10 @@ export const EDITOR_RUNTIME = String.raw`
       // Preservamos un blur existente: sombra y desenfoque comparten 'filter'.
       var keepBlur=filterBlur(el);
       el.style.boxShadow=''; composeFilter(el, '', keepBlur);
-      if(v==='dots'){
-        var dr=el.getBoundingClientRect();
-        var dd=document.createElement('div');
-        dd.setAttribute('data-oc-shape','1'); dd.setAttribute('data-oc-dots','1');
-        dd.style.cssText='position:absolute;left:0;top:0;width:'+Math.round(dr.width)+'px;height:'+Math.round(dr.height)+'px'
-          +';background-image:radial-gradient(circle, #111827 2.6px, transparent 3px);background-size:16px 16px';
-        dd.style.borderRadius=getComputedStyle(el).borderRadius;
-        el.parentElement.insertBefore(dd, el);
-        if(getComputedStyle(el).position==='static') el.style.position='relative';
-        // corregir contra el ancestro posicionado real, con offset diagonal (18,18)
-        var ddr=dd.getBoundingClientRect();
-        dd.style.left=Math.round(dr.left-ddr.left+18)+'px';
-        dd.style.top=Math.round(dr.top-ddr.top+18)+'px';
-      } else {
+      // Cambiar de sombra nunca acumula capas: la de puntos anterior se va.
+      if(v!=='dots') removeDots(el);
+      if(v==='dots'){ addDots(el, 18, 18, '#111827'); }
+      else {
         var box={soft:'0 6px 18px rgba(0,0,0,.20)', medium:'0 12px 30px rgba(0,0,0,.28)', strong:'0 22px 48px rgba(0,0,0,.40)', float:'0 30px 46px -18px rgba(0,0,0,.45)'};
         var drop={soft:'0 6px 10px rgba(0,0,0,.28)', medium:'0 12px 18px rgba(0,0,0,.32)', strong:'0 20px 28px rgba(0,0,0,.42)', float:'0 26px 22px rgba(0,0,0,.38)'};
         if(box[v]){
@@ -1341,11 +1752,41 @@ export const EDITOR_RUNTIME = String.raw`
         } // 'none' deja todo reseteado
       }
     }
+    // ── sombra a medida: desplazamiento, difusión, expansión y color ────────────
+    // El brillo (interior o exterior) es esta misma sombra con desplazamiento 0.
+    // En imágenes y formas svg va por drop-shadow, que sigue la silueta real y
+    // respeta la transparencia; en cajas y texto por box-shadow, que además admite
+    // expansión (spread) y la variante interior.
+    else if(p==='shadowCustom'){
+      var sx=fnum(v.x), sy=fnum(v.y), sb=Math.max(0,fnum(v.blur)), ss=fnum(v.spread);
+      var scol=v.color||'rgba(0,0,0,.35)';
+      var dots=dotsOf(el);
+      if(dots){
+        // Con la sombra de puntos activa, los controles gobiernan esa capa.
+        dots.setAttribute('data-oc-shadow-ox', String(sx));
+        dots.setAttribute('data-oc-shadow-oy', String(sy));
+        dots.style.backgroundImage='radial-gradient(circle, '+scol+' 2.6px, transparent 3px)';
+        syncShadows();
+      } else {
+        var kb=filterBlur(el);
+        if(v.inner){
+          // 'inset' no existe en drop-shadow: la sombra/brillo interior es
+          // siempre box-shadow (en una imagen se ve sobre la foto).
+          el.style.boxShadow='inset '+sx+'px '+sy+'px '+sb+'px '+ss+'px '+scol;
+          composeFilter(el, '', kb);
+        } else if(el.tagName==='IMG'||isSvgRoot(el)){
+          el.style.boxShadow='';
+          composeFilter(el, sx+'px '+sy+'px '+sb+'px '+scol, kb);   // drop-shadow no tiene spread
+        } else {
+          el.style.boxShadow=sx+'px '+sy+'px '+sb+'px '+ss+'px '+scol;
+          composeFilter(el, '', kb);
+        }
+      }
+    }
     // ── desenfoque gaussiano del elemento: comparte 'filter' con el drop-shadow,
     //    así que preservamos la sombra al ajustar el blur y viceversa. 0 = nítido. ──
     else if(p==='blur'){
-      var dm=/drop-shadow\(([^)]*)\)/.exec(el.style.filter||'');
-      composeFilter(el, dm?dm[1]:'', Math.max(0,parseFloat(v)||0));
+      composeFilter(el, filterPart(el,'drop-shadow'), Math.max(0,parseFloat(v)||0));
     }
     // ── degradado como relleno: en divs/texto va directo al background; en un svg
     //    raíz inyectamos <defs><linearGradient> y apuntamos el fill de las formas. ──
@@ -1418,7 +1859,14 @@ export const EDITOR_RUNTIME = String.raw`
       if(sp){ styleEl(sp,p,v); paint(); report(); serialize(); return; }
     }
     sels.forEach(function(el){
-      if(p==='text'){ el.innerHTML=String(v).split('\n').map(esc).join('<br>'); }
+      if(isLocked(el)) return;   // capa bloqueada: no se edita ni se borra
+      if(p==='text'){ setText(el, v); }
+      else if(p==='clearFormat'){ clearFormat(el); }
+      // Fondo del contenedor que abraza al texto (la "caja"), no del texto mismo.
+      else if(p==='boxBg'){
+        var host=bgAncestor(el);
+        if(host) host.style.background = (v===''||v==='transparent') ? 'transparent' : v;
+      }
       else if(p==='splitBg'){
         // "Sacar el texto de la caja": el resaltado es el background del MISMO
         // elemento. Lo copiamos a un div independiente insertado justo detrás
@@ -1431,6 +1879,7 @@ export const EDITOR_RUNTIME = String.raw`
           bx.style.backgroundColor=scs.backgroundColor;
           if(scs.backgroundImage!=='none') bx.style.backgroundImage=scs.backgroundImage;
           bx.style.borderRadius=scs.borderRadius;
+          makeRelative(el);
           el.parentElement.insertBefore(bx, el);
           // El ancestro posicionado del div puede no estar en (0,0): medimos dónde
           // cayó y corregimos left/top con la diferencia contra el rect del texto.
@@ -1451,7 +1900,7 @@ export const EDITOR_RUNTIME = String.raw`
       else if(p==='remove'){ el.remove(); }
       else styleEl(el,p,v);
     });
-    if(p==='remove') sels=[];
+    if(p==='remove') sels=sels.filter(isLocked);   // lo bloqueado sigue ahí, y seleccionado
     paint(); report(); serialize();
   }
   function group(){
@@ -1481,7 +1930,9 @@ export const EDITOR_RUNTIME = String.raw`
     snap();
     var d=document.createElement('div');
     d.textContent='Texto nuevo';
-    d.style.cssText='position:absolute;left:120px;top:120px;font-size:60px;font-family:Inter,sans-serif;color:#111;font-weight:700;z-index:5';
+    // background:transparent explícito: una caja de texto nueva no tiene que
+    // pintar nada que se distinga del lienzo.
+    d.style.cssText='position:absolute;left:120px;top:120px;font-size:60px;font-family:Inter,sans-serif;color:#111;font-weight:700;background:transparent;z-index:5';
     rootEl().appendChild(d); sels=[d]; paint(); report(); serialize();
   }
   function addImage(url){
@@ -1545,10 +1996,25 @@ export const EDITOR_RUNTIME = String.raw`
   // Reemplaza la fuente de la imagen seleccionada (para regenerar con IA, quitar
   // fondo o volver a una versión anterior). Va sumando cada src al historial para
   // poder comparar el fondo nuevo con el anterior y volver si no convence.
-  function setImgSrc(url){
+  /**
+   * Cambia la fuente de la imagen seleccionada.
+   *
+   * Con keepBox (reemplazar una imagen por otra) se congela la caja actual —
+   * left/top/ancho/alto reales — y se pasa a object-fit:cover, así la imagen nueva
+   * ocupa EXACTAMENTE el lugar de la anterior sin deformarse. Sin eso, una foto con
+   * height:auto y otra proporción cambiaba de alto y descolocaba la composición.
+   */
+  function setImgSrc(url, keepBox){
     if(!sels.length) return; var el=sels[0];
     if(el.tagName!=='IMG') return;
     snap();
+    if(keepBox){
+      var lr=layoutRect(el);
+      promoteAbsolute(el);   // fija left/top/ancho reales
+      el.style.width=Math.round(lr.width)+'px';
+      el.style.height=Math.round(lr.height)+'px';
+      if(!el.style.objectFit) el.style.objectFit='cover';
+    }
     var hist=readImgHist(el);
     // Primera vez: sembrar con la fuente actual (el fondo original que había).
     if(!hist.length){ var cur=el.getAttribute('src'); if(cur) hist=[cur]; }
@@ -1582,6 +2048,9 @@ export const EDITOR_RUNTIME = String.raw`
   }
 
   function serializeNoSnap(){
+    // Punto común de todas las operaciones: es acá donde la sombra de puntos vuelve
+    // a calzar con su dueño (mover, escalar, rotar, alinear, reemplazar imagen...).
+    syncShadows();
     ui.remove(); gl.remove(); st.remove();
     document.querySelectorAll('[contenteditable]').forEach(function(n){ n.removeAttribute('contenteditable'); });
     var html=document.body.innerHTML.replace(/<script[\s\S]*?<\/script>/gi,'')
@@ -1606,15 +2075,19 @@ export const EDITOR_RUNTIME = String.raw`
     else if(m.oc==='setClip'){ if(m.html&&m.html.length) clip=m.html.slice(); }
     else if(m.oc==='duplicate') duplicate();
     else if(m.oc==='addText') addText();
+    else if(m.oc==='editText'){ if(sels.length===1) editText(sels[0]); }
     else if(m.oc==='addShape') addShape(m.kind);
     else if(m.oc==='addImage') addImage(m.url);
-    else if(m.oc==='setImgSrc') setImgSrc(m.url);
+    else if(m.oc==='setImgSrc') setImgSrc(m.url, m.keepBox);
     else if(m.oc==='setBg') setBg(m.value);
     else if(m.oc==='setTexture') setTexture(m.url, m.opacity);
     else if(m.oc==='scale'){ viewScale=Number(m.value)||1; }
     else if(m.oc==='deselect') clearSel();
     else if(m.oc==='selectLayer') selectLayer(m.id);
     else if(m.oc==='reorderLayers') reorderLayers(m.ids);
+    else if(m.oc==='layerMove') layerMove(m.id, m.dir);
+    else if(m.oc==='layerFlag') layerFlag(m.id, m.flag, !!m.value);
+    else if(m.oc==='layerName') layerName(m.id, m.name);
     else if(m.oc==='serialize') serialize();
   });
   // Curar láminas guardadas con el placeholder viejo horneado en el style inline
