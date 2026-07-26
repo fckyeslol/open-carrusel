@@ -19,6 +19,7 @@
     "start": "next start",
     "lint": "eslint",
     "doctor": "node scripts/doctor.mjs",
+    "check:editor": "node scripts/check-editor.mjs",
     "hosted:setup": "node scripts/setup-hosted.mjs",
     "hosted:up": "docker compose -f docker-compose.hosted.yml up -d --build",
     "hosted:down": "docker compose -f docker-compose.hosted.yml down",

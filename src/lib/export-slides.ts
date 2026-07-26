@@ -5,6 +5,7 @@ import path from "path";
 import sharp from "sharp";
 import { wrapSlideHtml, extractFontFamilies } from "./slide-html";
 import { getInlinedFontCSS } from "./fonts";
+import { stripBackgroundInPage } from "./strip-slide-background.mjs";
 import type { Slide, AspectRatio } from "@/types/carousel";
 import { DIMENSIONS } from "@/types/carousel";
 
@@ -138,35 +139,12 @@ const EXPORT_SCALE = 2;
 
 /**
  * En la página ya renderizada, neutraliza la capa de fondo del slide para
- * exportar "sin fondo" (PNG transparente). Quita exactamente lo que el editor
- * trata como fondo: el `background` del `<html>`/`<body>` y del contenedor raíz
- * (el mismo que colorea `setBg` en slide-editor.ts) y la capa de textura
- * (`[data-oc-tex]`). El contenido (textos, imágenes, formas) queda intacto.
- *
- * No intenta adivinar fondos pintados en divs anidados: en este editor el fondo
- * se setea sobre la raíz, así que ese es el contrato predecible.
+ * exportar "sin fondo" (PNG transparente). La lógica vive en
+ * `strip-slide-background.mjs` porque corre dentro de la página de Puppeteer y así
+ * se puede probar contra una lámina real (scripts/check-editor.mjs).
  */
 async function stripSlideBackground(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    const clear = (el: HTMLElement) => {
-      el.style.background = "transparent";
-      el.style.backgroundColor = "transparent";
-      el.style.backgroundImage = "none";
-    };
-    clear(document.documentElement);
-    clear(document.body);
-    // Capa de textura a lámina completa: se oculta entera.
-    document
-      .querySelectorAll<HTMLElement>("[data-oc-tex]")
-      .forEach((el) => (el.style.display = "none"));
-    // Contenedor raíz del slide: primer hijo real del body (el que colorea setBg).
-    const skipTags = new Set(["SCRIPT", "STYLE", "LINK"]);
-    for (const child of Array.from(document.body.children) as HTMLElement[]) {
-      if (child.hasAttribute("data-oc-tex") || skipTags.has(child.tagName)) continue;
-      clear(child);
-      break;
-    }
-  });
+  await page.evaluate(stripBackgroundInPage);
 }
 
 export async function exportSlide(

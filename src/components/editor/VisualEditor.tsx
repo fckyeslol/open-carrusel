@@ -9,6 +9,7 @@ import { Section } from "@/components/ui/section";
 import { BackgroundPicker } from "./BackgroundPicker";
 import { ColorInput } from "./ColorInput";
 import { LayerPanel, type LayerItem } from "./LayerPanel";
+import { EffectsPanel } from "./EffectsPanel";
 import type { PaletteColor } from "@/lib/adn-palette";
 import { SafeZoneOverlay } from "./SafeZoneOverlay";
 import { SHAPE_GALLERY, SHADOW_PRESETS, GRADIENT_PRESETS } from "./shape-gallery";
@@ -43,6 +44,7 @@ import {
   Sparkles,
   RefreshCw,
   Eraser,
+  Pencil,
 } from "lucide-react";
 
 const FONTS = EDITOR_FONTS;
@@ -72,10 +74,20 @@ interface Selection {
   isImage?: boolean;
   src?: string; // src de la imagen seleccionada (para "Quitar fondo")
   imgHist?: string[]; // versiones anteriores del src (original + regeneraciones)
+  /** Encaje de la imagen en su caja: auto | cover | contain | fill */
+  fit?: string;
+  /** Efectos de filtro activos (kind → intensidad o {i,a,b}). */
+  fx?: Record<string, number | { i?: number; a?: string; b?: string; slug?: string }>;
+  /** Capas de superficie activas (kind → 1). */
+  fxLayers?: Record<string, unknown>;
   tag?: string;
   text?: string;
   /** Hay un tramo de texto marcado: la tipografía se aplica solo a ese tramo. */
   range?: boolean;
+  /** El texto tiene tramos con formato propio (una palabra en negrita, etc.). */
+  hasFormat?: boolean;
+  /** Color del contenedor que abraza al texto ('' = no hay caja pintada). */
+  boxBg?: string;
   fontFamily?: string;
   fontSize?: number;
   color?: string;
@@ -147,7 +159,11 @@ export function VisualEditor({
   // siga activo al cambiar de lámina (el componente se remonta, el clip no).
   const [hasClip, setHasClip] = useState(() => sharedClip.length > 0);
   const [scale, setScale] = useState(0);
+  // Último zoom medido, sin re-suscribir el listener de mensajes: el runtime lo
+  // necesita para medir la tolerancia del imán en px de pantalla.
+  const scaleRef = useRef(1);
   const fileRef = useRef<HTMLInputElement>(null);
+  const replaceRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   // Generación de imágenes con IA (Higgsfield). aiTarget define si la próxima
@@ -159,10 +175,26 @@ export function VisualEditor({
   // Quitar fondo de la imagen seleccionada (corre en el server, /api/remove-bg)
   const [bgBusy, setBgBusy] = useState(false);
   const [bgError, setBgError] = useState<string | null>(null);
+  // Pixelado: el único efecto que se hornea en el server (/api/image-fx)
+  const [pixelBusy, setPixelBusy] = useState(false);
+  const [pixelError, setPixelError] = useState<string | null>(null);
   // Librería de formas (galería plegable) y degradado del elemento seleccionado.
   // El degradado vive en estado local: el runtime no puede "leerlo" de vuelta.
   const [shapesOpen, setShapesOpen] = useState(false);
   const [grad, setGrad] = useState({ from: "#4f7cff", to: "#ff3b7f", angle: 135 });
+  // Último color de fondo elegido: al volver a "Con color" se recupera en vez de
+  // arrancar siempre de blanco.
+  const [lastBg, setLastBg] = useState("#ffffff");
+  // Sombra a medida. Vive en estado local, como el degradado: el runtime no puede
+  // devolver estos cuatro números por separado de un box-shadow ya compuesto.
+  const [shadow, setShadow] = useState({
+    x: 0,
+    y: 18,
+    blur: 34,
+    spread: 0,
+    color: "#111827",
+    inner: false,
+  });
   const [slideBg, setSlideBg] = useState("#F6F5F0"); // color plano del fondo del slide
   // Textura de material del slide: catálogo (del manifest) + la aplicada actualmente.
   // El estado arranca leyendo la lámina, para reflejar una textura ya puesta.
@@ -184,7 +216,11 @@ export function VisualEditor({
     if (!el) return;
     const measure = () => {
       const r = el.getBoundingClientRect();
-      if (r.width && r.height) setScale(Math.min(r.width / W, r.height / H));
+      if (!r.width || !r.height) return;
+      const s = Math.min(r.width / W, r.height / H);
+      setScale(s);
+      scaleRef.current = s;
+      iframeRef.current?.contentWindow?.postMessage({ oc: "scale", value: s }, "*");
     };
     const obs = new ResizeObserver(measure);
     obs.observe(el);
@@ -237,28 +273,44 @@ export function VisualEditor({
     [send, tex.slug]
   );
 
+  // Sube un archivo y devuelve su URL absoluta (el iframe es `srcdoc`, así que una
+  // ruta relativa puede no resolver según el contexto; absoluta carga siempre).
+  const uploadFile = useCallback(async (file: File): Promise<string | null> => {
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/upload", { method: "POST", body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
+      const url = data.url || data.path;
+      if (!url) throw new Error("El servidor no devolvió la URL");
+      return new URL(url, window.location.origin).href;
+    } catch (e) {
+      setUploadError((e as Error).message);
+      return null;
+    } finally {
+      setUploading(false);
+    }
+  }, []);
+
   const onUpload = useCallback(
     async (file: File) => {
-      setUploading(true);
-      setUploadError(null);
-      try {
-        const fd = new FormData();
-        fd.append("file", file);
-        const res = await fetch("/api/upload", { method: "POST", body: fd });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
-        const url = data.url || data.path;
-        if (!url) throw new Error("El servidor no devolvió la URL");
-        // URL absoluta: el iframe es `srcdoc` (about:srcdoc) y una ruta relativa
-        // puede no resolver según el contexto. Absoluta carga siempre.
-        send({ oc: "addImage", url: new URL(url, window.location.origin).href });
-      } catch (e) {
-        setUploadError((e as Error).message);
-      } finally {
-        setUploading(false);
-      }
+      const url = await uploadFile(file);
+      if (url) send({ oc: "addImage", url });
     },
-    [send]
+    [send, uploadFile]
+  );
+
+  // Reemplaza la imagen seleccionada conservando su caja: la nueva entra en el
+  // mismo lugar y tamaño (object-fit:cover), sin descolocar la composición.
+  const onReplaceImage = useCallback(
+    async (file: File) => {
+      const url = await uploadFile(file);
+      if (url) send({ oc: "setImgSrc", url, keepBox: true });
+    },
+    [send, uploadFile]
   );
 
   // recibir mensajes del iframe
@@ -278,10 +330,12 @@ export function VisualEditor({
         sharedClip = m.html;
         setHasClip(m.html.length > 0);
       }
-      // La lámina terminó de montar: le sembramos el portapapeles compartido, así
-      // el Ctrl+V / "Pegar" trae lo copiado en la lámina anterior.
-      else if (m.oc === "ready" && sharedClip.length) {
-        send({ oc: "setClip", html: sharedClip });
+      // La lámina terminó de montar: le pasamos el zoom (para que la tolerancia del
+      // imán se mida en px de pantalla) y le sembramos el portapapeles compartido,
+      // así el Ctrl+V / "Pegar" trae lo copiado en la lámina anterior.
+      else if (m.oc === "ready") {
+        send({ oc: "scale", value: scaleRef.current });
+        if (sharedClip.length) send({ oc: "setClip", html: sharedClip });
       }
     };
     window.addEventListener("message", onMsg);
@@ -354,12 +408,40 @@ export function VisualEditor({
     }
   }, [sel.src, send]);
 
+  // Pixela la imagen seleccionada en el server y la reemplaza conservando la caja.
+  // La original queda en el historial de versiones, así se puede volver atrás.
+  const pixelate = useCallback(
+    async (amount: number) => {
+      if (!sel.src) return;
+      setPixelBusy(true);
+      setPixelError(null);
+      try {
+        const res = await fetch("/api/image-fx", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: sel.src, effect: "pixelate", amount }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
+        if (!data.url) throw new Error("El servidor no devolvió la URL");
+        send({ oc: "setImgSrc", url: new URL(data.url, window.location.origin).href });
+      } catch (e) {
+        setPixelError((e as Error).message);
+      } finally {
+        setPixelBusy(false);
+      }
+    },
+    [sel.src, send]
+  );
+
   const runAi = useCallback(async () => {
     const p = aiPrompt.trim();
     if (!p) return;
     const abs = await generateImage(p);
     if (!abs) return;
-    if (aiTarget === "regen") send({ oc: "setImgSrc", url: abs });
+    // Regenerar conserva la caja: la imagen nueva puede venir con otra proporción y
+    // no tiene que descolocar la composición ya armada.
+    if (aiTarget === "regen") send({ oc: "setImgSrc", url: abs, keepBox: true });
     else send({ oc: "addImage", url: abs });
     setAiTarget(null);
     setAiPrompt("");
@@ -564,16 +646,34 @@ export function VisualEditor({
         {/* Cuerpo scrolleable */}
         <div className="flex-1 min-h-0 overflow-y-auto px-3">
           {!hasSel && (
-            <p className="py-4 text-xs text-muted-foreground leading-relaxed">
-              Clic en un elemento para editarlo. <b>Shift+clic</b> para seleccionar varios.
-              Doble clic cambia el texto; ahí podés <b>marcar una parte</b> y los cambios de
-              tipografía se aplican solo a esa parte. Arrastrá para mover; en texto, las{" "}
-              <b>esquinas</b> escalan la tipografía y los <b>laterales</b> ajustan el ancho.
-              El <b>círculo rosa con ↻</b> arriba del elemento lo rota: arrastralo en
-              la dirección del giro (imán cada 45°). <b>Copiar</b> (Ctrl+C) y{" "}
-              <b>Pegar</b> (Ctrl+V) funcionan entre láminas: copiá el logo o un texto,
-              cambiá de lámina y pegalo.
-            </p>
+            <div className="space-y-2 py-4 text-xs text-muted-foreground leading-relaxed">
+              <p>
+                Clic en un elemento para editarlo. Doble clic cambia el texto; ahí podés{" "}
+                <b>marcar una parte</b> y los cambios de tipografía se aplican solo a esa
+                parte. Arrastrá para mover; en texto, las <b>esquinas</b> escalan la
+                tipografía y los <b>laterales</b> ajustan el ancho. El{" "}
+                <b>círculo rosa con ↻</b> arriba del elemento lo rota: arrastralo en la
+                dirección del giro (imán cada 45°).
+              </p>
+              <p>
+                <b>Seleccionar varios:</b> arrastrá sobre una zona vacía para dibujar una
+                banda, o sumá con <b>Shift+clic</b> / <b>Ctrl+clic</b> (volver a clickear
+                un elemento lo descarta). <b>Ctrl+A</b> selecciona todo. Con varios
+                elementos, las <b>4 esquinas</b> escalan el conjunto manteniendo las
+                proporciones. <b>Alt+clic</b> toma un miembro suelto de un grupo.
+              </p>
+              <p>
+                Al mover o redimensionar aparecen <b>guías inteligentes</b>: violeta
+                cuando se alinea con otro elemento, rosa con el centro, los márgenes o
+                los bordes de la lámina. Apretá <b>Alt</b> mientras arrastrás para mover
+                libre, sin imán.
+              </p>
+              <p>
+                <b>Copiar</b> (Ctrl+C) y <b>Pegar</b> (Ctrl+V) funcionan entre láminas:
+                copiá el logo o un texto, cambiá de lámina y pegalo. Duplicar un grupo
+                devuelve otro grupo.
+              </p>
+            </div>
           )}
 
           {hasSel && (
@@ -587,6 +687,53 @@ export function VisualEditor({
 
               {sel.isImage && (
                 <Section title="Imagen" defaultOpen>
+                  {/* Reemplazar conservando la caja: la foto nueva entra en el mismo
+                      lugar y tamaño que la anterior, recortada (cover) en vez de
+                      cambiar de alto y descolocar todo. */}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => replaceRef.current?.click()}
+                    disabled={uploading}
+                  >
+                    <ImageIcon className="h-4 w-4" />{" "}
+                    {uploading ? "Subiendo…" : "Reemplazar imagen"}
+                  </Button>
+                  <input
+                    ref={replaceRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) onReplaceImage(f);
+                      e.target.value = "";
+                    }}
+                  />
+                  {/* Encaje dentro de la caja. 'Alto natural' devuelve la imagen a su
+                      proporción original; los demás respetan la caja. */}
+                  <div className="block">
+                    <span className={labelCls}>Encaje en la caja</span>
+                    <div className="mt-1 grid grid-cols-2 gap-1">
+                      {[
+                        { id: "cover", label: "Cubrir", title: "Llena la caja y recorta el excedente" },
+                        { id: "contain", label: "Contener", title: "Entra completa, con aire alrededor" },
+                        { id: "fill", label: "Estirar", title: "Ocupa la caja exacta (puede deformar)" },
+                        { id: "auto", label: "Alto natural", title: "La caja sigue la proporción de la foto" },
+                      ].map((f) => (
+                        <Button
+                          key={f.id}
+                          size="sm"
+                          variant={sel.fit === f.id ? "accent" : "outline"}
+                          title={f.title}
+                          onClick={() => applyProp("fit", f.id)}
+                        >
+                          {f.label}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
                   <Button
                     size="sm"
                     variant="outline"
@@ -672,9 +819,45 @@ export function VisualEditor({
 
               {sel.isText && (
                 <Section title="Texto" defaultOpen>
-                  {sel.range && (
+                  {sel.range ? (
                     <p className="rounded-md bg-accent/10 px-2 py-1.5 text-[10px] font-medium text-accent leading-snug">
                       Texto marcado: la tipografía se aplica solo a esa parte.
+                    </p>
+                  ) : (
+                    <p className="text-[10px] text-muted-foreground leading-snug">
+                      Para darle otro peso o color a <b>una parte</b> del texto: entrá a
+                      editarlo, marcá esas palabras y cambiá la tipografía. Se pueden
+                      mezclar varios estilos en el mismo bloque.
+                    </p>
+                  )}
+                  <div className="flex gap-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="flex-1"
+                      title="Igual que doble clic en el lienzo (o Enter). Ahí podés marcar una parte del texto."
+                      onClick={() => send({ oc: "editText" })}
+                    >
+                      <Pencil className="h-4 w-4" /> Editar en el lienzo
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      title={
+                        sel.range
+                          ? "Devuelve el tramo marcado al estilo del bloque"
+                          : "Quita los estilos por tramos de todo el texto"
+                      }
+                      disabled={!sel.hasFormat && !sel.range}
+                      onClick={() => applyProp("clearFormat", true)}
+                    >
+                      <Eraser className="h-4 w-4" /> Quitar formato
+                    </Button>
+                  </div>
+                  {sel.hasFormat && !sel.range && (
+                    <p className="text-[10px] text-muted-foreground leading-snug">
+                      Este texto tiene <b>formato por tramos</b>. Editarlo desde acá lo
+                      conserva: solo se reescribe lo que cambiás.
                     </p>
                   )}
                   <label className="block">
@@ -838,41 +1021,85 @@ export function VisualEditor({
                     "Separar" lo convierte en una caja independiente detrás del texto,
                     para poder mover texto y caja por separado. */}
                 {!sel.isImage && (
-                  <div className="block">
+                  <div className="block space-y-1.5">
                     <span className={labelCls}>{sel.isShape ? "Relleno" : "Fondo del elemento"}</span>
-                    <div className="mt-1 flex items-center gap-1.5">
-                      <ColorInput
-                        className="flex-1"
-                        title={sel.isShape ? "Relleno" : "Fondo del elemento"}
-                        value={sel.bg || "#ffffff"}
-                        swatches={swatches}
-                        onChange={(hex) => {
-                          setSel({ ...sel, bg: hex });
-                          applyProp("bg", hex);
-                        }}
-                      />
+                    {/* Interruptor explícito: sin fondo (transparente, como el lienzo)
+                        o con un color elegido. Antes había que adivinar entre el
+                        selector y un botón suelto. */}
+                    <div className="flex gap-1">
                       <Button
                         size="sm"
-                        variant="outline"
-                        className="shrink-0"
-                        disabled={!sel.bg}
+                        variant={!sel.bg ? "accent" : "outline"}
+                        className="flex-1"
+                        title="Transparente: se ve el lienzo detrás"
                         onClick={() => applyProp("bg", "transparent")}
                       >
                         Sin fondo
                       </Button>
-                      {sel.isText && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="flex-1"
-                          disabled={!sel.bg}
-                          title="Convierte el fondo en una caja aparte: el texto queda libre para moverse"
-                          onClick={() => applyProp("splitBg", true)}
-                        >
-                          Separar
-                        </Button>
-                      )}
+                      <Button
+                        size="sm"
+                        variant={sel.bg ? "accent" : "outline"}
+                        className="flex-1"
+                        title="Pinta el fondo del elemento"
+                        onClick={() => applyProp("bg", sel.bg || lastBg)}
+                      >
+                        Con color
+                      </Button>
                     </div>
+                    {!!sel.bg && (
+                      <ColorInput
+                        title={sel.isShape ? "Relleno" : "Fondo del elemento"}
+                        value={sel.bg}
+                        swatches={swatches}
+                        onChange={(hex) => {
+                          setSel({ ...sel, bg: hex });
+                          setLastBg(hex);
+                          applyProp("bg", hex);
+                        }}
+                      />
+                    )}
+                    {sel.isText && !!sel.bg && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full"
+                        title="Convierte el fondo en una caja aparte: el texto queda libre para moverse"
+                        onClick={() => applyProp("splitBg", true)}
+                      >
+                        Separar el fondo en una caja
+                      </Button>
+                    )}
+                    {/* El color puede venir del contenedor que abraza al texto, no del
+                        texto mismo: ahí "sin fondo" sobre el texto no cambiaba nada
+                        visible y parecía que no funcionaba. */}
+                    {sel.isText && !!sel.boxBg && (
+                      <div className="rounded-md border border-border bg-background p-2 space-y-1.5">
+                        <span className={labelCls}>Fondo de la caja (contenedor)</span>
+                        <p className="text-[10px] text-muted-foreground leading-snug">
+                          El color que se ve detrás del texto lo pinta su contenedor.
+                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <ColorInput
+                            className="flex-1"
+                            title="Fondo del contenedor"
+                            value={sel.boxBg}
+                            swatches={swatches}
+                            onChange={(hex) => {
+                              setSel({ ...sel, boxBg: hex });
+                              applyProp("boxBg", hex);
+                            }}
+                          />
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="shrink-0"
+                            onClick={() => applyProp("boxBg", "transparent")}
+                          >
+                            Sin fondo
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
                 {/* Degradado como relleno: presets de un clic + par de colores y ángulo.
@@ -997,6 +1224,93 @@ export function VisualEditor({
                       </Button>
                     ))}
                   </div>
+                  {/* Sombra a medida. El brillo es la misma sombra con
+                      desplazamiento 0; 'interior' la mete hacia adentro. */}
+                  <div className="mt-2 space-y-1.5 rounded-md border border-border bg-background p-2">
+                    <div className="flex items-center justify-between">
+                      <span className={labelCls}>A medida</span>
+                      <div className="flex gap-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          title="Brillo exterior: sombra de color, sin desplazamiento"
+                          onClick={() => {
+                            const s = { ...shadow, x: 0, y: 0, blur: 26, spread: 2, inner: false };
+                            setShadow(s);
+                            applyProp("shadowCustom", s);
+                          }}
+                        >
+                          Brillo ext.
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          title="Brillo interior: el mismo color hacia adentro del borde"
+                          onClick={() => {
+                            const s = { ...shadow, x: 0, y: 0, blur: 22, spread: 0, inner: true };
+                            setShadow(s);
+                            applyProp("shadowCustom", s);
+                          }}
+                        >
+                          Brillo int.
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {(
+                        [
+                          ["x", "Desp. X", -200, 200],
+                          ["y", "Desp. Y", -200, 200],
+                          ["blur", "Difusión", 0, 200],
+                          ["spread", "Expansión", -100, 100],
+                        ] as const
+                      ).map(([key, label, min, max]) => (
+                        <label key={key} className="block">
+                          <span className={labelCls}>{label}</span>
+                          <input
+                            type="number"
+                            min={min}
+                            max={max}
+                            className={inputCls}
+                            value={shadow[key]}
+                            onChange={(e) => {
+                              const s = { ...shadow, [key]: Number(e.target.value) };
+                              setShadow(s);
+                              applyProp("shadowCustom", s);
+                            }}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                    <ColorInput
+                      title="Color de la sombra"
+                      value={shadow.color}
+                      swatches={swatches}
+                      onChange={(hex) => {
+                        const s = { ...shadow, color: hex };
+                        setShadow(s);
+                        applyProp("shadowCustom", s);
+                      }}
+                    />
+                    <Button
+                      size="sm"
+                      variant={shadow.inner ? "accent" : "outline"}
+                      className="w-full"
+                      title="Hacia adentro del borde en vez de hacia afuera"
+                      onClick={() => {
+                        const s = { ...shadow, inner: !shadow.inner };
+                        setShadow(s);
+                        applyProp("shadowCustom", s);
+                      }}
+                    >
+                      {shadow.inner ? "Interior (activo)" : "Hacer interior"}
+                    </Button>
+                    <p className="text-[10px] text-muted-foreground leading-snug">
+                      Con <b>Puntos</b> activo, el desplazamiento y el color gobiernan esa
+                      capa. En imágenes y formas la sombra sigue la silueta real (la
+                      expansión no aplica).
+                    </p>
+                  </div>
                 </div>
                 <label className="block">
                   <span className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -1047,6 +1361,31 @@ export function VisualEditor({
                     }}
                   />
                 </label>
+              </Section>
+
+              {/* Biblioteca de efectos. Los materiales necesitan la URL absoluta
+                  del sitio: el iframe es `srcdoc` y una ruta relativa no resuelve. */}
+              <Section title="Efectos" defaultOpen={false}>
+                <EffectsPanel
+                  fx={sel.fx ?? {}}
+                  fxLayers={sel.fxLayers ?? {}}
+                  canPixelate={!!sel.isImage && (sel.src ?? "").includes("/uploads/")}
+                  pixelBusy={pixelBusy}
+                  pixelError={pixelError}
+                  swatches={swatches}
+                  onFx={(kind, value) => applyProp("fx", { kind, value })}
+                  onFxLayer={(kind, value) =>
+                    applyProp("fxLayer", {
+                      kind,
+                      value:
+                        value && typeof value === "object"
+                          ? { ...value, base: window.location.origin }
+                          : value,
+                    })
+                  }
+                  onClear={() => applyProp("fxClear", true)}
+                  onPixelate={pixelate}
+                />
               </Section>
 
               {(sel.count || 1) === 1 && (
@@ -1209,13 +1548,19 @@ export function VisualEditor({
               selecciona; arrastrar reordena. Complementa Subir/Bajar del elemento. */}
           <Section title="Capas" defaultOpen={false}>
             <p className="mb-2 text-[10px] text-muted-foreground leading-snug">
-              De arriba (frente) a abajo (fondo). Clic para seleccionar; arrastrá para
-              reordenar.
+              De arriba (frente) a abajo (fondo). Clic para seleccionar, doble clic para
+              renombrar, arrastrá para reordenar dentro del nivel. La flecha abre grupos
+              y contenedores. Al pasar el mouse aparecen frente/subir/bajar/fondo, el ojo
+              (ocultar) y el candado (bloquear). Una capa <b>oculta</b> tampoco sale en el
+              export; una <b>bloqueada</b> no se mueve ni se edita hasta desbloquearla.
             </p>
             <LayerPanel
               layers={layers}
               onSelect={(id) => send({ oc: "selectLayer", id })}
               onReorder={(ids) => send({ oc: "reorderLayers", ids })}
+              onMove={(id, dir) => send({ oc: "layerMove", id, dir })}
+              onToggle={(id, flag, value) => send({ oc: "layerFlag", id, flag, value })}
+              onRename={(id, name) => send({ oc: "layerName", id, name })}
             />
           </Section>
 
