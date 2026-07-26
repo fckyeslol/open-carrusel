@@ -112,6 +112,9 @@ export const EDITOR_RUNTIME = String.raw`
     return true;
   }
   function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  var FMT_SEL='span,strong,em,b,i,u,s,mark,font,a,code,small,sub,sup,del,ins,abbr';
+  /** ¿El texto tiene tramos con formato propio (negrita de una palabra, etc.)? */
+  function hasFormat(el){ return !!(el.querySelector && el.querySelector(FMT_SEL)); }
   // Lee el texto conservando los saltos de línea (<br> → \n) para el textarea.
   function readText(el){
     var clone=el.cloneNode(true);
@@ -461,6 +464,11 @@ export const EDITOR_RUNTIME = String.raw`
         : '',
       text: isText ? readText(el) : '',
       range: !!rh,
+      // El texto tiene tramos con formato propio: el panel lo avisa, porque editar
+      // desde el campo conserva el formato pero conviene saber que está ahí.
+      hasFormat: isText && hasFormat(el),
+      // Fondo del contenedor que abraza al texto ('' = no hay caja pintada).
+      boxBg: isText ? (function(){ var a=bgAncestor(el); return a?toHex(getComputedStyle(a).backgroundColor):''; })() : '',
       fontFamily:(ct.fontFamily||'').split(',')[0].replace(/['"]/g,'').trim(),
       fontSize:Math.round(parseFloat(ct.fontSize)||0),
       color:toHex(ct.color), fontWeight:ct.fontWeight,
@@ -939,14 +947,25 @@ export const EDITOR_RUNTIME = String.raw`
     syncOne();   // re-mide solo el elemento activo, sin reconstruir el overlay
   }
 
+  /**
+   * Entra en edición inline (lo que hace el doble clic). Es también el único modo
+   * en que se puede MARCAR un tramo de texto para darle formato propio: fuera de
+   * la edición, arrastrar sobre el texto mueve el elemento. Por eso el panel
+   * expone un botón que llama acá, en vez de dejarlo escondido en el doble clic.
+   */
+  function editText(t){
+    if(!t||!isTextEl(t)||isLocked(t)) return;
+    snap();
+    t.setAttribute('contenteditable','true'); t.focus();
+    var end=function(){
+      t.setAttribute('contenteditable','false'); t.removeEventListener('blur',end);
+      paint(); report(); serialize();
+    };
+    t.addEventListener('blur', end);
+    report();
+  }
   document.addEventListener('dblclick', function(e){
-    var t=candidateAt(e.clientX,e.clientY);
-    if(t && isTextEl(t)){
-      snap();
-      t.setAttribute('contenteditable','true'); t.focus();
-      var end=function(){ t.setAttribute('contenteditable','false'); t.removeEventListener('blur',end); paint(); report(); serialize(); };
-      t.addEventListener('blur', end);
-    }
+    editText(candidateAt(e.clientX,e.clientY));
   }, true);
 
   // ── teclado: undo, copy/paste, duplicar, borrar, nudge ───────────────────────
@@ -955,6 +974,10 @@ export const EDITOR_RUNTIME = String.raw`
     var mod=e.ctrlKey||e.metaKey;
     if(mod && e.key.toLowerCase()==='z'){ e.preventDefault(); undo(); return; }
     if(ed) return;   // editando texto: Ctrl+A / Ctrl+C son del caret
+    // Enter sobre un texto seleccionado entra a editarlo (como en Canva).
+    if(e.key==='Enter' && sels.length===1 && isTextEl(sels[0])){
+      e.preventDefault(); editText(sels[0]); return;
+    }
     if(mod && e.key.toLowerCase()==='a'){ e.preventDefault(); selectAll(); return; }
     if(mod && e.key.toLowerCase()==='c'){ e.preventDefault(); copy(); return; }
     // Ctrl+V NO se intercepta acá: dejamos que dispare el evento 'paste' nativo,
@@ -1372,6 +1395,108 @@ export const EDITOR_RUNTIME = String.raw`
     order[idx]=order[j]; order[j]=el;  // swap con el vecino inmediato
     applyLayerOrder(order);
   }
+  // ── editar el texto SIN perder el formato por tramos ─────────────────────────
+  // El campo de texto del panel reescribía el innerHTML completo en cada tecla, así
+  // que cualquier palabra en negrita o en otro color se borraba al tocar el texto:
+  // el formato parcial "a veces no funcionaba" porque se lo comía la propia edición.
+  // Ahora se calcula el tramo que cambió (prefijo y sufijo comunes) y se aplica solo
+  // ese tramo sobre los nodos de texto, dejando los <span> en su lugar.
+  function plainText(el){
+    var out='', w=document.createTreeWalker(el, NodeFilter.SHOW_TEXT|NodeFilter.SHOW_ELEMENT, null), n;
+    while((n=w.nextNode())){
+      if(n.nodeType===3) out+=n.nodeValue;
+      else if(n.tagName==='BR') out+='\n';
+    }
+    return out;
+  }
+  function setTextFlat(el,next){
+    el.innerHTML=String(next).split('\n').map(esc).join('<br>');
+  }
+  function setText(el,next){
+    next=String(next);
+    var cur=plainText(el);
+    if(cur===next) return;
+    // Sin formato interno: el camino directo es exacto y más barato.
+    if(!hasFormat(el)){ setTextFlat(el,next); return; }
+    var p=0, la=cur.length, lb=next.length;
+    while(p<la&&p<lb&&cur.charAt(p)===next.charAt(p)) p++;
+    var ea=la, eb=lb;
+    while(ea>p&&eb>p&&cur.charAt(ea-1)===next.charAt(eb-1)){ ea--; eb--; }
+    var ins=next.slice(p,eb), del=cur.slice(p,ea);
+    // Los saltos de línea son <br> (no texto): si el cambio los toca, se rehace plano.
+    if(ins.indexOf('\n')>=0||del.indexOf('\n')>=0){ setTextFlat(el,next); return; }
+    // Índices absolutos de cada nodo de texto, medidos ANTES de mutar.
+    var nodes=[], idx=0;
+    var w=document.createTreeWalker(el, NodeFilter.SHOW_TEXT|NodeFilter.SHOW_ELEMENT, null), n;
+    while((n=w.nextNode())){
+      if(n.nodeType===3){ nodes.push({n:n, start:idx, len:n.nodeValue.length}); idx+=n.nodeValue.length; }
+      else if(n.tagName==='BR') idx+=1;
+    }
+    if(!nodes.length){ setTextFlat(el,next); return; }
+    var placed=false;
+    for(var i=0;i<nodes.length;i++){
+      var nd=nodes[i], s=Math.max(p,nd.start), e=Math.min(ea,nd.start+nd.len);
+      if(e<=s) continue;                       // este nodo no cae en el tramo borrado
+      var v=nd.n.nodeValue, lo=s-nd.start;
+      nd.n.nodeValue=v.slice(0,lo)+(placed?'':ins)+v.slice(lo+(e-s));
+      placed=true;
+    }
+    if(!placed && ins){                        // inserción pura: no se borró nada
+      for(var j=0;j<nodes.length;j++){
+        var nj=nodes[j];
+        if(p>=nj.start && p<=nj.start+nj.len){
+          var vj=nj.n.nodeValue, lj=p-nj.start;
+          nj.n.nodeValue=vj.slice(0,lj)+ins+vj.slice(lj);
+          placed=true; break;
+        }
+      }
+      if(!placed){                             // al final del último nodo
+        var last=nodes[nodes.length-1];
+        last.n.nodeValue=last.n.nodeValue+ins;
+      }
+    }
+  }
+  /**
+   * Fondo de la CAJA de texto. Un texto suele venir dentro de un contenedor que
+   * lleva el color; "sin fondo" sobre el texto no cambiaba nada visible y parecía
+   * roto. Devuelve ese contenedor cuando abraza al texto (no un panel gigante).
+   */
+  function bgAncestor(el){
+    var node=el.parentElement, root=rootEl(), guard=0;
+    var er=el.getBoundingClientRect(), area=Math.max(1,er.width*er.height);
+    while(node && node!==root && node!==document.body && guard++<4){
+      var cs=getComputedStyle(node);
+      var painted=(cs.backgroundColor&&cs.backgroundColor!=='rgba(0, 0, 0, 0)'&&cs.backgroundColor!=='transparent')
+        || cs.backgroundImage!=='none';
+      if(painted){
+        var r=node.getBoundingClientRect();
+        return (r.width*r.height<=area*2.6 && !tooBig(node)) ? node : null;
+      }
+      node=node.parentElement;
+    }
+    return null;
+  }
+  /** Saca el formato de un tramo marcado, o de todo el texto si no hay tramo. */
+  function clearFormat(el){
+    var host=rangeHost();
+    if(host && host!==el && (host.getAttribute('data-oc-rs')||INLINE_TAGS[host.tagName])){
+      unwrap(host); savedRange=null; return;
+    }
+    // Todos los inline de formato, no solo los <span> que pone el editor: el
+    // formato parcial también llega como <strong>/<em> en el HTML de la lámina.
+    [].slice.call(el.querySelectorAll(FMT_SEL)).forEach(unwrap);
+    ['fontWeight','fontStyle','color','fontFamily','fontSize','letterSpacing',
+     'textDecoration','textShadow','webkitTextStroke','webkitTextFillColor']
+      .forEach(function(k){ el.style[k]=''; });
+    savedRange=null;
+  }
+  function unwrap(node){
+    var par=node.parentNode; if(!par) return;
+    while(node.firstChild) par.insertBefore(node.firstChild, node);
+    par.removeChild(node);
+    par.normalize();
+  }
+
   // Estilos "puros" que sirven igual sobre el elemento completo o sobre un <span>
   // de tramo (selección parcial). Los props estructurales (text, splitBg, x/y/w/h,
   // capas, remove) siguen viviendo en apply().
@@ -1557,7 +1682,13 @@ export const EDITOR_RUNTIME = String.raw`
     }
     sels.forEach(function(el){
       if(isLocked(el)) return;   // capa bloqueada: no se edita ni se borra
-      if(p==='text'){ el.innerHTML=String(v).split('\n').map(esc).join('<br>'); }
+      if(p==='text'){ setText(el, v); }
+      else if(p==='clearFormat'){ clearFormat(el); }
+      // Fondo del contenedor que abraza al texto (la "caja"), no del texto mismo.
+      else if(p==='boxBg'){
+        var host=bgAncestor(el);
+        if(host) host.style.background = (v===''||v==='transparent') ? 'transparent' : v;
+      }
       else if(p==='splitBg'){
         // "Sacar el texto de la caja": el resaltado es el background del MISMO
         // elemento. Lo copiamos a un div independiente insertado justo detrás
@@ -1620,7 +1751,9 @@ export const EDITOR_RUNTIME = String.raw`
     snap();
     var d=document.createElement('div');
     d.textContent='Texto nuevo';
-    d.style.cssText='position:absolute;left:120px;top:120px;font-size:60px;font-family:Inter,sans-serif;color:#111;font-weight:700;z-index:5';
+    // background:transparent explícito: una caja de texto nueva no tiene que
+    // pintar nada que se distinga del lienzo.
+    d.style.cssText='position:absolute;left:120px;top:120px;font-size:60px;font-family:Inter,sans-serif;color:#111;font-weight:700;background:transparent;z-index:5';
     rootEl().appendChild(d); sels=[d]; paint(); report(); serialize();
   }
   function addImage(url){
@@ -1760,6 +1893,7 @@ export const EDITOR_RUNTIME = String.raw`
     else if(m.oc==='setClip'){ if(m.html&&m.html.length) clip=m.html.slice(); }
     else if(m.oc==='duplicate') duplicate();
     else if(m.oc==='addText') addText();
+    else if(m.oc==='editText'){ if(sels.length===1) editText(sels[0]); }
     else if(m.oc==='addShape') addShape(m.kind);
     else if(m.oc==='addImage') addImage(m.url);
     else if(m.oc==='setImgSrc') setImgSrc(m.url, m.keepBox);

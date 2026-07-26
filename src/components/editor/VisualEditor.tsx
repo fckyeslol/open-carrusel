@@ -43,6 +43,7 @@ import {
   Sparkles,
   RefreshCw,
   Eraser,
+  Pencil,
 } from "lucide-react";
 
 const FONTS = EDITOR_FONTS;
@@ -78,6 +79,10 @@ interface Selection {
   text?: string;
   /** Hay un tramo de texto marcado: la tipografía se aplica solo a ese tramo. */
   range?: boolean;
+  /** El texto tiene tramos con formato propio (una palabra en negrita, etc.). */
+  hasFormat?: boolean;
+  /** Color del contenedor que abraza al texto ('' = no hay caja pintada). */
+  boxBg?: string;
   fontFamily?: string;
   fontSize?: number;
   color?: string;
@@ -169,6 +174,9 @@ export function VisualEditor({
   // El degradado vive en estado local: el runtime no puede "leerlo" de vuelta.
   const [shapesOpen, setShapesOpen] = useState(false);
   const [grad, setGrad] = useState({ from: "#4f7cff", to: "#ff3b7f", angle: 135 });
+  // Último color de fondo elegido: al volver a "Con color" se recupera en vez de
+  // arrancar siempre de blanco.
+  const [lastBg, setLastBg] = useState("#ffffff");
   const [slideBg, setSlideBg] = useState("#F6F5F0"); // color plano del fondo del slide
   // Textura de material del slide: catálogo (del manifest) + la aplicada actualmente.
   // El estado arranca leyendo la lámina, para reflejar una textura ya puesta.
@@ -767,9 +775,45 @@ export function VisualEditor({
 
               {sel.isText && (
                 <Section title="Texto" defaultOpen>
-                  {sel.range && (
+                  {sel.range ? (
                     <p className="rounded-md bg-accent/10 px-2 py-1.5 text-[10px] font-medium text-accent leading-snug">
                       Texto marcado: la tipografía se aplica solo a esa parte.
+                    </p>
+                  ) : (
+                    <p className="text-[10px] text-muted-foreground leading-snug">
+                      Para darle otro peso o color a <b>una parte</b> del texto: entrá a
+                      editarlo, marcá esas palabras y cambiá la tipografía. Se pueden
+                      mezclar varios estilos en el mismo bloque.
+                    </p>
+                  )}
+                  <div className="flex gap-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="flex-1"
+                      title="Igual que doble clic en el lienzo (o Enter). Ahí podés marcar una parte del texto."
+                      onClick={() => send({ oc: "editText" })}
+                    >
+                      <Pencil className="h-4 w-4" /> Editar en el lienzo
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      title={
+                        sel.range
+                          ? "Devuelve el tramo marcado al estilo del bloque"
+                          : "Quita los estilos por tramos de todo el texto"
+                      }
+                      disabled={!sel.hasFormat && !sel.range}
+                      onClick={() => applyProp("clearFormat", true)}
+                    >
+                      <Eraser className="h-4 w-4" /> Quitar formato
+                    </Button>
+                  </div>
+                  {sel.hasFormat && !sel.range && (
+                    <p className="text-[10px] text-muted-foreground leading-snug">
+                      Este texto tiene <b>formato por tramos</b>. Editarlo desde acá lo
+                      conserva: solo se reescribe lo que cambiás.
                     </p>
                   )}
                   <label className="block">
@@ -933,41 +977,85 @@ export function VisualEditor({
                     "Separar" lo convierte en una caja independiente detrás del texto,
                     para poder mover texto y caja por separado. */}
                 {!sel.isImage && (
-                  <div className="block">
+                  <div className="block space-y-1.5">
                     <span className={labelCls}>{sel.isShape ? "Relleno" : "Fondo del elemento"}</span>
-                    <div className="mt-1 flex items-center gap-1.5">
-                      <ColorInput
-                        className="flex-1"
-                        title={sel.isShape ? "Relleno" : "Fondo del elemento"}
-                        value={sel.bg || "#ffffff"}
-                        swatches={swatches}
-                        onChange={(hex) => {
-                          setSel({ ...sel, bg: hex });
-                          applyProp("bg", hex);
-                        }}
-                      />
+                    {/* Interruptor explícito: sin fondo (transparente, como el lienzo)
+                        o con un color elegido. Antes había que adivinar entre el
+                        selector y un botón suelto. */}
+                    <div className="flex gap-1">
                       <Button
                         size="sm"
-                        variant="outline"
-                        className="shrink-0"
-                        disabled={!sel.bg}
+                        variant={!sel.bg ? "accent" : "outline"}
+                        className="flex-1"
+                        title="Transparente: se ve el lienzo detrás"
                         onClick={() => applyProp("bg", "transparent")}
                       >
                         Sin fondo
                       </Button>
-                      {sel.isText && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="flex-1"
-                          disabled={!sel.bg}
-                          title="Convierte el fondo en una caja aparte: el texto queda libre para moverse"
-                          onClick={() => applyProp("splitBg", true)}
-                        >
-                          Separar
-                        </Button>
-                      )}
+                      <Button
+                        size="sm"
+                        variant={sel.bg ? "accent" : "outline"}
+                        className="flex-1"
+                        title="Pinta el fondo del elemento"
+                        onClick={() => applyProp("bg", sel.bg || lastBg)}
+                      >
+                        Con color
+                      </Button>
                     </div>
+                    {!!sel.bg && (
+                      <ColorInput
+                        title={sel.isShape ? "Relleno" : "Fondo del elemento"}
+                        value={sel.bg}
+                        swatches={swatches}
+                        onChange={(hex) => {
+                          setSel({ ...sel, bg: hex });
+                          setLastBg(hex);
+                          applyProp("bg", hex);
+                        }}
+                      />
+                    )}
+                    {sel.isText && !!sel.bg && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full"
+                        title="Convierte el fondo en una caja aparte: el texto queda libre para moverse"
+                        onClick={() => applyProp("splitBg", true)}
+                      >
+                        Separar el fondo en una caja
+                      </Button>
+                    )}
+                    {/* El color puede venir del contenedor que abraza al texto, no del
+                        texto mismo: ahí "sin fondo" sobre el texto no cambiaba nada
+                        visible y parecía que no funcionaba. */}
+                    {sel.isText && !!sel.boxBg && (
+                      <div className="rounded-md border border-border bg-background p-2 space-y-1.5">
+                        <span className={labelCls}>Fondo de la caja (contenedor)</span>
+                        <p className="text-[10px] text-muted-foreground leading-snug">
+                          El color que se ve detrás del texto lo pinta su contenedor.
+                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <ColorInput
+                            className="flex-1"
+                            title="Fondo del contenedor"
+                            value={sel.boxBg}
+                            swatches={swatches}
+                            onChange={(hex) => {
+                              setSel({ ...sel, boxBg: hex });
+                              applyProp("boxBg", hex);
+                            }}
+                          />
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="shrink-0"
+                            onClick={() => applyProp("boxBg", "transparent")}
+                          >
+                            Sin fondo
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
                 {/* Degradado como relleno: presets de un clic + par de colores y ángulo.

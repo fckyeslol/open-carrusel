@@ -663,6 +663,132 @@ async function main() {
     }));
     check("'alto natural' suelta la caja", !autoFit.of && autoFit.h === "auto", JSON.stringify(autoFit));
 
+    // ── Fase 5: edición de texto ──────────────────────────────────────────────
+    const SLIDE_TEXT = `
+<div id="root" style="position:relative;width:${W}px;height:${H}px;background:#f6f5f0">
+  <div id="mix" style="position:absolute;left:80px;top:200px;width:600px;font-size:48px;font-family:Inter;color:#111">Hola <strong id="fuerte" style="font-weight:800;color:#ff3b7f">mundo</strong> lindo</div>
+  <div id="caja" style="position:absolute;left:80px;top:600px;padding:24px;background:#ffe08a">
+    <div id="dentro" style="font-size:40px;font-family:Inter;color:#111">Texto con caja</div>
+  </div>
+</div>`;
+
+    console.log("\nFormato parcial del texto");
+    await pageFor(SLIDE_TEXT);
+    const fmtBefore = await page.evaluate(() => ({
+      html: document.querySelector("#mix").innerHTML,
+      weight: getComputedStyle(document.querySelector("#fuerte")).fontWeight,
+    }));
+    check("la lámina arranca con un tramo en negrita", fmtBefore.weight === "800");
+    await page.mouse.click(120, 225);
+    await new Promise((r) => setTimeout(r, 60));
+    // Editar el texto desde el panel: cambiar "lindo" por "lindisimo".
+    await page.evaluate(() =>
+      window.postMessage({ oc: "apply", prop: "text", value: "Hola mundo lindisimo" }, "*")
+    );
+    await new Promise((r) => setTimeout(r, 120));
+    const fmtAfter = await page.evaluate(() => {
+      const el = document.querySelector("#mix");
+      const st = document.querySelector("#fuerte");
+      return {
+        text: el.textContent,
+        stillBold: st ? getComputedStyle(st).fontWeight : null,
+        boldText: st ? st.textContent : null,
+      };
+    });
+    check("editar el texto conserva el tramo con formato", fmtAfter.stillBold === "800",
+      `negrita=${fmtAfter.stillBold}`);
+    check("el tramo conserva su contenido", fmtAfter.boldText === "mundo", `tramo="${fmtAfter.boldText}"`);
+    check("y el texto queda como se pidió", fmtAfter.text === "Hola mundo lindisimo", `"${fmtAfter.text}"`);
+
+    // Borrar dentro del tramo con formato.
+    await page.evaluate(() =>
+      window.postMessage({ oc: "apply", prop: "text", value: "Hola mun lindisimo" }, "*")
+    );
+    await new Promise((r) => setTimeout(r, 120));
+    const shrunk = await page.evaluate(() => {
+      const el = document.querySelector("#mix");
+      const st = document.querySelector("#fuerte");
+      return { text: el.textContent, boldText: st ? st.textContent : null };
+    });
+    check("borrar dentro del tramo lo recorta sin perderlo", shrunk.boldText === "mun",
+      `tramo="${shrunk.boldText}"`);
+    check("y el texto completo es el pedido", shrunk.text === "Hola mun lindisimo", `"${shrunk.text}"`);
+
+    // Reemplazo total: sin prefijo ni sufijo común, cae a texto plano.
+    await page.evaluate(() =>
+      window.postMessage({ oc: "apply", prop: "text", value: "Otro titular" }, "*")
+    );
+    await new Promise((r) => setTimeout(r, 120));
+    check(
+      "un reemplazo total reescribe el texto",
+      (await page.evaluate(() => document.querySelector("#mix").textContent)) === "Otro titular"
+    );
+
+    console.log("\nQuitar formato");
+    await pageFor(SLIDE_TEXT);
+    await page.mouse.click(120, 225);
+    await new Promise((r) => setTimeout(r, 60));
+    await page.evaluate(() => window.postMessage({ oc: "apply", prop: "clearFormat", value: true }, "*"));
+    await new Promise((r) => setTimeout(r, 120));
+    const cleared = await page.evaluate(() => ({
+      hasStrong: !!document.querySelector("#mix strong"),
+      text: document.querySelector("#mix").textContent,
+    }));
+    check("quitar formato desarma los tramos", !cleared.hasStrong);
+    check("sin perder el texto", cleared.text === "Hola mundo lindo", `"${cleared.text}"`);
+
+    console.log("\nFondo de la caja de texto");
+    await pageFor(SLIDE_TEXT);
+    const inBox = await rectOf(page, "dentro");
+    await page.mouse.click(inBox.left + 20, inBox.top + 20);
+    const boxReport = await page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          const onMsg = (e) => {
+            if (e.data && e.data.oc === "sel" && !e.data.none) {
+              window.removeEventListener("message", onMsg);
+              resolve(e.data);
+            }
+          };
+          window.addEventListener("message", onMsg);
+          window.postMessage({ oc: "apply", prop: "opacity", value: 100 }, "*");
+        })
+    );
+    check("detecta que el color viene del contenedor", boxReport.boxBg === "#ffe08a", `boxBg=${boxReport.boxBg}`);
+    check("y que el texto mismo no tiene fondo", !boxReport.bg, `bg=${boxReport.bg}`);
+    await page.evaluate(() => window.postMessage({ oc: "apply", prop: "boxBg", value: "transparent" }, "*"));
+    await new Promise((r) => setTimeout(r, 120));
+    check(
+      "'sin fondo' de la caja limpia el contenedor",
+      (await page.evaluate(() => getComputedStyle(document.querySelector("#caja")).backgroundColor)) ===
+        "rgba(0, 0, 0, 0)"
+    );
+
+    console.log("\nEntrar a editar texto");
+    await pageFor(SLIDE_TEXT);
+    await page.mouse.click(120, 225);
+    await new Promise((r) => setTimeout(r, 60));
+    await page.evaluate(() => window.postMessage({ oc: "editText" }, "*"));
+    await new Promise((r) => setTimeout(r, 80));
+    check(
+      "el panel puede entrar a la edición inline",
+      (await page.evaluate(
+        () => document.querySelector('[contenteditable="true"]')?.id
+      )) === "mix"
+    );
+    // Y una caja de texto nueva no pinta nada.
+    await pageFor(SLIDE_TEXT);
+    await page.evaluate(() => window.postMessage({ oc: "addText" }, "*"));
+    await new Promise((r) => setTimeout(r, 100));
+    check(
+      "un texto nuevo nace sin fondo",
+      (await page.evaluate(() => {
+        const els = [...document.querySelectorAll("#root > div")];
+        const nuevo = els.find((e) => e.textContent === "Texto nuevo");
+        return nuevo && getComputedStyle(nuevo).backgroundColor === "rgba(0, 0, 0, 0)";
+      })) === true
+    );
+
     console.log("\nSerialización");
     await reset();
     const serialized = await page.evaluate(() => {
