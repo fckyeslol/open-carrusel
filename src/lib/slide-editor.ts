@@ -199,6 +199,8 @@ export const EDITOR_RUNTIME = String.raw`
       if(el.closest && el.closest('[data-oc-ui]')) continue;
       // Capa bloqueada: transparente al clic (se toma desde el panel de capas).
       if(isLocked(el) || (el.closest && el.closest('[data-oc-lock]'))) continue;
+      // Capa de sombra: es parte del elemento, no un objeto aparte.
+      if(el.hasAttribute && el.hasAttribute('data-oc-shadow-for')) continue;
       // svgHit cuenta como "tinta real": el punto tocó una forma dentro del svg,
       // así que un svg-overlay a lámina completa sigue siendo seleccionable.
       if(tooBig(el)){ if((el.tagName==='IMG'||svgHit)&&!bigImg) bigImg=el; continue; }
@@ -323,6 +325,7 @@ export const EDITOR_RUNTIME = String.raw`
       var o=h.c==='rot'?16:7;   // el handle de rotación es más grande (32px)
       h.el.style.transform='translate('+(p[0]-o)+'px,'+(p[1]-o)+'px)'; });
     placeRotLine(r);
+    syncShadows();
   }
   function showHandles(v){ handles.forEach(function(h){ h.el.style.display=v?'block':'none'; }); }
   // capa de guías: se crea UNA vez y solo se muestra/oculta (sin churn de DOM)
@@ -398,6 +401,7 @@ export const EDITOR_RUNTIME = String.raw`
       if(t==='SCRIPT'||t==='STYLE'||t==='LINK') continue;
       if(el.hasAttribute&&(el.hasAttribute('data-oc-ui')||el.hasAttribute('data-oc-tex'))) continue;
       if(el.closest&&el.closest('[data-oc-ui]')) continue;
+      if(el.hasAttribute&&el.hasAttribute('data-oc-shadow-for')) continue;   // decoración, no referencia
       if(el.ownerSVGElement) continue;   // formas internas de un svg: aporta el raíz
       if(inSelTree(el)) continue;
       var r=el.getBoundingClientRect();
@@ -561,6 +565,7 @@ export const EDITOR_RUNTIME = String.raw`
       if(el.closest&&el.closest('[data-oc-ui]')) continue;
       if(el===root||el.ownerSVGElement) continue;
       if(isLocked(el)||isHidden(el)) continue;
+      if(el.hasAttribute&&el.hasAttribute('data-oc-shadow-for')) continue;   // sombra: parte del elemento
       if(!(isTextEl(el)||t==='IMG'||(el.getAttribute&&el.getAttribute('data-oc-shape'))||isSvgRoot(el))) continue;
       if(tooBig(el)) continue;
       var r=el.getBoundingClientRect();
@@ -809,6 +814,7 @@ export const EDITOR_RUNTIME = String.raw`
     }
     for(var i=0;i<sels.length;i++) applyT(sels[i], drag.start[i][0]+dx, drag.start[i][1]+dy);
     offsetBoxes(drag.rects, dx, dy);
+    syncShadows();   // la sombra de puntos sigue al elemento en vivo
     drawGuides(gs);
   }
   window.addEventListener('mousemove', function(e){
@@ -1168,6 +1174,7 @@ export const EDITOR_RUNTIME = String.raw`
       var k=kids[i];
       if(k.hasAttribute && k.hasAttribute('data-oc-ui')) continue;
       if(k.hasAttribute && k.hasAttribute('data-oc-tex')) continue;   // la textura vive siempre al fondo
+      if(k.hasAttribute && k.hasAttribute('data-oc-shadow-for')) continue;   // sombra de un elemento
       if(k.tagName==='SCRIPT'||k.tagName==='STYLE'||k.tagName==='LINK') continue;
       var cs=getComputedStyle(k), z;
       if(cs.position==='static') z=-0.5;   // estático: pinta bajo lo posicionado
@@ -1340,15 +1347,106 @@ export const EDITOR_RUNTIME = String.raw`
   }
   // ── filtro compuesto: sombra (drop-shadow) y desenfoque (blur) conviven en la
   //    misma propiedad CSS 'filter'. Se leen/reescriben juntos para no pisarse. ──
+  /**
+   * Argumento de una función de 'filter', con paréntesis balanceados.
+   *
+   * Un regex /drop-shadow\(([^)]*)\)/ corta en el primer ')' — que en
+   * 'drop-shadow(rgb(0, 0, 0) 6px 10px 20px)' está DENTRO del rgb(). Chrome
+   * serializa cualquier color a rgb()/rgba(), así que tocar el desenfoque después
+   * de poner una sombra armaba un filter roto que el navegador descartaba entero:
+   * la sombra o el blur "se perdían" sin motivo visible.
+   */
+  function filterPart(el,name){
+    var s=el.style.filter||'', i=s.indexOf(name+'(');
+    if(i<0) return '';
+    var j=i+name.length+1, depth=1;
+    while(j<s.length && depth>0){
+      var c=s.charAt(j);
+      if(c==='(') depth++;
+      else if(c===')') depth--;
+      if(depth>0) j++;
+    }
+    return s.slice(i+name.length+1, j);
+  }
   function filterBlur(el){
-    var m=/blur\(([\d.]+)px\)/.exec(el.style.filter||'');
-    return m?parseFloat(m[1]):0;
+    var a=filterPart(el,'blur');
+    return a?(parseFloat(a)||0):0;
   }
   function composeFilter(el, dropStr, blurPx){
     var parts=[];
     if(dropStr) parts.push('drop-shadow('+dropStr+')');
     if(blurPx>0) parts.push('blur('+blurPx+'px)');
     el.style.filter=parts.join(' ');
+  }
+  function fnum(x){ var n=parseFloat(x); return isNaN(n)?0:n; }
+
+  // ── sombras vinculadas al objeto ─────────────────────────────────────────────
+  // La sombra de puntos es un elemento real (una capa halftone detrás), así que
+  // antes se quedaba donde estaba: mover, redimensionar, rotar o reemplazar la
+  // imagen la dejaba huérfana. Ahora la capa declara a su dueño en
+  // data-oc-shadow-for y syncShadows() la vuelve a calzar después de CUALQUIER
+  // operación — corre dentro de serialize(), que es el paso común a todas, y en
+  // cada frame del arrastre para que se vea pegada en vivo.
+  function dotsOf(el){
+    var id=el.getAttribute&&el.getAttribute('data-oc-id');
+    if(!id) return null;
+    return document.querySelector('[data-oc-shadow-for="'+id+'"]');
+  }
+  function removeDots(el){
+    var d=dotsOf(el);
+    while(d){ d.remove(); d=dotsOf(el); }
+  }
+  function syncShadows(){
+    var list=document.querySelectorAll('[data-oc-shadow-for]');
+    if(!list.length) return;
+    for(var i=0;i<list.length;i++){
+      var sh=list[i];
+      var own=document.querySelector('[data-oc-id="'+sh.getAttribute('data-oc-shadow-for')+'"]');
+      if(!own){ sh.remove(); continue; }        // el dueño se borró: la sombra también
+      var ocs=getComputedStyle(own);
+      if(isHidden(own)||ocs.display==='none'){ sh.style.display='none'; continue; }
+      sh.style.display='';
+      var orr=layoutRect(own);
+      sh.style.width=Math.round(orr.width)+'px';
+      sh.style.height=Math.round(orr.height)+'px';
+      sh.style.borderRadius=ocs.borderRadius;
+      sh.style.rotate=own.style.rotate||'';
+      sh.style.zIndex=own.style.zIndex||'';
+      var ox=fnum(sh.getAttribute('data-oc-shadow-ox')), oy=fnum(sh.getAttribute('data-oc-shadow-oy'));
+      // El left/top se corrige contra el ancestro posicionado REAL (medido después
+      // de fijar el tamaño, que puede cambiar el rect).
+      var sr=sh.getBoundingClientRect();
+      sh.style.left=Math.round(fnum(sh.style.left)+(orr.left-sr.left)+ox)+'px';
+      sh.style.top=Math.round(fnum(sh.style.top)+(orr.top-sr.top)+oy)+'px';
+    }
+  }
+  /**
+   * Pasa un elemento estático a relative sin moverlo.
+   *
+   * Un top/left declarado en una hoja no hace NADA mientras el elemento es
+   * static, pero empieza a aplicarse al pasarlo a relative: poner una sombra le
+   * movía el elemento solo. Se neutralizan los cuatro desplazamientos.
+   */
+  function makeRelative(el){
+    if(getComputedStyle(el).position!=='static') return;
+    el.style.position='relative';
+    el.style.left='0px'; el.style.top='0px';
+    el.style.right='auto'; el.style.bottom='auto';
+  }
+  /** Capa de puntos halftone detrás del elemento, vinculada a él. */
+  function addDots(el,ox,oy,color){
+    var id=ensureLayerId(el);
+    removeDots(el);
+    makeRelative(el);
+    var dd=document.createElement('div');
+    dd.setAttribute('data-oc-dots','1');
+    dd.setAttribute('data-oc-shadow-for', id);
+    dd.setAttribute('data-oc-shadow-ox', String(ox));
+    dd.setAttribute('data-oc-shadow-oy', String(oy));
+    dd.style.cssText='position:absolute;left:0;top:0;width:10px;height:10px;pointer-events:none'
+      +';background-image:radial-gradient(circle, '+color+' 2.6px, transparent 3px);background-size:16px 16px';
+    el.parentElement.insertBefore(dd, el);
+    syncShadows();
   }
   // "Al frente / al fondo" DE VERDAD: reordenar entre los hermanos del padre
   //   inmediato no alcanza cuando el elemento vive dentro de un contenedor —
@@ -1582,20 +1680,10 @@ export const EDITOR_RUNTIME = String.raw`
       // Preservamos un blur existente: sombra y desenfoque comparten 'filter'.
       var keepBlur=filterBlur(el);
       el.style.boxShadow=''; composeFilter(el, '', keepBlur);
-      if(v==='dots'){
-        var dr=el.getBoundingClientRect();
-        var dd=document.createElement('div');
-        dd.setAttribute('data-oc-shape','1'); dd.setAttribute('data-oc-dots','1');
-        dd.style.cssText='position:absolute;left:0;top:0;width:'+Math.round(dr.width)+'px;height:'+Math.round(dr.height)+'px'
-          +';background-image:radial-gradient(circle, #111827 2.6px, transparent 3px);background-size:16px 16px';
-        dd.style.borderRadius=getComputedStyle(el).borderRadius;
-        el.parentElement.insertBefore(dd, el);
-        if(getComputedStyle(el).position==='static') el.style.position='relative';
-        // corregir contra el ancestro posicionado real, con offset diagonal (18,18)
-        var ddr=dd.getBoundingClientRect();
-        dd.style.left=Math.round(dr.left-ddr.left+18)+'px';
-        dd.style.top=Math.round(dr.top-ddr.top+18)+'px';
-      } else {
+      // Cambiar de sombra nunca acumula capas: la de puntos anterior se va.
+      if(v!=='dots') removeDots(el);
+      if(v==='dots'){ addDots(el, 18, 18, '#111827'); }
+      else {
         var box={soft:'0 6px 18px rgba(0,0,0,.20)', medium:'0 12px 30px rgba(0,0,0,.28)', strong:'0 22px 48px rgba(0,0,0,.40)', float:'0 30px 46px -18px rgba(0,0,0,.45)'};
         var drop={soft:'0 6px 10px rgba(0,0,0,.28)', medium:'0 12px 18px rgba(0,0,0,.32)', strong:'0 20px 28px rgba(0,0,0,.42)', float:'0 26px 22px rgba(0,0,0,.38)'};
         if(box[v]){
@@ -1604,11 +1692,41 @@ export const EDITOR_RUNTIME = String.raw`
         } // 'none' deja todo reseteado
       }
     }
+    // ── sombra a medida: desplazamiento, difusión, expansión y color ────────────
+    // El brillo (interior o exterior) es esta misma sombra con desplazamiento 0.
+    // En imágenes y formas svg va por drop-shadow, que sigue la silueta real y
+    // respeta la transparencia; en cajas y texto por box-shadow, que además admite
+    // expansión (spread) y la variante interior.
+    else if(p==='shadowCustom'){
+      var sx=fnum(v.x), sy=fnum(v.y), sb=Math.max(0,fnum(v.blur)), ss=fnum(v.spread);
+      var scol=v.color||'rgba(0,0,0,.35)';
+      var dots=dotsOf(el);
+      if(dots){
+        // Con la sombra de puntos activa, los controles gobiernan esa capa.
+        dots.setAttribute('data-oc-shadow-ox', String(sx));
+        dots.setAttribute('data-oc-shadow-oy', String(sy));
+        dots.style.backgroundImage='radial-gradient(circle, '+scol+' 2.6px, transparent 3px)';
+        syncShadows();
+      } else {
+        var kb=filterBlur(el);
+        if(v.inner){
+          // 'inset' no existe en drop-shadow: la sombra/brillo interior es
+          // siempre box-shadow (en una imagen se ve sobre la foto).
+          el.style.boxShadow='inset '+sx+'px '+sy+'px '+sb+'px '+ss+'px '+scol;
+          composeFilter(el, '', kb);
+        } else if(el.tagName==='IMG'||isSvgRoot(el)){
+          el.style.boxShadow='';
+          composeFilter(el, sx+'px '+sy+'px '+sb+'px '+scol, kb);   // drop-shadow no tiene spread
+        } else {
+          el.style.boxShadow=sx+'px '+sy+'px '+sb+'px '+ss+'px '+scol;
+          composeFilter(el, '', kb);
+        }
+      }
+    }
     // ── desenfoque gaussiano del elemento: comparte 'filter' con el drop-shadow,
     //    así que preservamos la sombra al ajustar el blur y viceversa. 0 = nítido. ──
     else if(p==='blur'){
-      var dm=/drop-shadow\(([^)]*)\)/.exec(el.style.filter||'');
-      composeFilter(el, dm?dm[1]:'', Math.max(0,parseFloat(v)||0));
+      composeFilter(el, filterPart(el,'drop-shadow'), Math.max(0,parseFloat(v)||0));
     }
     // ── degradado como relleno: en divs/texto va directo al background; en un svg
     //    raíz inyectamos <defs><linearGradient> y apuntamos el fill de las formas. ──
@@ -1701,6 +1819,7 @@ export const EDITOR_RUNTIME = String.raw`
           bx.style.backgroundColor=scs.backgroundColor;
           if(scs.backgroundImage!=='none') bx.style.backgroundImage=scs.backgroundImage;
           bx.style.borderRadius=scs.borderRadius;
+          makeRelative(el);
           el.parentElement.insertBefore(bx, el);
           // El ancestro posicionado del div puede no estar en (0,0): medimos dónde
           // cayó y corregimos left/top con la diferencia contra el rect del texto.
@@ -1869,6 +1988,9 @@ export const EDITOR_RUNTIME = String.raw`
   }
 
   function serializeNoSnap(){
+    // Punto común de todas las operaciones: es acá donde la sombra de puntos vuelve
+    // a calzar con su dueño (mover, escalar, rotar, alinear, reemplazar imagen...).
+    syncShadows();
     ui.remove(); gl.remove(); st.remove();
     document.querySelectorAll('[contenteditable]').forEach(function(n){ n.removeAttribute('contenteditable'); });
     var html=document.body.innerHTML.replace(/<script[\s\S]*?<\/script>/gi,'')

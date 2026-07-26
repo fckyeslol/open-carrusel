@@ -789,6 +789,190 @@ async function main() {
       })) === true
     );
 
+    // ── Fase 6: sombras ───────────────────────────────────────────────────────
+    const SLIDE_SHADOW = `
+<style>
+  /* top declarado en la hoja: en static no hace nada, en relative sí. Poner una
+     sombra no debe pasar el elemento a relative y hacerlo saltar 40px. */
+  #enflujo2 { top:40px; left:25px; }
+</style>
+<div id="root" style="position:relative;width:${W}px;height:${H}px;background:#f6f5f0">
+  <div id="tarjeta" data-oc-shape="1" style="position:absolute;left:300px;top:300px;width:280px;height:200px;background:#4f7cff"></div>
+  <div id="enflujo2" data-oc-shape="1" style="width:200px;height:80px;background:#ffe08a"></div>
+</div>`;
+
+    /** Rect de la capa de sombra vinculada a un elemento (o null). */
+    const dotsRect = (ownerSel) =>
+      page.evaluate((sel) => {
+        const own = document.querySelector(sel);
+        const id = own.getAttribute("data-oc-id");
+        const sh = id && document.querySelector(`[data-oc-shadow-for="${id}"]`);
+        if (!sh) return null;
+        const r = sh.getBoundingClientRect();
+        return { left: r.left, top: r.top, width: r.width, height: r.height };
+      }, ownerSel);
+
+    console.log("\nSombra de puntos vinculada al objeto");
+    await pageFor(SLIDE_SHADOW);
+    await page.mouse.click(400, 380);
+    await new Promise((r) => setTimeout(r, 60));
+    const cardBefore = await rectOf(page, "tarjeta");
+    await page.evaluate(() => window.postMessage({ oc: "apply", prop: "shadow", value: "dots" }, "*"));
+    await new Promise((r) => setTimeout(r, 150));
+    let sh = await dotsRect("#tarjeta");
+    check("crea la capa de puntos", !!sh);
+    check(
+      "con el tamaño del elemento y el desplazamiento diagonal",
+      !!sh &&
+        Math.abs(sh.width - cardBefore.width) < 2 &&
+        Math.abs(sh.left - (cardBefore.left + 18)) < 2 &&
+        Math.abs(sh.top - (cardBefore.top + 18)) < 2,
+      sh && `${sh.width}x${sh.height} en (${sh.left},${sh.top})`
+    );
+    check(
+      "aplicar la sombra no mueve el elemento",
+      Math.abs((await rectOf(page, "tarjeta")).left - cardBefore.left) < 0.6 &&
+        Math.abs((await rectOf(page, "tarjeta")).top - cardBefore.top) < 0.6
+    );
+    // Mover: la sombra tiene que seguirlo.
+    await drag(page, 400, 380, 400 + 150, 380 + 90, { altDuring: true });
+    let card = await rectOf(page, "tarjeta");
+    sh = await dotsRect("#tarjeta");
+    check(
+      "la sombra sigue al elemento al moverlo",
+      !!sh && Math.abs(sh.left - (card.left + 18)) < 2 && Math.abs(sh.top - (card.top + 18)) < 2,
+      sh && `sombra=(${sh.left},${sh.top}) elemento=(${card.left},${card.top})`
+    );
+    // Redimensionar por panel: la sombra acompaña el tamaño.
+    await page.evaluate(() => window.postMessage({ oc: "apply", prop: "w", value: 420 }, "*"));
+    await new Promise((r) => setTimeout(r, 150));
+    card = await rectOf(page, "tarjeta");
+    sh = await dotsRect("#tarjeta");
+    check(
+      "y acompaña el tamaño al redimensionar",
+      !!sh && Math.abs(sh.width - card.width) < 2,
+      sh && `sombra=${sh.width} elemento=${card.width}`
+    );
+    // Rotar: la sombra rota igual.
+    await page.evaluate(() => window.postMessage({ oc: "apply", prop: "rotate", value: 20 }, "*"));
+    await new Promise((r) => setTimeout(r, 150));
+    check(
+      "y rota con él",
+      (await page.evaluate(() => {
+        const id = document.querySelector("#tarjeta").getAttribute("data-oc-id");
+        return document.querySelector(`[data-oc-shadow-for="${id}"]`).style.rotate;
+      })).indexOf("20") === 0
+    );
+    // Cambiar de preset no acumula capas.
+    await page.evaluate(() => window.postMessage({ oc: "apply", prop: "shadow", value: "dots" }, "*"));
+    await new Promise((r) => setTimeout(r, 120));
+    check(
+      "volver a aplicar 'puntos' no apila capas",
+      (await page.evaluate(() => document.querySelectorAll("[data-oc-shadow-for]").length)) === 1
+    );
+    await page.evaluate(() => window.postMessage({ oc: "apply", prop: "shadow", value: "soft" }, "*"));
+    await new Promise((r) => setTimeout(r, 120));
+    check(
+      "cambiar a otra sombra saca la capa de puntos",
+      (await page.evaluate(() => document.querySelectorAll("[data-oc-shadow-for]").length)) === 0
+    );
+
+    console.log("\nLa sombra de puntos no es un objeto aparte");
+    await pageFor(SLIDE_SHADOW);
+    await page.mouse.click(400, 380);
+    await new Promise((r) => setTimeout(r, 60));
+    await page.evaluate(() => window.postMessage({ oc: "apply", prop: "shadow", value: "dots" }, "*"));
+    await new Promise((r) => setTimeout(r, 150));
+    const layerCount = (await tree()).length;
+    check("no aparece como capa en el panel", layerCount === 2, `filas=${layerCount}`);
+    await page.keyboard.down("Control");
+    await page.keyboard.press("a");
+    await page.keyboard.up("Control");
+    await new Promise((r) => setTimeout(r, 80));
+    check(
+      "no entra en 'seleccionar todo'",
+      (await selCount(page)) === 2,
+      `sel=${await selCount(page)}`
+    );
+    // Y al borrar el elemento, la sombra se va con él.
+    await page.evaluate(() => window.postMessage({ oc: "deselect" }, "*"));
+    await new Promise((r) => setTimeout(r, 80));
+    await page.mouse.click(400, 380);
+    await new Promise((r) => setTimeout(r, 80));
+    await page.evaluate(() => window.postMessage({ oc: "apply", prop: "remove", value: true }, "*"));
+    await new Promise((r) => setTimeout(r, 150));
+    const afterDel = await page.evaluate(() => ({
+      shadows: document.querySelectorAll("[data-oc-shadow-for]").length,
+      owner: !!document.querySelector("#tarjeta"),
+    }));
+    check(
+      "borrar el elemento se lleva su sombra",
+      afterDel.shadows === 0,
+      `sombras=${afterDel.shadows} dueño=${afterDel.owner}`
+    );
+
+    console.log("\nLa sombra no mueve un elemento en flujo");
+    await pageFor(SLIDE_SHADOW);
+    const flowBefore = await rectOf(page, "enflujo2");
+    await page.mouse.click(flowBefore.left + 20, flowBefore.top + 20);
+    await new Promise((r) => setTimeout(r, 60));
+    await page.evaluate(() => window.postMessage({ oc: "apply", prop: "shadow", value: "dots" }, "*"));
+    await new Promise((r) => setTimeout(r, 150));
+    const flowAfter = await rectOf(page, "enflujo2");
+    check(
+      "pasar a relative no aplica el top/left de la hoja",
+      Math.abs(flowAfter.left - flowBefore.left) < 0.6 && Math.abs(flowAfter.top - flowBefore.top) < 0.6,
+      `antes=(${flowBefore.left},${flowBefore.top}) después=(${flowAfter.left},${flowAfter.top})`
+    );
+
+    console.log("\nSombra a medida y brillos");
+    await pageFor(SLIDE_SHADOW);
+    await page.mouse.click(400, 380);
+    await new Promise((r) => setTimeout(r, 60));
+    await page.evaluate(() =>
+      window.postMessage(
+        { oc: "apply", prop: "shadowCustom", value: { x: 12, y: 20, blur: 30, spread: 4, color: "#ff3b7f" } },
+        "*"
+      )
+    );
+    await new Promise((r) => setTimeout(r, 120));
+    let boxShadow = await page.evaluate(() => document.querySelector("#tarjeta").style.boxShadow);
+    check(
+      "la sombra a medida usa los cuatro valores",
+      /12px 20px 30px 4px/.test(boxShadow),
+      boxShadow
+    );
+    await page.evaluate(() =>
+      window.postMessage(
+        { oc: "apply", prop: "shadowCustom", value: { x: 0, y: 0, blur: 22, spread: 0, color: "#ff3b7f", inner: true } },
+        "*"
+      )
+    );
+    await new Promise((r) => setTimeout(r, 120));
+    boxShadow = await page.evaluate(() => document.querySelector("#tarjeta").style.boxShadow);
+    check("el brillo interior va por inset", /inset/.test(boxShadow), boxShadow);
+    // Sobre una imagen la sombra exterior sigue la silueta (drop-shadow).
+    await pageFor(SLIDE_IMG);
+    const ip = await rectOf(page, "porhoja");
+    await page.mouse.click(ip.left + 20, ip.top + 20);
+    await new Promise((r) => setTimeout(r, 60));
+    await page.evaluate(() =>
+      window.postMessage(
+        { oc: "apply", prop: "shadowCustom", value: { x: 6, y: 10, blur: 20, spread: 0, color: "#000000" } },
+        "*"
+      )
+    );
+    await new Promise((r) => setTimeout(r, 120));
+    check(
+      "en una imagen va por drop-shadow (respeta la transparencia)",
+      /drop-shadow/.test(await page.evaluate(() => document.querySelector("#porhoja").style.filter))
+    );
+    // Y conserva el desenfoque, que comparte la propiedad 'filter'.
+    await page.evaluate(() => window.postMessage({ oc: "apply", prop: "blur", value: 6 }, "*"));
+    await new Promise((r) => setTimeout(r, 120));
+    const filt = await page.evaluate(() => document.querySelector("#porhoja").style.filter);
+    check("sombra y desenfoque conviven en 'filter'", /drop-shadow/.test(filt) && /blur\(6px\)/.test(filt), filt);
+
     console.log("\nSerialización");
     await reset();
     const serialized = await page.evaluate(() => {

@@ -177,6 +177,16 @@ export function VisualEditor({
   // Último color de fondo elegido: al volver a "Con color" se recupera en vez de
   // arrancar siempre de blanco.
   const [lastBg, setLastBg] = useState("#ffffff");
+  // Sombra a medida. Vive en estado local, como el degradado: el runtime no puede
+  // devolver estos cuatro números por separado de un box-shadow ya compuesto.
+  const [shadow, setShadow] = useState({
+    x: 0,
+    y: 18,
+    blur: 34,
+    spread: 0,
+    color: "#111827",
+    inner: false,
+  });
   const [slideBg, setSlideBg] = useState("#F6F5F0"); // color plano del fondo del slide
   // Textura de material del slide: catálogo (del manifest) + la aplicada actualmente.
   // El estado arranca leyendo la lámina, para reflejar una textura ya puesta.
@@ -1179,6 +1189,93 @@ export function VisualEditor({
                         {sh.label}
                       </Button>
                     ))}
+                  </div>
+                  {/* Sombra a medida. El brillo es la misma sombra con
+                      desplazamiento 0; 'interior' la mete hacia adentro. */}
+                  <div className="mt-2 space-y-1.5 rounded-md border border-border bg-background p-2">
+                    <div className="flex items-center justify-between">
+                      <span className={labelCls}>A medida</span>
+                      <div className="flex gap-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          title="Brillo exterior: sombra de color, sin desplazamiento"
+                          onClick={() => {
+                            const s = { ...shadow, x: 0, y: 0, blur: 26, spread: 2, inner: false };
+                            setShadow(s);
+                            applyProp("shadowCustom", s);
+                          }}
+                        >
+                          Brillo ext.
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          title="Brillo interior: el mismo color hacia adentro del borde"
+                          onClick={() => {
+                            const s = { ...shadow, x: 0, y: 0, blur: 22, spread: 0, inner: true };
+                            setShadow(s);
+                            applyProp("shadowCustom", s);
+                          }}
+                        >
+                          Brillo int.
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {(
+                        [
+                          ["x", "Desp. X", -200, 200],
+                          ["y", "Desp. Y", -200, 200],
+                          ["blur", "Difusión", 0, 200],
+                          ["spread", "Expansión", -100, 100],
+                        ] as const
+                      ).map(([key, label, min, max]) => (
+                        <label key={key} className="block">
+                          <span className={labelCls}>{label}</span>
+                          <input
+                            type="number"
+                            min={min}
+                            max={max}
+                            className={inputCls}
+                            value={shadow[key]}
+                            onChange={(e) => {
+                              const s = { ...shadow, [key]: Number(e.target.value) };
+                              setShadow(s);
+                              applyProp("shadowCustom", s);
+                            }}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                    <ColorInput
+                      title="Color de la sombra"
+                      value={shadow.color}
+                      swatches={swatches}
+                      onChange={(hex) => {
+                        const s = { ...shadow, color: hex };
+                        setShadow(s);
+                        applyProp("shadowCustom", s);
+                      }}
+                    />
+                    <Button
+                      size="sm"
+                      variant={shadow.inner ? "accent" : "outline"}
+                      className="w-full"
+                      title="Hacia adentro del borde en vez de hacia afuera"
+                      onClick={() => {
+                        const s = { ...shadow, inner: !shadow.inner };
+                        setShadow(s);
+                        applyProp("shadowCustom", s);
+                      }}
+                    >
+                      {shadow.inner ? "Interior (activo)" : "Hacer interior"}
+                    </Button>
+                    <p className="text-[10px] text-muted-foreground leading-snug">
+                      Con <b>Puntos</b> activo, el desplazamiento y el color gobiernan esa
+                      capa. En imágenes y formas la sombra sigue la silueta real (la
+                      expansión no aplica).
+                    </p>
                   </div>
                 </div>
                 <label className="block">
