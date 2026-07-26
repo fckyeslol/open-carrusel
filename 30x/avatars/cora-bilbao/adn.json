@@ -1,0 +1,117 @@
+{
+  "avatar": {
+    "slug": "cora-bilbao",
+    "name": "Cora Bilbao",
+    "prewave_avatar_id": "",
+    "prewave_program_match": [
+      "Cora Bilbao",
+      "Cora",
+      "Cuenta Cora Bilbao"
+    ]
+  },
+  "brand": {
+    "handle": "",
+    "_handle_TODO": "Falta el handle de IG de Cora — cargarlo cuando lo confirme el equipo de marca.",
+    "tagline": "",
+    "cta_default": "Síguenos y guarda",
+    "voice": "neutro (PENDIENTE de cargar en Prewave — ver voice_dna)"
+  },
+  "voice_dna": {
+    "_fuente_voz": "Sección Avatares de Prewave (tabla avatars) es la FUENTE DE VERDAD del tono; el manual ADN solo aporta la identidad VISUAL.",
+    "_tono_PENDIENTE": "Prewave todavía NO tiene tone_of_voice cargado para Cora. Cargarlo primero en la sección Avatares de Prewave y re-alimentar este ADN; no inventar la voz acá. Hasta entonces el agente escribe con la voz del referente y la identidad visual de Cora.",
+    "tono": [],
+    "do": [
+      "mantener cifras/datos EXACTOS del referente",
+      "firmar como '/ Cora Bilbao.'"
+    ],
+    "dont": [
+      "NO inventar cifras, fuentes ni datos que no estén en el referente",
+      "NO usar la marca/voz de otro mentor",
+      "NO usar la tipografía ni la paleta de otro avatar",
+      "NO heredar la paleta ni la voz de Daniel ni de Andrés Bilbao por compartir apellido"
+    ]
+  },
+  "visual_identity": {
+    "_fuente": "Especificación de estilos y tipografías del equipo de marca 30x (2026-07-26). Es el único avatar del manual '8 marcas · 1 ADN' que faltaba en el repo.",
+    "_nota_critica": "La API de Canva NO cambia la familia tipográfica ni puede crear texto. Esta identidad es la especificación para construir/validar el molde del avatar, no algo que el agente aplique por texto en cada carrusel.",
+    "titulo_rol": "",
+    "_titulo_rol_TODO": "Falta el posicionamiento/kicker de Cora (el rol como aparece en el manual). Cargarlo cuando lo confirme el equipo de marca; hasta entonces las láminas no llevan línea de rol inventada.",
+    "firma": "/ Cora Bilbao.",
+    "tipografia": {
+      "familia": "Playfair Display",
+      "licencia": "https://fonts.google.com/specimen/Playfair+Display",
+      "familia_cuerpo": "Poppins",
+      "licencia_cuerpo": "https://fonts.google.com/specimen/Poppins",
+      "nota": "Único avatar del manual con dos familias: Playfair Display es serif de alto contraste (hairlines finas: rinde de 60px para arriba, nunca en cuerpo) y Poppins es sans geométrica."
+    },
+    "paleta": [
+      {
+        "hex": "#F6F5F0",
+        "nombre": "30% White",
+        "rol": "complementario base 30x (fondo claro)"
+      },
+      {
+        "hex": "#FE7129",
+        "nombre": "Naranja",
+        "rol": "principal (acento)"
+      },
+      {
+        "hex": "#B000B8",
+        "nombre": "Magenta",
+        "rol": "complementario"
+      },
+      {
+        "hex": "#143043",
+        "nombre": "Azul Petróleo",
+        "rol": "oscuro / textos"
+      }
+    ],
+    "_paleta_fuente_hex": "Hex canónicos entregados por el equipo de marca 30x (2026-07-26). El hueso #F6F5F0 es el denominador común de las 8 marcas y ocupa ~40% del uso de color de cada mentor.",
+    "_paleta_reparto": "El hueso #F6F5F0 cubre ~40% de la pieza (fondos y aire). El 60% restante se reparte entre Naranja, Magenta y Azul Petróleo.",
+    "_paleta_nota": "Naranja y Magenta son ambos saturados y de luminancia parecida: no se tocan sin separación (nunca magenta sobre naranja como texto). El degradé de marca va Naranja→Magenta, y el texto siempre resuelve contra hueso o contra Azul Petróleo.",
+    "fondos": [
+      "FONDO 1 - IMAGEN",
+      "FONDO 2 - PLANO",
+      "FONDO 3 - FOTO MENTOR",
+      "FONDO 4 - DEGRADÉ"
+    ],
+    "gradiente": true
+  },
+  "templates": {
+    "_nota": "design_id de la plantilla 30x del avatar por tipo de lámina. Vacío = pendiente. Open Carrusel genera en HTML, así que no bloquean; son para el camino Canva.",
+    "cover": {
+      "design_id": "",
+      "page": 1
+    },
+    "data": {
+      "design_id": "",
+      "slot_pages": []
+    },
+    "comparative": {
+      "design_id": "",
+      "slot_pages": []
+    },
+    "single_tip": {
+      "design_id": "",
+      "slot_pages": []
+    },
+    "principle": {
+      "design_id": "",
+      "page": null
+    },
+    "process": {
+      "design_id": "",
+      "page": null
+    },
+    "insight": {
+      "design_id": "",
+      "page": null
+    },
+    "cta": {
+      "design_id": "",
+      "page": null
+    }
+  },
+  "status": "ready",
+  "_status_nota": "ready: identidad visual completa (tipografías + paleta canónicas) y los 4 formatos de referencia construidos en public/30x-slides/cora-bilbao/. Pendientes que NO bloquean la generación: voz en Prewave, handle de IG y titulo_rol."
+}

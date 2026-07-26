@@ -76,7 +76,7 @@
         "rol": "oscuro / textos"
       },
       {
-        "hex": "#D9CBB2",
+        "hex": "#D9CBB3",
         "nombre": "Crema",
         "rol": "complementario"
       },
@@ -87,6 +87,12 @@
       }
     ],
     "_paleta_nota": "ADN 5, pág. 29 (hex confirmados con su etiqueta).",
+    "_paleta_fuente_hex": "Hex canónicos entregados por el equipo de marca 30x (2026-07-26). Corrigen la Crema #D9CBB2→#D9CBB3. El hueso #F6F5F0 es el denominador común de las 8 marcas y ocupa ~40% del uso de color de cada mentor.",
+    "_paleta_hex_previos_nota": "Hex que este avatar tenía mal antes del 2026-07-26 → su valor canónico. Lo consume scripts/repalette-carousels.mjs para migrar los carruseles ya creados. Al corregir otro hex en el futuro, sumar la entrada acá.",
+    "_paleta_hex_previos": {
+      "#D9CBB2": "#D9CBB3"
+    },
+    "_paleta_reparto": "El hueso #F6F5F0 cubre ~40% de la pieza (fondos y aire). El 60% restante se reparte entre Rojo Rockstar, Crema y Ciruela Profundo.",
     "fondos": [
       "FONDO 1 - IMAGEN",
       "FONDO 2 - TEXTURA",

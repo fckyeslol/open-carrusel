@@ -1,0 +1,35 @@
+<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500;1,600&family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1080px;height:1350px;overflow:hidden}
+.s{width:1080px;height:1350px;position:relative;overflow:hidden;background:#F6F5F0;font-family:'Poppins',sans-serif;color:#143043}
+/* Degradé de marca Naranja→Magenta, sangrando desde el pie */
+.glow{position:absolute;bottom:-260px;left:50%;transform:translateX(-50%);width:1000px;height:730px;
+  background:radial-gradient(circle at 42% 100%, rgba(254,113,41,.42), rgba(254,113,41,0) 66%),
+             radial-gradient(circle at 66% 100%, rgba(176,0,184,.30), rgba(176,0,184,0) 64%)}
+.logo{position:absolute;top:66px;left:70px;height:40px;width:auto}
+.idx{position:absolute;top:74px;right:74px;font-family:'Playfair Display',serif;font-size:40px;color:#FE7129}
+.medallion{position:absolute;top:150px;left:50%;transform:translateX(-50%);width:240px;height:240px;border-radius:50%;overflow:hidden;border:5px solid #FE7129;box-shadow:0 20px 50px rgba(20,48,67,.22)}
+.medallion img{width:100%;height:100%;object-fit:cover;object-position:50% 34%;background:#DCE3E8}
+.kicker{position:absolute;top:430px;left:0;right:0;text-align:center;font-size:23px;font-weight:700;letter-spacing:5px;text-transform:uppercase;color:#B000B8}
+.remate{position:absolute;top:488px;left:90px;right:90px;text-align:center;font-family:'Playfair Display',serif;font-weight:500;font-size:78px;line-height:1.1;letter-spacing:-.5px;color:#143043}
+.remate .em{font-style:italic;font-weight:600;color:#FE7129}
+.cta{position:absolute;top:838px;left:50%;transform:translateX(-50%);display:inline-flex;align-items:center;gap:14px;
+  background:#143043;color:#F6F5F0;font-size:30px;font-weight:600;padding:24px 52px;border-radius:60px;white-space:nowrap;box-shadow:0 16px 40px rgba(20,48,67,.28)}
+.cta .arrow{color:#FE7129}
+.sign{position:absolute;bottom:150px;left:0;right:0;text-align:center;font-family:'Playfair Display',serif;font-style:italic;font-size:52px;color:#143043}
+.handle{position:absolute;bottom:96px;left:0;right:0;text-align:center;font-size:24px;font-weight:500;letter-spacing:1px;color:#74838D}
+</style></head><body>
+<div class="s">
+  <div class="glow"></div>
+  <img class="logo" src="/uploads/brand/30x-negro.png" alt="30X">
+  <div class="idx">04</div>
+  <div class="medallion"><img src="/uploads/30x/cora-bilbao/face.jpg" alt=""></div>
+  <div class="kicker">Tu próxima decisión</div>
+  <div class="remate">No hables más fuerte.<br><span class="em">Hablá más claro.</span></div>
+  <div class="cta">Seguí a Cora y guardá esto <span class="arrow">→</span></div>
+  <div class="sign">/ Cora Bilbao.</div>
+  <div class="handle">30X · Executive Education</div>
+</div>
+</body></html>

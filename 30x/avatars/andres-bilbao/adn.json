@@ -1,6 +1,6 @@
 {
   "avatar": {
-    "slug": "andres",
+    "slug": "andres-bilbao",
     "name": "Andrés Bilbao",
     "prewave_avatar_id": "",
     "prewave_program_match": [
@@ -82,27 +82,36 @@
         "rol": "complementario base 30x (fondo claro)"
       },
       {
-        "hex": "#EBFF6F",
+        "hex": "#E9FF7B",
         "nombre": "Lima",
         "rol": "principal (acento)"
       },
       {
-        "hex": "#15142B",
+        "hex": "#15132B",
         "nombre": "Navy",
         "rol": "complementario / detalles / textos"
       },
       {
-        "hex": "#FF791A",
+        "hex": "#FF7A1A",
         "nombre": "Naranja",
         "rol": "gradiente"
       },
       {
-        "hex": "#F0412A",
+        "hex": "#F0422B",
         "nombre": "Rojo Vívido",
         "rol": "gradiente"
       }
     ],
-    "_paleta_nota": "ADN 4, pág. 24. OJO: en el PDF los swatches NARANJA y ROJO VÍVIDO están mal etiquetados (NARANJA dice 'HEX 3A34E0' = azul; ROJO VÍVIDO dice 'HEX EBFF6F' = lima) — bug de copy-paste del manual. Los hex reales, muestreados del bloque, son Naranja #FF791A y Rojo Vívido #F0412A. Lima #EBFF6F y Navy #15142B sí coinciden con su etiqueta.",
+    "_paleta_nota": "ADN 4, pág. 24. En el PDF los swatches NARANJA y ROJO VÍVIDO están mal etiquetados (NARANJA dice 'HEX 3A34E0' = azul; ROJO VÍVIDO dice 'HEX EBFF6F' = lima) — bug de copy-paste del manual. Los hex canónicos son Lima #E9FF7B, Navy #15132B, Naranja #FF7A1A y Rojo Vívido #F0422B.",
+    "_paleta_fuente_hex": "Hex canónicos entregados por el equipo de marca 30x (2026-07-26). Corrigen los cuatro valores que se habían muestreado a ojo del PDF: Lima #EBFF6F→#E9FF7B, Navy #15142B→#15132B, Naranja #FF791A→#FF7A1A, Rojo Vívido #F0412A→#F0422B. El hueso #F6F5F0 es el denominador común de las 8 marcas y ocupa ~40% del uso de color de cada mentor.",
+    "_paleta_hex_previos_nota": "Hex que este avatar tenía mal antes del 2026-07-26 → su valor canónico. Lo consume scripts/repalette-carousels.mjs para migrar los carruseles ya creados. Al corregir otro hex en el futuro, sumar la entrada acá.",
+    "_paleta_hex_previos": {
+      "#EBFF6F": "#E9FF7B",
+      "#15142B": "#15132B",
+      "#FF791A": "#FF7A1A",
+      "#F0412A": "#F0422B"
+    },
+    "_paleta_reparto": "El hueso #F6F5F0 cubre ~40% de la pieza (fondos y aire). El 60% restante se reparte entre Lima, Navy y el degradé Naranja→Rojo Vívido.",
     "fondos": [
       "FONDO 1 - MENTOR",
       "FONDO 2 - PLANO",

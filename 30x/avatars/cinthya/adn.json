@@ -67,14 +67,14 @@
         "rol": "complementario base 30x (fondo claro)"
       },
       {
-        "hex": "#F68F6E",
+        "hex": "#F78F6E",
         "nombre": "Coral",
-        "rol": "principal 1"
+        "rol": "principal (acento)"
       },
       {
         "hex": "#E5ACBF",
         "nombre": "Blush",
-        "rol": "principal 2"
+        "rol": "complementario"
       },
       {
         "hex": "#2A2320",
@@ -82,7 +82,13 @@
         "rol": "complementario / detalles / textos"
       }
     ],
-    "_paleta_nota": "Roles confirmados en el manual (ADN 1, pág. 9). OJO: el swatch CORAL del PDF está mal etiquetado como 'HEX F6F5F0' (bug de copy-paste del manual); el color real, muestreado del bloque, es #F68F6E. Blush #E5ACBF y Tierra #2A2320 sí coinciden con su etiqueta.",
+    "_paleta_nota": "Roles confirmados en el manual (ADN 1, pág. 9). El swatch CORAL del PDF está mal etiquetado como 'HEX F6F5F0' (bug de copy-paste del manual); el hex canónico es #F78F6E. Blush #E5ACBF y Tierra #2A2320 sí coinciden con su etiqueta.",
+    "_paleta_fuente_hex": "Hex canónicos entregados por el equipo de marca 30x (2026-07-26). Corrigen el #F68F6E que se había muestreado a ojo del PDF por el Coral real #F78F6E. El hueso #F6F5F0 es el denominador común de las 8 marcas y ocupa ~40% del uso de color de cada mentor.",
+    "_paleta_hex_previos_nota": "Hex que este avatar tenía mal antes del 2026-07-26 → su valor canónico. Lo consume scripts/repalette-carousels.mjs para migrar los carruseles ya creados. Al corregir otro hex en el futuro, sumar la entrada acá.",
+    "_paleta_hex_previos": {
+      "#F68F6E": "#F78F6E"
+    },
+    "_paleta_reparto": "El hueso #F6F5F0 cubre ~40% de la pieza (fondos y aire). El 60% restante se reparte entre Coral, Blush y Tierra.",
     "fondos": [
       "FONDO 1 - IMAGEN",
       "FONDO 2 - PLANO",
