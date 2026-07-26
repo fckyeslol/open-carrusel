@@ -16,6 +16,8 @@
 import { readFile } from "fs/promises";
 import path from "path";
 import puppeteer from "puppeteer";
+import sharp from "sharp";
+import { stripBackgroundInPage } from "../src/lib/strip-slide-background.mjs";
 
 const ROOT = process.cwd();
 const W = 1080;
@@ -972,6 +974,71 @@ async function main() {
     await new Promise((r) => setTimeout(r, 120));
     const filt = await page.evaluate(() => document.querySelector("#porhoja").style.filter);
     check("sombra y desenfoque conviven en 'filter'", /drop-shadow/.test(filt) && /blur\(6px\)/.test(filt), filt);
+
+    // ── Fase 7: exportar sin fondo ────────────────────────────────────────────
+    // El fondo pintado en un wrapper ANIDADO es el caso que sobrevivía al export.
+    const SLIDE_EXPORT = `
+<div id="lienzo" style="position:relative;width:${W}px;height:${H}px">
+  <div id="wrapper" style="position:absolute;inset:0;background:linear-gradient(135deg,#2A2320,#C77E97)">
+    <div id="capa" style="position:absolute;inset:0;background:#15142B">
+      <div data-oc-tex="1" style="position:absolute;inset:0;background-image:radial-gradient(#fff 2px,transparent 3px);mix-blend-mode:overlay;opacity:.8"></div>
+      <div id="titulo" style="position:absolute;left:100px;top:400px;font-size:80px;font-family:Inter;color:#EBFF6F;font-weight:800">Titular</div>
+      <div id="pastilla" data-oc-shape="1" style="position:absolute;left:100px;top:600px;width:300px;height:120px;background:#EBFF6F;border-radius:60px"></div>
+    </div>
+  </div>
+</div>`;
+
+    console.log("\nExportar sin fondo");
+    await page.setContent(
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+*{margin:0;padding:0;box-sizing:border-box}html,body{width:${W}px;height:${H}px;overflow:hidden;background:#f6f5f0}
+</style></head><body>${SLIDE_EXPORT}</body></html>`,
+      { waitUntil: "domcontentloaded" }
+    );
+    await new Promise((r) => setTimeout(r, 120));
+    // Se ejecuta la MISMA función que usa el export real.
+    await page.evaluate(stripBackgroundInPage);
+    const stripped = await page.evaluate(() => {
+      const bg = (sel) => getComputedStyle(document.querySelector(sel)).backgroundColor;
+      const bgi = (sel) => getComputedStyle(document.querySelector(sel)).backgroundImage;
+      return {
+        body: bg("body"),
+        lienzo: bg("#lienzo"),
+        wrapperImg: bgi("#wrapper"),
+        capa: bg("#capa"),
+        textura: getComputedStyle(document.querySelector("[data-oc-tex]")).display,
+        titulo: getComputedStyle(document.querySelector("#titulo")).color,
+        pastilla: bg("#pastilla"),
+      };
+    });
+    const transp = (v) => v === "rgba(0, 0, 0, 0)" || v === "transparent";
+    check("limpia el fondo del body", transp(stripped.body), stripped.body);
+    check("limpia el degradado del wrapper anidado", stripped.wrapperImg === "none", stripped.wrapperImg);
+    check("limpia el color de la capa anidada", transp(stripped.capa), stripped.capa);
+    check("apaga la textura", stripped.textura === "none", stripped.textura);
+    check("no toca el color del texto", stripped.titulo === "rgb(235, 255, 111)", stripped.titulo);
+    check("no toca el relleno de las formas", stripped.pastilla === "rgb(235, 255, 111)", stripped.pastilla);
+
+    // Y el PNG real: la esquina tiene que quedar transparente y la forma opaca.
+    const shot = await page.screenshot({
+      type: "png",
+      clip: { x: 0, y: 0, width: W, height: H },
+      captureBeyondViewport: false,
+      omitBackground: true,
+    });
+    const png = sharp(shot).ensureAlpha();
+    const corner = await png.clone().extract({ left: 4, top: 4, width: 1, height: 1 }).raw().toBuffer();
+    const onShape = await sharp(shot)
+      .ensureAlpha()
+      .extract({ left: 200, top: 650, width: 1, height: 1 })
+      .raw()
+      .toBuffer();
+    check("el PNG exportado tiene la esquina transparente", corner[3] === 0, `alfa=${corner[3]}`);
+    check(
+      "y el contenido opaco con su color",
+      onShape[3] === 255 && onShape[0] > 200 && onShape[1] > 240,
+      `rgba=${[...onShape].join(",")}`
+    );
 
     console.log("\nSerialización");
     await reset();
