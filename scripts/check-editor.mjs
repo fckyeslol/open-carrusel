@@ -30,6 +30,16 @@ async function loadRuntime() {
   const end = src.indexOf("\n`;", from);
   if (end < 0) throw new Error("No se encontró el cierre de EDITOR_RUNTIME");
   const body = src.slice(from, end);
+  // Un backtick suelto (típico: en un comentario) CIERRA el template string y
+  // rompe la compilación del .ts, aunque el JS del runtime siga siendo válido y
+  // las pruebas de acá pasen igual. Se detecta explícitamente.
+  if (body.includes("`")) {
+    const line = src.slice(0, from + body.indexOf("`")).split("\n").length;
+    throw new Error(
+      `Backtick suelto dentro de EDITOR_RUNTIME (línea ${line} de slide-editor.ts): ` +
+        "cierra el template string. Sacalo del comentario o del código."
+    );
+  }
   // La única interpolación del runtime es la lista de grosores de Google Fonts.
   const rest = body.replace(/\$\{GF_ITAL_WGHT\}/g, "wght@400");
   if (rest.includes("${")) {

@@ -146,7 +146,7 @@ export const EDITOR_RUNTIME = String.raw`
    * Valor base del transform para el arrastre.
    *
    * Antes se leía SOLO el transform inline. Una lámina que centra con
-   * `transform:translate(-50%,-50%)` desde un <style> tiene el inline vacío, así que
+   * transform:translate(-50%,-50%) desde un <style> tiene el inline vacío, así que
    * el translate del arrastre PISABA la regla de la hoja y la imagen saltaba media
    * caja de golpe: el bug de "la imagen se va a otro lado del que la suelto".
    * Cayendo al transform computado (una matrix, válida como valor) la base se
