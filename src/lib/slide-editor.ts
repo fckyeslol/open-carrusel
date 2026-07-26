@@ -1092,7 +1092,20 @@ export const EDITOR_RUNTIME = String.raw`
 
   function copy(){
     if(!sels.length) return;
-    clip=sels.map(function(el){ return el.outerHTML; });
+    clip=sels.map(function(el){
+      var h=el.outerHTML;
+      // Las capas vinculadas (sombra de puntos, superficies) son HERMANOS con
+      // data-oc-owner, no hijos: si no viajan con el elemento, la copia sale
+      // pelada — el mismo problema que tenían los grupos antes del remapeo.
+      // Van pegadas en la misma entrada del clip: así el portapapeles sigue
+      // siendo un array de strings y el paste de otra lámina no cambia.
+      var id=el.getAttribute&&el.getAttribute('data-oc-id');
+      if(id){
+        var ls=document.querySelectorAll('[data-oc-owner="'+id+'"]');
+        for(var i=0;i<ls.length;i++) h+=ls[i].outerHTML;
+      }
+      return h;
+    });
     // Portapapeles COMPARTIDO entre láminas: cada lámina es un iframe propio, así
     // que subimos el HTML al padre. Al montar otra lámina, el padre nos re-inyecta
     // este clip (setClip) y el Ctrl+V / "Pegar" funciona de lámina a lámina.
@@ -1120,6 +1133,9 @@ export const EDITOR_RUNTIME = String.raw`
     clip.forEach(function(h){
       var t=document.createElement('div'); t.innerHTML=h;
       var el=t.firstElementChild; if(!el) return;
+      // Lo que viene detrás del elemento en la entrada del clip son sus capas
+      // vinculadas (ver copy()); se re-apuntan al id NUEVO más abajo.
+      var layers=[].slice.call(t.children,1);
       var og=el.getAttribute('data-oc-g');
       if(og){
         if(!gmap[og]) gmap[og]='g'+Date.now().toString(36)+(gseq++);
@@ -1131,11 +1147,21 @@ export const EDITOR_RUNTIME = String.raw`
       var kids=el.querySelectorAll('[data-oc-id]');
       for(var q=0;q<kids.length;q++) kids[q].removeAttribute('data-oc-id');
       rootEl().appendChild(el);
+      // La copia ya tiene su id propio: las capas se cuelgan de ESE, no del
+      // original (si no, las dos compartirían una sola capa).
+      if(layers.length){
+        var nid=ensureLayerId(el), ref=el.nextSibling;
+        layers.forEach(function(L){
+          L.setAttribute('data-oc-owner', nid);
+          el.parentElement.insertBefore(L, ref);
+        });
+      }
       ensureFontsIn(el);
       var d=[20,20]; delta.set(el,d); baseTf.set(el, el.style.transform||'');
       el.style.transform=(el.style.transform?el.style.transform+' ':'')+'translate(20px,20px)';
       added.push(el);
     });
+    syncLinked();   // las capas recién pegadas todavía están en la posición del original
     sels=added; paint(); report(); serialize();
   }
   function duplicate(){ copy(); paste(); }

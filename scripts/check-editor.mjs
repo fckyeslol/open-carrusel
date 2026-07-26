@@ -460,6 +460,32 @@ async function main() {
     });
     check("no hay ids de capa duplicados", dupIds.total === dupIds.unique, `${dupIds.unique}/${dupIds.total}`);
 
+    // Las capas vinculadas (sombra de puntos, superficies) son HERMANOS del
+    // elemento, no hijos, así que outerHTML no las arrastra: sin meterlas en el
+    // clip, duplicar devolvía la copia pelada. Mismo caso que los grupos.
+    console.log("\nDuplicar con capas vinculadas");
+    for (const [nombre, msg] of [
+      ["sombra de puntos", { oc: "apply", prop: "shadow", value: "dots" }],
+      ["superficie", { oc: "apply", prop: "fxLayer", value: { kind: "crt", value: 60 } }],
+    ]) {
+      await reset();
+      await page.mouse.click(800, 300); // #sq
+      await new Promise((r) => setTimeout(r, 60));
+      await page.evaluate((m) => window.postMessage(m, "*"), msg);
+      await new Promise((r) => setTimeout(r, 140));
+      const antes = await page.evaluate(() => document.querySelectorAll("[data-oc-owner]").length);
+      await page.evaluate(() => window.postMessage({ oc: "duplicate" }, "*"));
+      await new Promise((r) => setTimeout(r, 200));
+      const desp = await page.evaluate(() => ({
+        capas: document.querySelectorAll("[data-oc-owner]").length,
+        huerfanas: [...document.querySelectorAll("[data-oc-owner]")].filter(
+          (l) => !document.querySelector(`[data-oc-id="${l.getAttribute("data-oc-owner")}"]`)
+        ).length,
+      }));
+      check(`la copia conserva su ${nombre}`, antes === 1 && desp.capas === 2 && desp.huerfanas === 0,
+        `capas ${antes}→${desp.capas}, huérfanas=${desp.huerfanas}`);
+    }
+
     // ── Fase 3: capas ──────────────────────────────────────────────────────────
     /** Árbol de capas actual: deseleccionar provoca el report que lo emite. */
     const tree = () =>
