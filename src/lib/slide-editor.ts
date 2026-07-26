@@ -159,6 +159,8 @@ export const EDITOR_RUNTIME = String.raw`
       }
       if(el===document.body||el===document.documentElement||el===rootEl()) continue;
       if(el.closest && el.closest('[data-oc-ui]')) continue;
+      // Capa bloqueada: transparente al clic (se toma desde el panel de capas).
+      if(isLocked(el) || (el.closest && el.closest('[data-oc-lock]'))) continue;
       // svgHit cuenta como "tinta real": el punto tocó una forma dentro del svg,
       // así que un svg-overlay a lámina completa sigue siendo seleccionable.
       if(tooBig(el)){ if((el.tagName==='IMG'||svgHit)&&!bigImg) bigImg=el; continue; }
@@ -181,7 +183,10 @@ export const EDITOR_RUNTIME = String.raw`
       b.style.cssText='position:absolute;left:0;top:0;width:'+r.width+'px;height:'+r.height+'px;transform:translate('+r.left+'px,'+r.top+'px)';
       ui.appendChild(b); boxes.push(b);
     });
-    if(sels.length===1){
+    // Una capa bloqueada muestra su caja (para saber cuál es) pero sin handles:
+    // no se redimensiona ni se rota hasta desbloquearla.
+    var anyLocked=sels.some(isLocked);
+    if(sels.length===1 && !anyLocked){
       var el0=sels[0];
       var isTxt = isTextEl(el0);
       var r=el0.getBoundingClientRect();
@@ -221,7 +226,7 @@ export const EDITOR_RUNTIME = String.raw`
     // ── multi-selección: caja envolvente punteada + 4 esquinas para escalar el
     //    conjunto manteniendo las proporciones (posición, tamaño y tipografía de
     //    cada miembro se escalan con el mismo factor). ──────────────────────────
-    else if(sels.length>1){
+    else if(sels.length>1 && !anyLocked){
       var bb=selBBox();
       var gb=document.createElement('div'); gb.className='oc-gbox';
       gb.style.cssText+=';width:'+(bb.right-bb.left)+'px;height:'+(bb.bottom-bb.top)+'px'
@@ -505,6 +510,7 @@ export const EDITOR_RUNTIME = String.raw`
       if(el.hasAttribute&&(el.hasAttribute('data-oc-ui')||el.hasAttribute('data-oc-tex'))) continue;
       if(el.closest&&el.closest('[data-oc-ui]')) continue;
       if(el===root||el.ownerSVGElement) continue;
+      if(isLocked(el)||isHidden(el)) continue;
       if(!(isTextEl(el)||t==='IMG'||(el.getAttribute&&el.getAttribute('data-oc-shape'))||isSvgRoot(el))) continue;
       if(tooBig(el)) continue;
       var r=el.getBoundingClientRect();
@@ -665,6 +671,7 @@ export const EDITOR_RUNTIME = String.raw`
     // (squelch) y Shift/Ctrl+clic para descartar — o Alt+clic para tomar un
     // miembro suelto del grupo — no llegaban nunca a ejecutarse.
     if(e.shiftKey||e.ctrlKey||e.metaKey||e.altKey) return;
+    if(sels.some(isLocked)) return;   // capa bloqueada: no se mueve
     if(sels[0].getAttribute('contenteditable')==='true') return;
     savedRange=null;   // agarrar el elemento entero = adiós al tramo marcado
     snap();
@@ -907,6 +914,7 @@ export const EDITOR_RUNTIME = String.raw`
     if((e.key==='Delete'||e.key==='Backspace') && sels.length){ e.preventDefault(); apply({prop:'remove'}); return; }
     if(e.key.indexOf('Arrow')===0 && sels.length){
       e.preventDefault();
+      if(sels.some(isLocked)) return;
       var s=e.shiftKey?10:1, dx=0, dy=0;
       if(e.key==='ArrowLeft')dx=-s; if(e.key==='ArrowRight')dx=s;
       if(e.key==='ArrowUp')dy=-s; if(e.key==='ArrowDown')dy=s;
@@ -1021,6 +1029,7 @@ export const EDITOR_RUNTIME = String.raw`
   }
   function align(kind){
     if(!sels.length) return;
+    if(sels.some(isLocked)) return;   // alinear mueve: una capa bloqueada no se mueve
     snap();
     var rects=sels.map(function(el){ return el.getBoundingClientRect(); });
     sels.forEach(promoteAbsolute);
@@ -1044,6 +1053,7 @@ export const EDITOR_RUNTIME = String.raw`
   }
   function distribute(axis){
     if(sels.length<3) return;
+    if(sels.some(isLocked)) return;
     snap();
     var items=sels.map(function(el){ return {el:el, r:el.getBoundingClientRect()}; });
     sels.forEach(promoteAbsolute);
@@ -1099,40 +1109,146 @@ export const EDITOR_RUNTIME = String.raw`
     if(!id){ id='L'+(++ocIdSeq)+Math.floor(Math.random()*1e6).toString(36); el.setAttribute('data-oc-id',id); }
     return id;
   }
+  function isLocked(el){ return !!(el.getAttribute&&el.getAttribute('data-oc-lock')); }
+  function isHidden(el){ return !!(el.getAttribute&&el.getAttribute('data-oc-hide')); }
   function layerInfo(el){
-    if(el.tagName==='IMG') return {kind:'image', label:'Imagen'};
-    if(el.getAttribute && el.getAttribute('data-oc-g')) return {kind:'group', label:'Grupo'};
-    if(isSvgRoot(el) || (el.getAttribute && el.getAttribute('data-oc-shape'))) return {kind:'shape', label:'Forma'};
+    // Nombre puesto a mano en el panel: gana siempre.
+    var nm=el.getAttribute&&el.getAttribute('data-oc-name');
+    if(el.tagName==='IMG') return {kind:'image', label:nm||'Imagen'};
+    if(isSvgRoot(el) || (el.getAttribute && el.getAttribute('data-oc-shape'))) return {kind:'shape', label:nm||'Forma'};
+    if(nm) return {kind: isTextEl(el)?'text':'box', label:nm};
     var t=(el.textContent||'').replace(/\s+/g,' ').trim();
-    if(t) return {kind:'text', label: t.length>26 ? t.slice(0,26)+'…' : t};
+    if(t && isTextEl(el)) return {kind:'text', label: t.length>26 ? t.slice(0,26)+'…' : t};
+    if(t) return {kind:'box', label: t.length>22 ? t.slice(0,22)+'…' : t};
     return {kind:'box', label:'Elemento'};
   }
-  function reportLayers(){
-    var root=rootEl()||document.body;
-    var kids=layerChildrenOf(root);   // back-to-front
-    var selIds={};
-    sels.forEach(function(e){ if(e.getAttribute){ var id=e.getAttribute('data-oc-id'); if(id) selIds[id]=1; } });
-    var items=[];
+  /** ¿Vale abrir este elemento como carpeta de capas? Un texto (con sus <span>) o
+   *  una imagen son hojas; un contenedor con elementos adentro sí se expande. */
+  function isBranch(el){
+    if(el.tagName==='IMG'||isSvgRoot(el)||isTextEl(el)) return false;
+    return layerChildrenOf(el).length>0;
+  }
+  var LAYER_DEPTH=5;
+  /**
+   * Árbol de capas de un contenedor, FRONT primero. Los grupos (data-oc-g, que son
+   * hermanos marcados y no un contenedor del DOM) se reportan como un nodo virtual
+   * 'g:<id>' con sus miembros adentro, para poder expandirlos y moverlos como uno.
+   */
+  function layerTree(par, depth){
+    var kids=layerChildrenOf(par), items=[], doneG={};
     for(var i=kids.length-1;i>=0;i--){   // FRONT primero (como un panel de capas)
-      var el=kids[i], id=ensureLayerId(el), info=layerInfo(el);
-      items.push({id:id, kind:info.kind, label:info.label, selected: !!selIds[id]});
+      var el=kids[i];
+      var g=el.getAttribute&&el.getAttribute('data-oc-g');
+      if(g){
+        if(doneG[g]) continue;
+        doneG[g]=1;
+        var ms=[];
+        for(var j=kids.length-1;j>=0;j--){
+          if(kids[j].getAttribute&&kids[j].getAttribute('data-oc-g')===g) ms.push(kids[j]);
+        }
+        items.push({id:'g:'+g, kind:'group', label:'Grupo · '+ms.length+' elementos',
+          selected: ms.every(inSels), locked: ms.every(isLocked), hidden: ms.every(isHidden),
+          children: ms.map(function(m){ return layerNode(m, depth+1); })});
+        continue;
+      }
+      items.push(layerNode(el, depth));
     }
-    post({oc:'layers', items:items});
+    return items;
+  }
+  function inSels(el){ return sels.indexOf(el)>=0; }
+  function layerNode(el, depth){
+    var id=ensureLayerId(el), info=layerInfo(el);
+    return {id:id, kind:info.kind, label:info.label, selected:inSels(el),
+      locked:isLocked(el), hidden:isHidden(el),
+      children: (depth<LAYER_DEPTH && isBranch(el)) ? layerTree(el, depth+1) : []};
+  }
+  function reportLayers(){
+    post({oc:'layers', items:layerTree(rootEl()||document.body, 0)});
+  }
+  /** Elementos de una fila del panel (un id suelto, o los miembros de un grupo
+   *  en su orden visual actual: atrás→adelante). */
+  function resolveLayer(id){
+    if(String(id).indexOf('g:')===0){
+      var gid=String(id).slice(2);
+      var ms=[].slice.call(document.querySelectorAll('[data-oc-g="'+gid+'"]'));
+      if(!ms.length) return [];
+      var par=ms[0].parentElement;
+      return layerChildrenOf(par).filter(function(k){ return ms.indexOf(k)>=0; });
+    }
+    var el=document.querySelector('[data-oc-id="'+id+'"]');
+    return el?[el]:[];
   }
   function selectLayer(id){
-    var el=document.querySelector('[data-oc-id="'+id+'"]');
-    if(el) select(el, false, false);   // selección normal (agrupa si es grupo)
+    var els=resolveLayer(id);
+    if(!els.length) return;
+    // Desde el panel SÍ se puede tomar una capa bloqueada (para desbloquearla).
+    if(els.length>1){ sels=els.slice(); paint(); report(); }
+    else select(els[0], false, false);
   }
+  /** Reordena una fila dentro de su propio nivel (ids FRONT→BACK, como el panel). */
   function reorderLayers(ids){
-    if(!ids||!ids.length) return;
-    var root=rootEl()||document.body;
-    var byId={};
-    layerChildrenOf(root).forEach(function(el){ byId[el.getAttribute('data-oc-id')]=el; });
-    // ids vienen FRONT→BACK; applyLayerOrder espera BACK→FRONT.
-    var order=[];
-    for(var i=ids.length-1;i>=0;i--){ var el=byId[ids[i]]; if(el) order.push(el); }
-    if(!order.length) return;
-    snap(); applyLayerOrder(order); paint(); report(); serialize();
+    if(!ids||ids.length<2) return;
+    var order=[];   // front→back, elementos concretos
+    ids.forEach(function(id){
+      var els=resolveLayer(id);
+      for(var i=els.length-1;i>=0;i--) order.push(els[i]);   // grupo: front→back
+    });
+    if(order.length<2) return;
+    // Todos tienen que compartir padre: el arrastre solo reordena dentro del nivel.
+    var par=order[0].parentElement;
+    order=order.filter(function(el){ return el.parentElement===par; });
+    if(order.length<2) return;
+    snap();
+    applyLayerOrder(order.slice().reverse());   // applyLayerOrder espera BACK→FRONT
+    paint(); report(); serialize();
+  }
+  /** Sube/baja una fila un paso, o la manda del todo al frente/al fondo. */
+  function layerMove(id,dir){
+    var els=resolveLayer(id);   // back→front
+    if(!els.length) return;
+    snap();
+    var i;
+    // El orden de proceso conserva la jerarquía interna del grupo.
+    if(dir==='front'){ for(i=0;i<els.length;i++) restack(els[i],true); }
+    else if(dir==='back'){ for(i=els.length-1;i>=0;i--) restack(els[i],false); }
+    else if(dir==='up'){ for(i=els.length-1;i>=0;i--) restackStep(els[i],1); }
+    else if(dir==='down'){ for(i=0;i<els.length;i++) restackStep(els[i],-1); }
+    paint(); report(); serialize();
+  }
+  /**
+   * Bloquear u ocultar una capa. Se guardan como atributos, así viajan con la
+   * lámina y sobreviven a recargar el editor. Ojo: "oculta" apaga el elemento de
+   * verdad (display:none), así que tampoco sale en el export — es lo esperable
+   * cuando el HTML de la lámina ES el diseño.
+   */
+  function layerFlag(id,flag,value){
+    var els=resolveLayer(id);
+    if(!els.length) return;
+    snap();
+    els.forEach(function(el){
+      if(flag==='lock'){
+        if(value) el.setAttribute('data-oc-lock','1'); else el.removeAttribute('data-oc-lock');
+      } else {
+        if(value){ el.setAttribute('data-oc-hide','1'); el.style.display='none'; }
+        else {
+          el.removeAttribute('data-oc-hide');
+          if(el.style.display==='none') el.style.display='';
+        }
+      }
+    });
+    // Bloquear u ocultar lo seleccionado saca la selección: sus handles ya no aplican.
+    if(value) sels=sels.filter(function(s){ return els.indexOf(s)<0; });
+    paint(); report(); serialize();
+  }
+  function layerName(id,name){
+    var els=resolveLayer(id);
+    if(!els.length) return;
+    snap();
+    var n=String(name||'').trim().slice(0,60);
+    els.forEach(function(el){
+      if(n) el.setAttribute('data-oc-name',n); else el.removeAttribute('data-oc-name');
+    });
+    report(); serialize();
   }
   // Reasigna z-index secuencial según el orden dado (posicionando lo estático
   //   con relative, que no altera el layout). Sin tocar el DOM.
@@ -1154,6 +1270,12 @@ export const EDITOR_RUNTIME = String.raw`
     if(blurPx>0) parts.push('blur('+blurPx+'px)');
     el.style.filter=parts.join(' ');
   }
+  // "Al frente / al fondo" DE VERDAD: reordenar entre los hermanos del padre
+  //   inmediato no alcanza cuando el elemento vive dentro de un contenedor —
+  //   quedaba adelante de sus hermanos pero seguía tapado por el contenedor de al
+  //   lado, y parecía que el botón "no hacía nada" o movía una sola posición.
+  //   Se recorre la cadena de ancestros hasta la raíz llevando cada eslabón a la
+  //   punta que toca: así la rama entera queda arriba (o abajo) de todo.
   function restack(el,toFront){
     var par=el.parentElement; if(!par) return;
     if(el.ownerSVGElement){
@@ -1162,9 +1284,17 @@ export const EDITOR_RUNTIME = String.raw`
       else par.insertBefore(el, par.firstElementChild);
       return;
     }
-    var order=layerSiblings(el); if(!order) return;
-    var rest=order.filter(function(k){ return k!==el; });
-    applyLayerOrder(toFront ? rest.concat([el]) : [el].concat(rest));
+    var root=rootEl(), node=el, guard=0;
+    while(node && node.parentElement && guard++<24){
+      var p=node.parentElement;
+      var order=layerChildrenOf(p);
+      if(order.length>1){
+        var rest=order.filter(function(k){ return k!==node; });
+        applyLayerOrder(toFront ? rest.concat([node]) : [node].concat(rest));
+      }
+      if(p===root||p===document.body) break;
+      node=p;
+    }
   }
   // Mueve el elemento UNA capa: dir>0 lo sube (hacia el frente), dir<0 lo baja.
   //   Intercambia con el vecino inmediato en el orden visual; si ya está en la
@@ -1358,6 +1488,7 @@ export const EDITOR_RUNTIME = String.raw`
       if(sp){ styleEl(sp,p,v); paint(); report(); serialize(); return; }
     }
     sels.forEach(function(el){
+      if(isLocked(el)) return;   // capa bloqueada: no se edita ni se borra
       if(p==='text'){ el.innerHTML=String(v).split('\n').map(esc).join('<br>'); }
       else if(p==='splitBg'){
         // "Sacar el texto de la caja": el resaltado es el background del MISMO
@@ -1391,7 +1522,7 @@ export const EDITOR_RUNTIME = String.raw`
       else if(p==='remove'){ el.remove(); }
       else styleEl(el,p,v);
     });
-    if(p==='remove') sels=[];
+    if(p==='remove') sels=sels.filter(isLocked);   // lo bloqueado sigue ahí, y seleccionado
     paint(); report(); serialize();
   }
   function group(){
@@ -1555,6 +1686,9 @@ export const EDITOR_RUNTIME = String.raw`
     else if(m.oc==='deselect') clearSel();
     else if(m.oc==='selectLayer') selectLayer(m.id);
     else if(m.oc==='reorderLayers') reorderLayers(m.ids);
+    else if(m.oc==='layerMove') layerMove(m.id, m.dir);
+    else if(m.oc==='layerFlag') layerFlag(m.id, m.flag, !!m.value);
+    else if(m.oc==='layerName') layerName(m.id, m.name);
     else if(m.oc==='serialize') serialize();
   });
   // Curar láminas guardadas con el placeholder viejo horneado en el style inline

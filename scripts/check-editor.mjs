@@ -286,6 +286,171 @@ async function main() {
     });
     check("no hay ids de capa duplicados", dupIds.total === dupIds.unique, `${dupIds.unique}/${dupIds.total}`);
 
+    // ── Fase 3: capas ──────────────────────────────────────────────────────────
+    /** Árbol de capas actual: deseleccionar provoca el report que lo emite. */
+    const tree = () =>
+      page.evaluate(
+        () =>
+          new Promise((resolve) => {
+            const onMsg = (e) => {
+              if (e.data && e.data.oc === "layers") {
+                window.removeEventListener("message", onMsg);
+                resolve(e.data.items);
+              }
+            };
+            window.addEventListener("message", onMsg);
+            window.postMessage({ oc: "deselect" }, "*");
+          })
+      );
+
+    console.log("\nÁrbol de capas");
+    await reset();
+    let t = await tree();
+    check("reporta las capas de la raíz", Array.isArray(t) && t.length === 4, `filas=${t && t.length}`);
+    const nestedRow = t.find((r) => (r.children || []).length > 0);
+    check("expande los contenedores (capas anidadas visibles)", !!nestedRow, "ningún contenedor con hijos");
+    check(
+      "la capa anidada aparece dentro de su contenedor",
+      !!nestedRow && nestedRow.children.length === 1,
+      `hijos=${nestedRow && nestedRow.children.length}`
+    );
+    const textRow = t.find((r) => r.kind === "text");
+    check("etiqueta los textos con su contenido", !!textRow && /Titulo|Segundo/.test(textRow.label), textRow?.label);
+    check("primera fila = frente", t[0].id !== undefined);
+
+    console.log("\nGrupos en el panel");
+    await reset();
+    await drag(page, 50, 120, 520, 780);
+    await page.evaluate(() => window.postMessage({ oc: "group" }, "*"));
+    await new Promise((r) => setTimeout(r, 80));
+    t = await tree();
+    const groupRow = t.find((r) => r.kind === "group");
+    check("el grupo se reporta como una sola fila", !!groupRow, "no hay fila de grupo");
+    check(
+      "con sus miembros adentro para expandir",
+      !!groupRow && groupRow.children.length === 2,
+      `miembros=${groupRow && groupRow.children.length}`
+    );
+    check("y no vuelve a listar los miembros como sueltos", t.length === 3, `filas=${t.length}`);
+
+    console.log("\nAl frente / al fondo entre contenedores");
+    await reset();
+    // #deep vive dentro de #nested. Traerlo al frente tiene que dejarlo sobre TODO,
+    // no solo sobre sus hermanos dentro de #nested (el bug reportado).
+    await page.mouse.click(650, 1000);
+    await new Promise((r) => setTimeout(r, 60));
+    const selIsDeep = await page.evaluate(
+      () => document.querySelectorAll(".oc-box").length === 1
+    );
+    check("selecciona el elemento anidado", selIsDeep);
+    await page.evaluate(() => window.postMessage({ oc: "apply", prop: "front", value: true }, "*"));
+    await new Promise((r) => setTimeout(r, 100));
+    // El punto (650,1000) está sobre #deep y también sobre #nested y #sq si se
+    // solaparan: comprobamos que #deep sea lo más alto en ese punto.
+    const topAt = await page.evaluate(() => {
+      const list = document.elementsFromPoint(650, 1000).filter((el) => !el.closest("[data-oc-ui]"));
+      return list[0] ? list[0].id : null;
+    });
+    check("'al frente' saca el elemento anidado por encima de todo", topAt === "deep", `arriba=${topAt}`);
+    const zChain = await page.evaluate(() => ({
+      deep: getComputedStyle(document.querySelector("#deep")).zIndex,
+      nested: getComputedStyle(document.querySelector("#nested")).zIndex,
+    }));
+    check(
+      "sube también el contenedor (cadena de ancestros)",
+      Number(zChain.nested) > 0,
+      `z(nested)=${zChain.nested} z(deep)=${zChain.deep}`
+    );
+
+    console.log("\nBloquear y ocultar");
+    await reset();
+    t = await tree();
+    const sqRow = t.find((r) => r.kind === "shape" && !r.children.length);
+    await page.evaluate(
+      (id) => window.postMessage({ oc: "layerFlag", id, flag: "lock", value: true }, "*"),
+      sqRow.id
+    );
+    await new Promise((r) => setTimeout(r, 80));
+    const lockedId = await page.evaluate((id) => {
+      const el = document.querySelector(`[data-oc-id="${id}"]`);
+      return el ? el.getAttribute("data-oc-lock") : null;
+    }, sqRow.id);
+    check("bloquear marca la capa", lockedId === "1");
+    // Clic sobre una capa bloqueada no la selecciona.
+    const lockedRect = await page.evaluate((id) => {
+      const r = document.querySelector(`[data-oc-id="${id}"]`).getBoundingClientRect();
+      return { x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2, left: r.left };
+    }, sqRow.id);
+    await page.mouse.click(lockedRect.x, lockedRect.y);
+    await new Promise((r) => setTimeout(r, 60));
+    check("una capa bloqueada no se selecciona con el clic", (await selCount(page)) === 0, `sel=${await selCount(page)}`);
+    // Seleccionada desde el panel, tampoco se arrastra.
+    await page.evaluate((id) => window.postMessage({ oc: "selectLayer", id }, "*"), sqRow.id);
+    await new Promise((r) => setTimeout(r, 60));
+    check("desde el panel sí se puede tomar (para desbloquear)", (await selCount(page)) === 1);
+    const noHandles = await page.evaluate(() => document.querySelectorAll(".oc-h").length === 0);
+    check("una capa bloqueada no muestra handles", noHandles);
+    await drag(page, lockedRect.x, lockedRect.y, lockedRect.x - 200, lockedRect.y);
+    const afterLockDrag = await page.evaluate((id) => {
+      return document.querySelector(`[data-oc-id="${id}"]`).getBoundingClientRect().left;
+    }, sqRow.id);
+    check("una capa bloqueada no se mueve al arrastrar", Math.abs(afterLockDrag - lockedRect.left) < 0.6,
+      `left=${afterLockDrag} antes=${lockedRect.left}`);
+    // Borrar tampoco la toca.
+    await page.evaluate(() => window.postMessage({ oc: "apply", prop: "remove", value: true }, "*"));
+    await new Promise((r) => setTimeout(r, 80));
+    const stillThere = await page.evaluate((id) => !!document.querySelector(`[data-oc-id="${id}"]`), sqRow.id);
+    check("ni se borra", stillThere);
+
+    await reset();
+    t = await tree();
+    const hideRow = t.find((r) => r.kind === "shape" && !r.children.length);
+    await page.evaluate(
+      (id) => window.postMessage({ oc: "layerFlag", id, flag: "hide", value: true }, "*"),
+      hideRow.id
+    );
+    await new Promise((r) => setTimeout(r, 80));
+    const hiddenState = await page.evaluate((id) => {
+      const el = document.querySelector(`[data-oc-id="${id}"]`);
+      return { attr: el.getAttribute("data-oc-hide"), display: el.style.display };
+    }, hideRow.id);
+    check("ocultar apaga el elemento", hiddenState.attr === "1" && hiddenState.display === "none");
+    await page.evaluate(
+      (id) => window.postMessage({ oc: "layerFlag", id, flag: "hide", value: false }, "*"),
+      hideRow.id
+    );
+    await new Promise((r) => setTimeout(r, 80));
+    const shownAgain = await page.evaluate((id) => {
+      const el = document.querySelector(`[data-oc-id="${id}"]`);
+      return { attr: el.getAttribute("data-oc-hide"), display: el.style.display };
+    }, hideRow.id);
+    check("y volver a mostrarlo lo restituye", !shownAgain.attr && shownAgain.display !== "none");
+
+    console.log("\nRenombrar y reordenar");
+    await reset();
+    t = await tree();
+    await page.evaluate(
+      (id) => window.postMessage({ oc: "layerName", id, name: "Marco principal" }, "*"),
+      t[0].id
+    );
+    await new Promise((r) => setTimeout(r, 80));
+    t = await tree();
+    check("renombrar persiste en la capa", t[0].label === "Marco principal", `label=${t[0].label}`);
+
+    await reset();
+    t = await tree();
+    const orig = t.map((r) => r.id);
+    // Mandar la primera fila (frente) al final (fondo).
+    const moved = [...orig.slice(1), orig[0]];
+    await page.evaluate((ids) => window.postMessage({ oc: "reorderLayers", ids }, "*"), moved);
+    await new Promise((r) => setTimeout(r, 100));
+    t = await tree();
+    check(
+      "arrastrar en el panel reordena de verdad",
+      t.map((r) => r.id).join() === moved.join(),
+      `orden=${t.map((r) => r.id).join()}`
+    );
+
     console.log("\nSerialización");
     await reset();
     const serialized = await page.evaluate(() => {

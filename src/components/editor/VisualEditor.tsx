@@ -1236,13 +1236,19 @@ export function VisualEditor({
               selecciona; arrastrar reordena. Complementa Subir/Bajar del elemento. */}
           <Section title="Capas" defaultOpen={false}>
             <p className="mb-2 text-[10px] text-muted-foreground leading-snug">
-              De arriba (frente) a abajo (fondo). Clic para seleccionar; arrastrá para
-              reordenar.
+              De arriba (frente) a abajo (fondo). Clic para seleccionar, doble clic para
+              renombrar, arrastrá para reordenar dentro del nivel. La flecha abre grupos
+              y contenedores. Al pasar el mouse aparecen frente/subir/bajar/fondo, el ojo
+              (ocultar) y el candado (bloquear). Una capa <b>oculta</b> tampoco sale en el
+              export; una <b>bloqueada</b> no se mueve ni se edita hasta desbloquearla.
             </p>
             <LayerPanel
               layers={layers}
               onSelect={(id) => send({ oc: "selectLayer", id })}
               onReorder={(ids) => send({ oc: "reorderLayers", ids })}
+              onMove={(id, dir) => send({ oc: "layerMove", id, dir })}
+              onToggle={(id, flag, value) => send({ oc: "layerFlag", id, flag, value })}
+              onRename={(id, name) => send({ oc: "layerName", id, name })}
             />
           </Section>
 
