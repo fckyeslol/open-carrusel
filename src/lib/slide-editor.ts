@@ -199,8 +199,8 @@ export const EDITOR_RUNTIME = String.raw`
       if(el.closest && el.closest('[data-oc-ui]')) continue;
       // Capa bloqueada: transparente al clic (se toma desde el panel de capas).
       if(isLocked(el) || (el.closest && el.closest('[data-oc-lock]'))) continue;
-      // Capa de sombra: es parte del elemento, no un objeto aparte.
-      if(el.hasAttribute && el.hasAttribute('data-oc-shadow-for')) continue;
+      // Capa vinculada (sombra, material, efecto): es parte del elemento.
+      if(el.hasAttribute && el.hasAttribute('data-oc-owner')) continue;
       // svgHit cuenta como "tinta real": el punto tocó una forma dentro del svg,
       // así que un svg-overlay a lámina completa sigue siendo seleccionable.
       if(tooBig(el)){ if((el.tagName==='IMG'||svgHit)&&!bigImg) bigImg=el; continue; }
@@ -325,7 +325,7 @@ export const EDITOR_RUNTIME = String.raw`
       var o=h.c==='rot'?16:7;   // el handle de rotación es más grande (32px)
       h.el.style.transform='translate('+(p[0]-o)+'px,'+(p[1]-o)+'px)'; });
     placeRotLine(r);
-    syncShadows();
+    syncLinked();
   }
   function showHandles(v){ handles.forEach(function(h){ h.el.style.display=v?'block':'none'; }); }
   // capa de guías: se crea UNA vez y solo se muestra/oculta (sin churn de DOM)
@@ -401,7 +401,7 @@ export const EDITOR_RUNTIME = String.raw`
       if(t==='SCRIPT'||t==='STYLE'||t==='LINK') continue;
       if(el.hasAttribute&&(el.hasAttribute('data-oc-ui')||el.hasAttribute('data-oc-tex'))) continue;
       if(el.closest&&el.closest('[data-oc-ui]')) continue;
-      if(el.hasAttribute&&el.hasAttribute('data-oc-shadow-for')) continue;   // decoración, no referencia
+      if(el.hasAttribute&&el.hasAttribute('data-oc-owner')) continue;   // decoración, no referencia
       if(el.ownerSVGElement) continue;   // formas internas de un svg: aporta el raíz
       if(inSelTree(el)) continue;
       var r=el.getBoundingClientRect();
@@ -482,6 +482,16 @@ export const EDITOR_RUNTIME = String.raw`
       italic:ct.fontStyle==='italic', align:cs.textAlign,
       opacity: Math.round((parseFloat(cs.opacity)||1)*100),
       blur: Math.round(filterBlur(el)),
+      // Efectos activos: los filtros salen de data-oc-fx y las superficies de las
+      // capas vinculadas, para que el panel muestre cuáles están prendidos.
+      fx: fxConfig(el),
+      fxLayers: (function(){
+        var out={}, id=el.getAttribute&&el.getAttribute('data-oc-id');
+        if(!id) return out;
+        var ls=document.querySelectorAll('[data-oc-owner="'+id+'"][data-oc-fxkind]');
+        for(var i=0;i<ls.length;i++) out[ls[i].getAttribute('data-oc-fxkind')]=1;
+        return out;
+      })(),
       rotation: Math.round(((parseFloat(el.style.rotate)||0)%360+360)%360),
       radius: Math.round(parseFloat(cs.borderTopLeftRadius)||0),
       isShape: !!(el.getAttribute&&el.getAttribute('data-oc-shape')),
@@ -565,7 +575,7 @@ export const EDITOR_RUNTIME = String.raw`
       if(el.closest&&el.closest('[data-oc-ui]')) continue;
       if(el===root||el.ownerSVGElement) continue;
       if(isLocked(el)||isHidden(el)) continue;
-      if(el.hasAttribute&&el.hasAttribute('data-oc-shadow-for')) continue;   // sombra: parte del elemento
+      if(el.hasAttribute&&el.hasAttribute('data-oc-owner')) continue;   // capa vinculada: parte del elemento
       if(!(isTextEl(el)||t==='IMG'||(el.getAttribute&&el.getAttribute('data-oc-shape'))||isSvgRoot(el))) continue;
       if(tooBig(el)) continue;
       var r=el.getBoundingClientRect();
@@ -814,7 +824,7 @@ export const EDITOR_RUNTIME = String.raw`
     }
     for(var i=0;i<sels.length;i++) applyT(sels[i], drag.start[i][0]+dx, drag.start[i][1]+dy);
     offsetBoxes(drag.rects, dx, dy);
-    syncShadows();   // la sombra de puntos sigue al elemento en vivo
+    syncLinked();   // la sombra de puntos sigue al elemento en vivo
     drawGuides(gs);
   }
   window.addEventListener('mousemove', function(e){
@@ -1174,7 +1184,8 @@ export const EDITOR_RUNTIME = String.raw`
       var k=kids[i];
       if(k.hasAttribute && k.hasAttribute('data-oc-ui')) continue;
       if(k.hasAttribute && k.hasAttribute('data-oc-tex')) continue;   // la textura vive siempre al fondo
-      if(k.hasAttribute && k.hasAttribute('data-oc-shadow-for')) continue;   // sombra de un elemento
+      if(k.hasAttribute && k.hasAttribute('data-oc-owner')) continue;   // capa vinculada a un elemento
+      if(k.tagName==='svg' && k.hasAttribute('data-oc-fxdefs')) continue;   // defs de efectos (0x0)
       if(k.tagName==='SCRIPT'||k.tagName==='STYLE'||k.tagName==='LINK') continue;
       var cs=getComputedStyle(k), z;
       if(cs.position==='static') z=-0.5;   // estático: pinta bajo lo posicionado
@@ -1372,36 +1383,256 @@ export const EDITOR_RUNTIME = String.raw`
     var a=filterPart(el,'blur');
     return a?(parseFloat(a)||0):0;
   }
-  function composeFilter(el, dropStr, blurPx){
+  function fnum(x){ var n=parseFloat(x); return isNaN(n)?0:n; }
+
+  // ── biblioteca de efectos: filtros SVG ───────────────────────────────────────
+  // Los efectos viven como <filter> dentro de un <svg> de defs que se SERIALIZA con
+  // la lámina: así el preview y el PNG exportado son el mismo render (los dos son
+  // Chromium). La configuración activa de cada elemento va en data-oc-fx (JSON), y
+  // 'filter' se recompone entero cada vez — sombra, desenfoque y efectos comparten
+  // esa única propiedad CSS, y pisarse era exactamente el bug de la Fase 6.
+  var SVGNS='http://www.w3.org/2000/svg';
+  /** Contenedor de defs (0x0, invisible), como primer hijo de la raíz de la lámina. */
+  function fxDefs(){
+    var svg=document.querySelector('svg[data-oc-fxdefs]');
+    if(!svg){
+      var host=rootEl()||document.body;
+      svg=document.createElementNS(SVGNS,'svg');
+      svg.setAttribute('data-oc-fxdefs','1');
+      svg.setAttribute('aria-hidden','true');
+      svg.setAttribute('width','0'); svg.setAttribute('height','0');
+      svg.style.cssText='position:absolute;left:0;top:0;width:0;height:0;overflow:hidden;pointer-events:none';
+      host.insertBefore(svg, host.firstChild);
+    }
+    return svg;
+  }
+  function fxConfig(el){
+    try{ var o=JSON.parse(el.getAttribute('data-oc-fx')||'{}'); return (o&&typeof o==='object')?o:{}; }
+    catch(e){ return {}; }
+  }
+  function hex01(h){
+    var m=String(h||'').replace('#','');
+    if(m.length===3) m=m.charAt(0)+m.charAt(0)+m.charAt(1)+m.charAt(1)+m.charAt(2)+m.charAt(2);
+    var n=parseInt(m,16); if(isNaN(n)) return [0,0,0];
+    return [((n>>16)&255)/255, ((n>>8)&255)/255, (n&255)/255];
+  }
+  /** Intensidad 0..100 → 0..1 (los efectos guardan {i:…} o un número suelto). */
+  function fxAmt(v){
+    var n = (v!=null && typeof v==='object') ? v.i : v;
+    return Math.max(0,Math.min(100,Number(n)||0))/100;
+  }
+  /**
+   * Primitivas de cada efecto. La región agranda el área del filtro para los que
+   * derraman fuera de la caja (desplazan o difuminan); sin eso, Chromium recorta.
+   */
+  function fxDef(kind,v){
+    var t=fxAmt(v), s;
+    if(kind==='grain'||kind==='noise'){
+      var esGrano=(kind==='grain');
+      var freq=esGrano?0.85:0.32, oct=esGrano?3:2, amt=(esGrano?0.10+t*0.5:0.15+t*0.75).toFixed(3);
+      return {region:null, inner:
+        '<feTurbulence type="'+(esGrano?'fractalNoise':'turbulence')+'" baseFrequency="'+freq+'" numOctaves="'+oct+'" seed="'+(esGrano?9:4)+'" result="n"/>'
+        +'<feColorMatrix in="n" type="saturate" values="0" result="g"/>'
+        +'<feComponentTransfer in="g" result="gg"><feFuncA type="table" tableValues="0 '+amt+'"/></feComponentTransfer>'
+        +'<feBlend in="SourceGraphic" in2="gg" mode="'+(esGrano?'overlay':'soft-light')+'" result="b"/>'
+        // Recortar a la silueta real: sin esto el ruido pinta toda la caja, también
+        // donde el PNG es transparente.
+        +'<feComposite in="b" in2="SourceGraphic" operator="in"/>'};
+    }
+    if(kind==='duotone'){
+      var a=hex01((v&&v.a)||'#15142B'), b=hex01((v&&v.b)||'#EBFF6F');
+      return {region:null, inner:
+        '<feColorMatrix type="matrix" values="0.33 0.33 0.33 0 0 0.33 0.33 0.33 0 0 0.33 0.33 0.33 0 0 0 0 0 1 0" result="gr"/>'
+        +'<feComponentTransfer in="gr" result="duo">'
+        +'<feFuncR type="table" tableValues="'+a[0].toFixed(3)+' '+b[0].toFixed(3)+'"/>'
+        +'<feFuncG type="table" tableValues="'+a[1].toFixed(3)+' '+b[1].toFixed(3)+'"/>'
+        +'<feFuncB type="table" tableValues="'+a[2].toFixed(3)+' '+b[2].toFixed(3)+'"/>'
+        +'</feComponentTransfer>'
+        // Mezcla con el original según la intensidad (100% = duotono puro).
+        +'<feComposite in="duo" in2="SourceGraphic" operator="arithmetic" k1="0" k2="'+t.toFixed(3)+'" k3="'+(1-t).toFixed(3)+'" k4="0"/>'};
+    }
+    if(kind==='chromatic'){
+      var d=(t*16).toFixed(1);
+      return {region:{x:'-10%',y:'-10%',w:'120%',h:'120%'}, inner:
+        '<feOffset in="SourceGraphic" dx="-'+d+'" dy="0" result="lo"/>'
+        +'<feColorMatrix in="lo" type="matrix" values="1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0" result="rc"/>'
+        +'<feOffset in="SourceGraphic" dx="'+d+'" dy="0" result="ro"/>'
+        +'<feColorMatrix in="ro" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 1 0" result="bc"/>'
+        +'<feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 1 0" result="gc"/>'
+        +'<feBlend in="rc" in2="gc" mode="screen" result="m1"/>'
+        +'<feBlend in="m1" in2="bc" mode="screen"/>'};
+    }
+    if(kind==='emboss'){
+      s=0.4+t*3.2;
+      var k=[-2*s,-s,0,-s,1,s,0,s,2*s].map(function(x){ return (Math.round(x*100)/100); }).join(' ');
+      return {region:null, inner:
+        '<feConvolveMatrix order="3" preserveAlpha="true" divisor="1" kernelMatrix="'+k+'"/>'};
+    }
+    if(kind==='bevel'){
+      var sd=(0.4+t*4).toFixed(2), ss=(1+t*7).toFixed(2);
+      return {region:null, inner:
+        '<feGaussianBlur in="SourceAlpha" stdDeviation="'+sd+'" result="bl"/>'
+        +'<feSpecularLighting in="bl" surfaceScale="'+ss+'" specularConstant="1" specularExponent="18" lighting-color="#ffffff" result="sp">'
+        +'<feDistantLight azimuth="225" elevation="55"/></feSpecularLighting>'
+        +'<feComposite in="sp" in2="SourceAlpha" operator="in" result="spc"/>'
+        +'<feComposite in="SourceGraphic" in2="spc" operator="arithmetic" k1="0" k2="1" k3="1" k4="0"/>'};
+    }
+    if(kind==='motion'){
+      return {region:{x:'-15%',y:'-15%',w:'130%',h:'130%'}, inner:
+        // Difuminado en un solo eje = barrido. El giro del elemento se aplica DESPUÉS
+        // del filtro, así que rotarlo also rota la dirección del barrido.
+        '<feGaussianBlur stdDeviation="'+(t*32).toFixed(1)+' 0"/>'};
+    }
+    if(kind==='distort'){
+      return {region:{x:'-10%',y:'-10%',w:'120%',h:'120%'}, inner:
+        '<feTurbulence type="turbulence" baseFrequency="'+(0.006+t*0.045).toFixed(4)+'" numOctaves="2" seed="3" result="tb"/>'
+        +'<feDisplacementMap in="SourceGraphic" in2="tb" scale="'+(t*70).toFixed(1)+'" xChannelSelector="R" yChannelSelector="G"/>'};
+    }
+    return null;
+  }
+  var FX_ORDER=['duotone','emboss','bevel','distort','chromatic','motion','grain','noise'];
+  /** Crea o reemplaza el <filter> de un efecto y devuelve su id. */
+  function fxFilter(el,ownerId,kind,v){
+    var def=fxDef(kind,v); if(!def) return null;
+    var fid='ocfx-'+ownerId+'-'+kind;
+    var f=document.getElementById(fid);
+    if(!f){
+      f=document.createElementNS(SVGNS,'filter');
+      f.setAttribute('id',fid);
+      fxDefs().appendChild(f);
+    }
+    f.setAttribute('color-interpolation-filters','sRGB');
+    if(def.region){
+      f.setAttribute('x',def.region.x); f.setAttribute('y',def.region.y);
+      f.setAttribute('width',def.region.w); f.setAttribute('height',def.region.h);
+    } else {
+      f.removeAttribute('x'); f.removeAttribute('y');
+      f.removeAttribute('width'); f.removeAttribute('height');
+    }
+    f.innerHTML=def.inner;
+    return fid;
+  }
+  /**
+   * Recompone la propiedad 'filter' completa: sombra + desenfoque + cada efecto
+   * activo, en un orden estable. Es el único lugar que escribe el.style.filter.
+   */
+  function rebuildFilter(el, dropStr, blurPx){
     var parts=[];
     if(dropStr) parts.push('drop-shadow('+dropStr+')');
     if(blurPx>0) parts.push('blur('+blurPx+'px)');
+    var cfg=fxConfig(el), activos={}, tiene=Object.keys(cfg).length>0;
+    var oid=tiene ? ensureLayerId(el) : (el.getAttribute&&el.getAttribute('data-oc-id'));
+    if(tiene){
+      FX_ORDER.forEach(function(k){
+        if(cfg[k]==null) return;
+        var fid=fxFilter(el,oid,k,cfg[k]);
+        if(fid){ activos[k]=1; parts.push('url(#'+fid+')'); }
+      });
+    }
+    // La poda corre SIEMPRE, también cuando se apagó el último efecto: si no, ese
+    // <filter> queda colgado en las defs y se serializa con la lámina para siempre.
+    if(oid){
+      var mine=document.querySelectorAll('filter[id^="ocfx-'+oid+'-"]');
+      for(var i=0;i<mine.length;i++){
+        var kk=mine[i].id.slice(('ocfx-'+oid+'-').length);
+        if(!activos[kk]) mine[i].remove();
+      }
+      // Sin defs adentro, el <svg> contenedor tampoco tiene por qué quedar.
+      var dr=document.querySelector('svg[data-oc-fxdefs]');
+      if(dr && !dr.children.length) dr.remove();
+    }
     el.style.filter=parts.join(' ');
   }
-  function fnum(x){ var n=parseFloat(x); return isNaN(n)?0:n; }
+  /** Compatibilidad: sombra y desenfoque siguen entrando por acá. */
+  function composeFilter(el, dropStr, blurPx){ rebuildFilter(el, dropStr, blurPx); }
+  /** Prende, ajusta o apaga (valor null) un efecto de filtro del elemento. */
+  function setFx(el,kind,v){
+    var cfg=fxConfig(el);
+    if(v==null || fxAmt(v)===0) delete cfg[kind];
+    else cfg[kind]=v;
+    if(Object.keys(cfg).length) el.setAttribute('data-oc-fx', JSON.stringify(cfg));
+    else el.removeAttribute('data-oc-fx');
+    rebuildFilter(el, filterPart(el,'drop-shadow'), filterBlur(el));
+  }
+
+  // ── capas de superficie: material, vidrio, desenfoque radial, CRT ────────────
+  // Van como capa vinculada ENCIMA del elemento (misma mecánica que la sombra de
+  // puntos, así quedan pegadas a él en cualquier operación).
+  function fxLayerOf(el,kind){
+    var id=el.getAttribute&&el.getAttribute('data-oc-id');
+    if(!id) return null;
+    return document.querySelector('[data-oc-owner="'+id+'"][data-oc-fxkind="'+kind+'"]');
+  }
+  function setFxLayer(el,kind,css){
+    var lay=fxLayerOf(el,kind);
+    if(!css){ if(lay) lay.remove(); return; }
+    if(!lay){
+      var id=ensureLayerId(el);
+      lay=document.createElement('div');
+      lay.setAttribute('data-oc-owner',id);
+      lay.setAttribute('data-oc-role','fx');
+      lay.setAttribute('data-oc-fxkind',kind);
+      makeRelative(el);
+      // Después del elemento en el DOM y con su mismo z-index → pinta encima.
+      el.parentElement.insertBefore(lay, el.nextSibling);
+    }
+    lay.style.cssText='position:absolute;left:0;top:0;pointer-events:none;'+css;
+    syncLinked();
+  }
+  /** CSS de cada superficie. t = intensidad 0..1. */
+  function fxSurface(kind,v){
+    var t=fxAmt(v);
+    if(kind==='material'){
+      var slug=(v&&v.slug)||'granulado';
+      return "background-image:url('"+(v&&v.base||'')+"/textures/"+slug+".png');background-size:cover;background-position:center"
+        +';mix-blend-mode:overlay;opacity:'+(0.25+t*0.75).toFixed(2);
+    }
+    if(kind==='frost'){
+      // Vidrio escarchado real: difumina lo que hay DETRÁS de la capa (o sea, el
+      // propio elemento) en vez de superponer una textura.
+      var fb=(2+t*22).toFixed(1);
+      return 'backdrop-filter:blur('+fb+'px) saturate(1.15);-webkit-backdrop-filter:blur('+fb+'px) saturate(1.15)'
+        +';background:rgba(255,255,255,'+(0.04+t*0.16).toFixed(3)+')';
+    }
+    if(kind==='radial'){
+      // Desenfoque radial: el centro queda nítido y el borde se va difuminando.
+      // Se logra con el mismo backdrop-filter, enmascarado con un degradado radial.
+      var rb=(2+t*26).toFixed(1);
+      var mask='radial-gradient(circle at 50% 50%, rgba(0,0,0,0) 30%, rgba(0,0,0,1) 88%)';
+      return 'backdrop-filter:blur('+rb+'px);-webkit-backdrop-filter:blur('+rb+'px)'
+        +';mask-image:'+mask+';-webkit-mask-image:'+mask;
+    }
+    if(kind==='crt'){
+      var op=(0.12+t*0.5).toFixed(3), paso=Math.max(3,Math.round(3+t*5));
+      return 'background-image:repeating-linear-gradient(0deg, rgba(0,0,0,'+op+') 0px, rgba(0,0,0,'+op+') 1px, rgba(0,0,0,0) 1px, rgba(0,0,0,0) '+paso+'px)'
+        +',linear-gradient(90deg, rgba(255,0,64,.10), rgba(0,255,255,.10))'
+        +';mix-blend-mode:multiply';
+    }
+    return '';
+  }
 
   // ── sombras vinculadas al objeto ─────────────────────────────────────────────
   // La sombra de puntos es un elemento real (una capa halftone detrás), así que
   // antes se quedaba donde estaba: mover, redimensionar, rotar o reemplazar la
   // imagen la dejaba huérfana. Ahora la capa declara a su dueño en
-  // data-oc-shadow-for y syncShadows() la vuelve a calzar después de CUALQUIER
+  // data-oc-owner y syncLinked() la vuelve a calzar después de CUALQUIER
   // operación — corre dentro de serialize(), que es el paso común a todas, y en
   // cada frame del arrastre para que se vea pegada en vivo.
   function dotsOf(el){
     var id=el.getAttribute&&el.getAttribute('data-oc-id');
     if(!id) return null;
-    return document.querySelector('[data-oc-shadow-for="'+id+'"]');
+    return document.querySelector('[data-oc-owner="'+id+'"][data-oc-role="dots"]');
   }
   function removeDots(el){
     var d=dotsOf(el);
     while(d){ d.remove(); d=dotsOf(el); }
   }
-  function syncShadows(){
-    var list=document.querySelectorAll('[data-oc-shadow-for]');
+  function syncLinked(){
+    var list=document.querySelectorAll('[data-oc-owner]');
     if(!list.length) return;
     for(var i=0;i<list.length;i++){
       var sh=list[i];
-      var own=document.querySelector('[data-oc-id="'+sh.getAttribute('data-oc-shadow-for')+'"]');
+      var own=document.querySelector('[data-oc-id="'+sh.getAttribute('data-oc-owner')+'"]');
       if(!own){ sh.remove(); continue; }        // el dueño se borró: la sombra también
       var ocs=getComputedStyle(own);
       if(isHidden(own)||ocs.display==='none'){ sh.style.display='none'; continue; }
@@ -1412,7 +1643,7 @@ export const EDITOR_RUNTIME = String.raw`
       sh.style.borderRadius=ocs.borderRadius;
       sh.style.rotate=own.style.rotate||'';
       sh.style.zIndex=own.style.zIndex||'';
-      var ox=fnum(sh.getAttribute('data-oc-shadow-ox')), oy=fnum(sh.getAttribute('data-oc-shadow-oy'));
+      var ox=fnum(sh.getAttribute('data-oc-ox')), oy=fnum(sh.getAttribute('data-oc-oy'));
       // El left/top se corrige contra el ancestro posicionado REAL (medido después
       // de fijar el tamaño, que puede cambiar el rect).
       var sr=sh.getBoundingClientRect();
@@ -1440,13 +1671,14 @@ export const EDITOR_RUNTIME = String.raw`
     makeRelative(el);
     var dd=document.createElement('div');
     dd.setAttribute('data-oc-dots','1');
-    dd.setAttribute('data-oc-shadow-for', id);
-    dd.setAttribute('data-oc-shadow-ox', String(ox));
-    dd.setAttribute('data-oc-shadow-oy', String(oy));
+    dd.setAttribute('data-oc-owner', id);
+    dd.setAttribute('data-oc-role','dots');
+    dd.setAttribute('data-oc-ox', String(ox));
+    dd.setAttribute('data-oc-oy', String(oy));
     dd.style.cssText='position:absolute;left:0;top:0;width:10px;height:10px;pointer-events:none'
       +';background-image:radial-gradient(circle, '+color+' 2.6px, transparent 3px);background-size:16px 16px';
     el.parentElement.insertBefore(dd, el);
-    syncShadows();
+    syncLinked();
   }
   // "Al frente / al fondo" DE VERDAD: reordenar entre los hermanos del padre
   //   inmediato no alcanza cuando el elemento vive dentro de un contenedor —
@@ -1703,10 +1935,10 @@ export const EDITOR_RUNTIME = String.raw`
       var dots=dotsOf(el);
       if(dots){
         // Con la sombra de puntos activa, los controles gobiernan esa capa.
-        dots.setAttribute('data-oc-shadow-ox', String(sx));
-        dots.setAttribute('data-oc-shadow-oy', String(sy));
+        dots.setAttribute('data-oc-ox', String(sx));
+        dots.setAttribute('data-oc-oy', String(sy));
         dots.style.backgroundImage='radial-gradient(circle, '+scol+' 2.6px, transparent 3px)';
-        syncShadows();
+        syncLinked();
       } else {
         var kb=filterBlur(el);
         if(v.inner){
@@ -1800,7 +2032,19 @@ export const EDITOR_RUNTIME = String.raw`
     }
     sels.forEach(function(el){
       if(isLocked(el)) return;   // capa bloqueada: no se edita ni se borra
-      if(p==='text'){ setText(el, v); }
+      // ── efectos ───────────────────────────────────────────────────────────
+      // 'fx' = filtro SVG (respeta la silueta); 'fxLayer' = capa de superficie
+      // encima del elemento. value null (o intensidad 0) apaga el efecto.
+      if(p==='fx'){ setFx(el, v.kind, v.value); }
+      else if(p==='fxLayer'){
+        setFxLayer(el, v.kind, (v.value==null||fxAmt(v.value)===0) ? '' : fxSurface(v.kind, v.value));
+      }
+      else if(p==='fxClear'){
+        el.removeAttribute('data-oc-fx');
+        rebuildFilter(el, filterPart(el,'drop-shadow'), filterBlur(el));
+        ['material','frost','radial','crt'].forEach(function(k){ setFxLayer(el,k,''); });
+      }
+      else if(p==='text'){ setText(el, v); }
       else if(p==='clearFormat'){ clearFormat(el); }
       // Fondo del contenedor que abraza al texto (la "caja"), no del texto mismo.
       else if(p==='boxBg'){
@@ -1990,7 +2234,7 @@ export const EDITOR_RUNTIME = String.raw`
   function serializeNoSnap(){
     // Punto común de todas las operaciones: es acá donde la sombra de puntos vuelve
     // a calzar con su dueño (mover, escalar, rotar, alinear, reemplazar imagen...).
-    syncShadows();
+    syncLinked();
     ui.remove(); gl.remove(); st.remove();
     document.querySelectorAll('[contenteditable]').forEach(function(n){ n.removeAttribute('contenteditable'); });
     var html=document.body.innerHTML.replace(/<script[\s\S]*?<\/script>/gi,'')

@@ -9,6 +9,7 @@ import { Section } from "@/components/ui/section";
 import { BackgroundPicker } from "./BackgroundPicker";
 import { ColorInput } from "./ColorInput";
 import { LayerPanel, type LayerItem } from "./LayerPanel";
+import { EffectsPanel } from "./EffectsPanel";
 import type { PaletteColor } from "@/lib/adn-palette";
 import { SafeZoneOverlay } from "./SafeZoneOverlay";
 import { SHAPE_GALLERY, SHADOW_PRESETS, GRADIENT_PRESETS } from "./shape-gallery";
@@ -75,6 +76,10 @@ interface Selection {
   imgHist?: string[]; // versiones anteriores del src (original + regeneraciones)
   /** Encaje de la imagen en su caja: auto | cover | contain | fill */
   fit?: string;
+  /** Efectos de filtro activos (kind → intensidad o {i,a,b}). */
+  fx?: Record<string, number | { i?: number; a?: string; b?: string; slug?: string }>;
+  /** Capas de superficie activas (kind → 1). */
+  fxLayers?: Record<string, unknown>;
   tag?: string;
   text?: string;
   /** Hay un tramo de texto marcado: la tipografía se aplica solo a ese tramo. */
@@ -170,6 +175,9 @@ export function VisualEditor({
   // Quitar fondo de la imagen seleccionada (corre en el server, /api/remove-bg)
   const [bgBusy, setBgBusy] = useState(false);
   const [bgError, setBgError] = useState<string | null>(null);
+  // Pixelado: el único efecto que se hornea en el server (/api/image-fx)
+  const [pixelBusy, setPixelBusy] = useState(false);
+  const [pixelError, setPixelError] = useState<string | null>(null);
   // Librería de formas (galería plegable) y degradado del elemento seleccionado.
   // El degradado vive en estado local: el runtime no puede "leerlo" de vuelta.
   const [shapesOpen, setShapesOpen] = useState(false);
@@ -399,6 +407,32 @@ export function VisualEditor({
       setBgBusy(false);
     }
   }, [sel.src, send]);
+
+  // Pixela la imagen seleccionada en el server y la reemplaza conservando la caja.
+  // La original queda en el historial de versiones, así se puede volver atrás.
+  const pixelate = useCallback(
+    async (amount: number) => {
+      if (!sel.src) return;
+      setPixelBusy(true);
+      setPixelError(null);
+      try {
+        const res = await fetch("/api/image-fx", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: sel.src, effect: "pixelate", amount }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
+        if (!data.url) throw new Error("El servidor no devolvió la URL");
+        send({ oc: "setImgSrc", url: new URL(data.url, window.location.origin).href });
+      } catch (e) {
+        setPixelError((e as Error).message);
+      } finally {
+        setPixelBusy(false);
+      }
+    },
+    [sel.src, send]
+  );
 
   const runAi = useCallback(async () => {
     const p = aiPrompt.trim();
@@ -1327,6 +1361,31 @@ export function VisualEditor({
                     }}
                   />
                 </label>
+              </Section>
+
+              {/* Biblioteca de efectos. Los materiales necesitan la URL absoluta
+                  del sitio: el iframe es `srcdoc` y una ruta relativa no resuelve. */}
+              <Section title="Efectos" defaultOpen={false}>
+                <EffectsPanel
+                  fx={sel.fx ?? {}}
+                  fxLayers={sel.fxLayers ?? {}}
+                  canPixelate={!!sel.isImage && (sel.src ?? "").includes("/uploads/")}
+                  pixelBusy={pixelBusy}
+                  pixelError={pixelError}
+                  swatches={swatches}
+                  onFx={(kind, value) => applyProp("fx", { kind, value })}
+                  onFxLayer={(kind, value) =>
+                    applyProp("fxLayer", {
+                      kind,
+                      value:
+                        value && typeof value === "object"
+                          ? { ...value, base: window.location.origin }
+                          : value,
+                    })
+                  }
+                  onClear={() => applyProp("fxClear", true)}
+                  onPixelate={pixelate}
+                />
               </Section>
 
               {(sel.count || 1) === 1 && (
