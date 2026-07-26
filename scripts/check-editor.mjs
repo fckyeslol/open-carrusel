@@ -38,6 +38,27 @@ async function loadRuntime() {
   return rest;
 }
 
+/**
+ * Lámina que reproduce los casos que rompían el posicionamiento de imágenes:
+ * transform declarado en un <style> (no inline), left/top declarados en un <style>,
+ * y un elemento rotado. Un PNG de 2x1 en data: URI evita depender de la red.
+ */
+const PIX =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAFUlEQVR4nGP8z8DAwMTAwMDAwMAAABQYAd8kRJIAAAAASUVORK5CYII=";
+const SLIDE_IMG = `
+<style>
+  #centrada { position:absolute; left:540px; top:400px; transform:translate(-50%,-50%); width:300px; height:200px; }
+  #porhoja  { position:absolute; left:200px; top:900px; width:240px; height:160px; }
+  /* inline + relative con desplazamiento de hoja: va por left/top, no por transform */
+  #enflujo  { position:relative; left:60px; top:24px; font-size:40px; font-family:Inter; }
+</style>
+<div id="root" style="position:relative;width:${W}px;height:${H}px;background:#f6f5f0">
+  <img id="centrada" src="${PIX}">
+  <img id="porhoja" src="${PIX}">
+  <div id="girado" data-oc-shape="1" style="position:absolute;left:700px;top:150px;width:200px;height:120px;background:#4f7cff;rotate:30deg"></div>
+  <span id="enflujo">Texto en flujo</span>
+</div>`;
+
 /** Lámina de prueba: tres elementos con coordenadas conocidas. */
 const SLIDE = `
 <div id="root" style="position:relative;width:${W}px;height:${H}px;background:#f6f5f0">
@@ -450,6 +471,187 @@ async function main() {
       t.map((r) => r.id).join() === moved.join(),
       `orden=${t.map((r) => r.id).join()}`
     );
+
+    // ── Fase 4: posicionamiento y reemplazo de imágenes ───────────────────────
+    const pageFor = async (body) => {
+      await page.setContent(
+        `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+*{margin:0;padding:0;box-sizing:border-box}html,body{width:${W}px;height:${H}px;overflow:hidden;position:relative}
+</style></head><body>${body}<script>${runtime}<\/script></body></html>`,
+        { waitUntil: "domcontentloaded" }
+      );
+      await new Promise((r) => setTimeout(r, 200));
+    };
+
+    console.log("\nArrastre de imágenes (transform y left/top de hoja de estilos)");
+    await pageFor(SLIDE_IMG);
+    // #centrada se centra con transform:translate(-50%,-50%) desde el <style>.
+    // Arrastrarla 100px a la derecha tiene que moverla EXACTAMENTE 100px, no
+    // saltar media caja por perder el translate de la hoja.
+    let before = await rectOf(page, "centrada");
+    await page.mouse.click(before.left + 20, before.top + 20);
+    await new Promise((r) => setTimeout(r, 60));
+    await drag(
+      page,
+      before.left + 20,
+      before.top + 20,
+      before.left + 120,
+      before.top + 20,
+      { altDuring: true }
+    );
+    let after = await rectOf(page, "centrada");
+    check(
+      "una imagen centrada con transform de <style> se mueve lo que se arrastra",
+      Math.abs(after.left - (before.left + 100)) < 2 && Math.abs(after.top - before.top) < 2,
+      `movió (${(after.left - before.left).toFixed(1)}, ${(after.top - before.top).toFixed(1)}) esperado (100, 0)`
+    );
+
+    // #porhoja está posicionada en absoluto desde el <style> (sin nada inline):
+    // el arrastre tiene que sumar sobre su posición real.
+    before = await rectOf(page, "porhoja");
+    await page.mouse.click(before.left + 20, before.top + 20);
+    await new Promise((r) => setTimeout(r, 60));
+    await drag(
+      page,
+      before.left + 20,
+      before.top + 20,
+      before.left + 20 - 80,
+      before.top + 20 + 40,
+      { altDuring: true }
+    );
+    after = await rectOf(page, "porhoja");
+    check(
+      "una imagen posicionada desde <style> no salta al origen",
+      Math.abs(after.left - (before.left - 80)) < 2 && Math.abs(after.top - (before.top + 40)) < 2,
+      `movió (${(after.left - before.left).toFixed(1)}, ${(after.top - before.top).toFixed(1)}) esperado (-80, 40)`
+    );
+
+    // Elemento inline con position:relative y left/top de hoja: se mueve por
+    // left/top (no por transform), y su base tiene que ser la de la hoja.
+    before = await rectOf(page, "enflujo");
+    await page.mouse.click(before.left + 10, before.top + 20);
+    await new Promise((r) => setTimeout(r, 60));
+    await drag(
+      page,
+      before.left + 10,
+      before.top + 20,
+      before.left + 10 + 70,
+      before.top + 20 + 30,
+      { altDuring: true }
+    );
+    after = await rectOf(page, "enflujo");
+    check(
+      "un inline desplazado desde <style> se mueve lo que se arrastra",
+      Math.abs(after.left - (before.left + 70)) < 2 && Math.abs(after.top - (before.top + 30)) < 2,
+      `movió (${(after.left - before.left).toFixed(1)}, ${(after.top - before.top).toFixed(1)}) esperado (70, 30)`
+    );
+
+    console.log("\nElemento rotado");
+    await pageFor(SLIDE_IMG);
+    // Al tocar un elemento rotado (posicionarlo por panel) no debe crecer: su caja
+    // de layout es 200x120, no la envolvente del giro.
+    const gBefore = await page.evaluate(() => {
+      const el = document.querySelector("#girado");
+      const prev = el.style.rotate;
+      el.style.rotate = "none";
+      const r = el.getBoundingClientRect();
+      el.style.rotate = prev;
+      return { w: r.width, h: r.height, left: r.left, top: r.top };
+    });
+    await page.mouse.click(800, 210);
+    await new Promise((r) => setTimeout(r, 60));
+    const reported = await page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          const onMsg = (e) => {
+            if (e.data && e.data.oc === "sel" && !e.data.none) {
+              window.removeEventListener("message", onMsg);
+              resolve(e.data);
+            }
+          };
+          window.addEventListener("message", onMsg);
+          window.postMessage({ oc: "apply", prop: "opacity", value: 100 }, "*");
+        })
+    );
+    check(
+      "el panel reporta la caja de layout, no la envolvente del giro",
+      Math.abs(reported.w - gBefore.w) < 2 && Math.abs(reported.h - gBefore.h) < 2,
+      `reportó ${reported.w}x${reported.h}, layout ${gBefore.w}x${gBefore.h}`
+    );
+    // Fijar X por panel: no debe cambiar el tamaño.
+    await page.evaluate(() => window.postMessage({ oc: "apply", prop: "x", value: 300 }, "*"));
+    await new Promise((r) => setTimeout(r, 100));
+    const gAfter = await page.evaluate(() => {
+      const el = document.querySelector("#girado");
+      const prev = el.style.rotate;
+      el.style.rotate = "none";
+      const r = el.getBoundingClientRect();
+      el.style.rotate = prev;
+      return { w: r.width, h: r.height, left: r.left };
+    });
+    check(
+      "posicionar un elemento rotado no lo agranda",
+      Math.abs(gAfter.w - gBefore.w) < 2 && Math.abs(gAfter.h - gBefore.h) < 2,
+      `${gAfter.w}x${gAfter.h} vs ${gBefore.w}x${gBefore.h}`
+    );
+    check("y lo lleva a la X pedida", Math.abs(gAfter.left - 300) < 2, `left=${gAfter.left}`);
+    check("conserva la rotación", (await page.evaluate(
+      () => document.querySelector("#girado").style.rotate
+    )).indexOf("30") === 0);
+
+    console.log("\nReemplazar imagen conservando la caja");
+    await pageFor(SLIDE_IMG);
+    const boxBefore = await rectOf(page, "porhoja");
+    await page.mouse.click(boxBefore.left + 20, boxBefore.top + 20);
+    await new Promise((r) => setTimeout(r, 60));
+    // Imagen nueva con OTRA proporción (2x1 → 1x3): sin keepBox el alto cambiaba.
+    const TALL =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAADCAYAAABS3WWCAAAAFUlEQVR4nGP8z8DAwMTAwMDAwMAAABQYAd8kRJIAAAAASUVORK5CYII=";
+    await page.evaluate(
+      (url) => window.postMessage({ oc: "setImgSrc", url, keepBox: true }, "*"),
+      TALL
+    );
+    await new Promise((r) => setTimeout(r, 200));
+    const boxAfter = await rectOf(page, "porhoja");
+    check(
+      "la imagen nueva ocupa la misma caja",
+      Math.abs(boxAfter.width - boxBefore.width) < 2 &&
+        Math.abs(boxAfter.height - boxBefore.height) < 2 &&
+        Math.abs(boxAfter.left - boxBefore.left) < 2 &&
+        Math.abs(boxAfter.top - boxBefore.top) < 2,
+      `${boxAfter.width}x${boxAfter.height} en (${boxAfter.left},${boxAfter.top}) vs ${boxBefore.width}x${boxBefore.height} en (${boxBefore.left},${boxBefore.top})`
+    );
+    check(
+      "y no se deforma (object-fit: cover)",
+      (await page.evaluate(() => getComputedStyle(document.querySelector("#porhoja")).objectFit)) ===
+        "cover"
+    );
+    check(
+      "el reemplazo queda en el historial de versiones",
+      (await page.evaluate(() =>
+        JSON.parse(document.querySelector("#porhoja").getAttribute("data-oc-imghist") || "[]")
+      )).length === 2
+    );
+
+    console.log("\nEncaje de la imagen");
+    await pageFor(SLIDE_IMG);
+    const fitBox = await rectOf(page, "centrada");
+    await page.mouse.click(fitBox.left + 20, fitBox.top + 20);
+    await new Promise((r) => setTimeout(r, 60));
+    await page.evaluate(() => window.postMessage({ oc: "apply", prop: "fit", value: "contain" }, "*"));
+    await new Promise((r) => setTimeout(r, 100));
+    check(
+      "'contener' respeta la caja",
+      (await page.evaluate(() => getComputedStyle(document.querySelector("#centrada")).objectFit)) ===
+        "contain"
+    );
+    await page.evaluate(() => window.postMessage({ oc: "apply", prop: "fit", value: "auto" }, "*"));
+    await new Promise((r) => setTimeout(r, 150));
+    const autoFit = await page.evaluate(() => ({
+      of: document.querySelector("#centrada").style.objectFit,
+      h: document.querySelector("#centrada").style.height,
+    }));
+    check("'alto natural' suelta la caja", !autoFit.of && autoFit.h === "auto", JSON.stringify(autoFit));
 
     console.log("\nSerialización");
     await reset();

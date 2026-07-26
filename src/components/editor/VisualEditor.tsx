@@ -72,6 +72,8 @@ interface Selection {
   isImage?: boolean;
   src?: string; // src de la imagen seleccionada (para "Quitar fondo")
   imgHist?: string[]; // versiones anteriores del src (original + regeneraciones)
+  /** Encaje de la imagen en su caja: auto | cover | contain | fill */
+  fit?: string;
   tag?: string;
   text?: string;
   /** Hay un tramo de texto marcado: la tipografía se aplica solo a ese tramo. */
@@ -151,6 +153,7 @@ export function VisualEditor({
   // necesita para medir la tolerancia del imán en px de pantalla.
   const scaleRef = useRef(1);
   const fileRef = useRef<HTMLInputElement>(null);
+  const replaceRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   // Generación de imágenes con IA (Higgsfield). aiTarget define si la próxima
@@ -244,28 +247,44 @@ export function VisualEditor({
     [send, tex.slug]
   );
 
+  // Sube un archivo y devuelve su URL absoluta (el iframe es `srcdoc`, así que una
+  // ruta relativa puede no resolver según el contexto; absoluta carga siempre).
+  const uploadFile = useCallback(async (file: File): Promise<string | null> => {
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/upload", { method: "POST", body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
+      const url = data.url || data.path;
+      if (!url) throw new Error("El servidor no devolvió la URL");
+      return new URL(url, window.location.origin).href;
+    } catch (e) {
+      setUploadError((e as Error).message);
+      return null;
+    } finally {
+      setUploading(false);
+    }
+  }, []);
+
   const onUpload = useCallback(
     async (file: File) => {
-      setUploading(true);
-      setUploadError(null);
-      try {
-        const fd = new FormData();
-        fd.append("file", file);
-        const res = await fetch("/api/upload", { method: "POST", body: fd });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
-        const url = data.url || data.path;
-        if (!url) throw new Error("El servidor no devolvió la URL");
-        // URL absoluta: el iframe es `srcdoc` (about:srcdoc) y una ruta relativa
-        // puede no resolver según el contexto. Absoluta carga siempre.
-        send({ oc: "addImage", url: new URL(url, window.location.origin).href });
-      } catch (e) {
-        setUploadError((e as Error).message);
-      } finally {
-        setUploading(false);
-      }
+      const url = await uploadFile(file);
+      if (url) send({ oc: "addImage", url });
     },
-    [send]
+    [send, uploadFile]
+  );
+
+  // Reemplaza la imagen seleccionada conservando su caja: la nueva entra en el
+  // mismo lugar y tamaño (object-fit:cover), sin descolocar la composición.
+  const onReplaceImage = useCallback(
+    async (file: File) => {
+      const url = await uploadFile(file);
+      if (url) send({ oc: "setImgSrc", url, keepBox: true });
+    },
+    [send, uploadFile]
   );
 
   // recibir mensajes del iframe
@@ -368,7 +387,9 @@ export function VisualEditor({
     if (!p) return;
     const abs = await generateImage(p);
     if (!abs) return;
-    if (aiTarget === "regen") send({ oc: "setImgSrc", url: abs });
+    // Regenerar conserva la caja: la imagen nueva puede venir con otra proporción y
+    // no tiene que descolocar la composición ya armada.
+    if (aiTarget === "regen") send({ oc: "setImgSrc", url: abs, keepBox: true });
     else send({ oc: "addImage", url: abs });
     setAiTarget(null);
     setAiPrompt("");
@@ -614,6 +635,53 @@ export function VisualEditor({
 
               {sel.isImage && (
                 <Section title="Imagen" defaultOpen>
+                  {/* Reemplazar conservando la caja: la foto nueva entra en el mismo
+                      lugar y tamaño que la anterior, recortada (cover) en vez de
+                      cambiar de alto y descolocar todo. */}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => replaceRef.current?.click()}
+                    disabled={uploading}
+                  >
+                    <ImageIcon className="h-4 w-4" />{" "}
+                    {uploading ? "Subiendo…" : "Reemplazar imagen"}
+                  </Button>
+                  <input
+                    ref={replaceRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) onReplaceImage(f);
+                      e.target.value = "";
+                    }}
+                  />
+                  {/* Encaje dentro de la caja. 'Alto natural' devuelve la imagen a su
+                      proporción original; los demás respetan la caja. */}
+                  <div className="block">
+                    <span className={labelCls}>Encaje en la caja</span>
+                    <div className="mt-1 grid grid-cols-2 gap-1">
+                      {[
+                        { id: "cover", label: "Cubrir", title: "Llena la caja y recorta el excedente" },
+                        { id: "contain", label: "Contener", title: "Entra completa, con aire alrededor" },
+                        { id: "fill", label: "Estirar", title: "Ocupa la caja exacta (puede deformar)" },
+                        { id: "auto", label: "Alto natural", title: "La caja sigue la proporción de la foto" },
+                      ].map((f) => (
+                        <Button
+                          key={f.id}
+                          size="sm"
+                          variant={sel.fit === f.id ? "accent" : "outline"}
+                          title={f.title}
+                          onClick={() => applyProp("fit", f.id)}
+                        >
+                          {f.label}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
                   <Button
                     size="sm"
                     variant="outline"

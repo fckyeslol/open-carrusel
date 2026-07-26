@@ -123,6 +123,41 @@ export const EDITOR_RUNTIME = String.raw`
     var r=el.getBoundingClientRect();
     return (r.width*r.height) > (W*H*0.80);
   }
+  /**
+   * Caja de LAYOUT del elemento, sin la rotación.
+   *
+   * getBoundingClientRect() de un elemento rotado devuelve la caja que envuelve la
+   * silueta girada, que es más grande que la caja real y está corrida. Usar ese
+   * rect para fijar left/top/width (posicionar con precisión, alinear, redimensionar)
+   * hacía saltar y crecer cualquier elemento con giro. Se mide con la rotación
+   * apagada un instante y se restaura.
+   */
+  function layoutRect(el){
+    var inline=el.style.rotate||'', comp=getComputedStyle(el).rotate||'';
+    var rotated=(inline&&inline!=='none')||(comp&&comp!=='none');
+    if(!rotated) return el.getBoundingClientRect();
+    el.style.rotate='none';
+    var r=el.getBoundingClientRect();
+    var out={left:r.left, top:r.top, right:r.right, bottom:r.bottom, width:r.width, height:r.height};
+    if(inline) el.style.rotate=inline; else el.style.rotate='';
+    return out;
+  }
+  /**
+   * Valor base del transform para el arrastre.
+   *
+   * Antes se leía SOLO el transform inline. Una lámina que centra con
+   * `transform:translate(-50%,-50%)` desde un <style> tiene el inline vacío, así que
+   * el translate del arrastre PISABA la regla de la hoja y la imagen saltaba media
+   * caja de golpe: el bug de "la imagen se va a otro lado del que la suelto".
+   * Cayendo al transform computado (una matrix, válida como valor) la base se
+   * conserva y el arrastre suma sobre la posición real.
+   */
+  function baseTransform(el){
+    var inline=el.style.transform||'';
+    if(inline) return inline;
+    var c=getComputedStyle(el).transform;
+    return (!c||c==='none') ? '' : c;
+  }
   function members(el){
     var g=el.getAttribute && el.getAttribute('data-oc-g');
     if(!g) return [el];
@@ -404,7 +439,9 @@ export const EDITOR_RUNTIME = String.raw`
   function report(){
     reportLayers();   // el panel de capas se mantiene al día con cada cambio/selección
     if(!sels.length){ post({oc:'sel',none:true}); return; }
-    var el=sels[0], cs=getComputedStyle(el), er=el.getBoundingClientRect();
+    // er = caja de layout (sin rotación): es la que gobiernan los campos X/Y/W/H,
+    // así que el panel muestra el mismo número que después se puede escribir.
+    var el=sels[0], cs=getComputedStyle(el), er=layoutRect(el);
     var isText = isTextEl(el), isSvg = isSvgRoot(el);
     // Con un tramo de texto marcado, la tipografía reportada es la DEL TRAMO:
     // así el panel muestra el peso/color/tamaño real de lo que se va a cambiar.
@@ -417,6 +454,11 @@ export const EDITOR_RUNTIME = String.raw`
       isImage: el.tagName==='IMG',
       src: el.tagName==='IMG' ? (el.getAttribute('src')||'') : '',
       imgHist: el.tagName==='IMG' ? readImgHist(el) : [],
+      // Encaje actual: 'auto' = alto natural (sin object-fit y con height:auto).
+      fit: el.tagName==='IMG'
+        ? ((el.style.height==='auto'||!parseFloat(el.style.height)) && !el.style.objectFit
+            ? 'auto' : (cs.objectFit||'fill'))
+        : '',
       text: isText ? readText(el) : '',
       range: !!rh,
       fontFamily:(ct.fontFamily||'').split(',')[0].replace(/['"]/g,'').trim(),
@@ -702,14 +744,21 @@ export const EDITOR_RUNTIME = String.raw`
       // Formas DENTRO de un svg: left/top no les aplican jamás, pero el transform
       // CSS sí (Chromium). Van siempre por transform, ignorando su display.
       mode.set(el,'transform');
-      if(!baseTf.has(el)) baseTf.set(el, el.style.transform||'');
+      if(!baseTf.has(el)) baseTf.set(el, baseTransform(el));
     } else if(cs.display==='inline'){
       mode.set(el,'offset');
       if(cs.position==='static') el.style.position='relative';
-      baseOff.set(el,[parseFloat(el.style.left)||0, parseFloat(el.style.top)||0]);
+      // El punto de partida sale del estilo COMPUTADO, no solo del inline: un
+      // inline con position:relative y left/top declarados en un <style> tenía
+      // base 0 y al primer arrastre saltaba al origen de su flujo. (En un
+      // static el computado es 'auto' y cae a 0, que es el arranque correcto de un
+      // position:relative recién puesto.)
+      var bl=parseFloat(el.style.left); if(isNaN(bl)) bl=parseFloat(cs.left);
+      var bt=parseFloat(el.style.top);  if(isNaN(bt)) bt=parseFloat(cs.top);
+      baseOff.set(el,[isNaN(bl)?0:bl, isNaN(bt)?0:bt]);
     } else {
       mode.set(el,'transform');
-      if(!baseTf.has(el)) baseTf.set(el, el.style.transform||'');
+      if(!baseTf.has(el)) baseTf.set(el, baseTransform(el));
     }
   }
   function applyT(el,nx,ny){
@@ -821,7 +870,7 @@ export const EDITOR_RUNTIME = String.raw`
     // left/top que no incluye el translate y "salta". En texto no aplica: su tamaño
     // lo maneja fontSize/width sin ancla, y fijarle el ancho reflowearía de golpe.
     if(!isTxt && !el.ownerSVGElement){ el.removeAttribute('data-oc-abs'); promoteAbsolute(el); }
-    var r=el.getBoundingClientRect();
+    var r=layoutRect(el);   // sin la rotación: si no, un elemento girado se agranda al tocarlo
     rz={el:el, sx:e.clientX, sy:e.clientY, w:r.width, h:r.height, corner:corner,
         left:parseFloat(el.style.left)||0, top:parseFloat(el.style.top)||0,
         fs:parseFloat(cs.fontSize)||0,
@@ -1006,13 +1055,21 @@ export const EDITOR_RUNTIME = String.raw`
   function promoteAbsolute(el){
     if(el.ownerSVGElement) return;   // formas svg: position/left/top no existen
     if(el.getAttribute('data-oc-abs')) return;
-    var er=el.getBoundingClientRect();
+    // Sin la rotación: el rect de un elemento girado es su envolvente, no su caja.
+    var er=layoutRect(el);
     el.style.position='absolute';
     var op=el.offsetParent||document.body, opr=op.getBoundingClientRect();
     el.style.left=Math.round(er.left-opr.left)+'px';
     el.style.top=Math.round(er.top-opr.top)+'px';
     el.style.width=Math.round(er.width)+'px';
-    el.style.margin='0'; el.style.transform=''; delta.set(el,[0,0]);
+    el.style.margin='0';
+    // 'none', no '': vaciar el inline deja volver un transform declarado en un
+    // <style> (típico translate(-50%,-50%)) y el elemento se corre media caja.
+    el.style.transform='none';
+    // La posición quedó horneada en left/top, así que la contabilidad del arrastre
+    // (modo, base de transform/offset, delta) es vieja: si no se limpia, el próximo
+    // arrastre vuelve a sumar el transform anterior y el elemento salta.
+    mode.delete(el); baseTf.set(el,''); baseOff.delete(el); delta.set(el,[0,0]);
     el.setAttribute('data-oc-abs','1');
   }
   function moveTo(el,x,y){   // x,y en coordenadas de lienzo (origen 0,0)
@@ -1348,6 +1405,17 @@ export const EDITOR_RUNTIME = String.raw`
     else if(p==='opacity'){ el.style.opacity=(v/100); }
     else if(p==='rotate'){ prepSvgRotate(el); el.style.rotate=((parseFloat(v)||0)%360+360)%360+'deg'; }
     else if(p==='radius'){ el.style.borderRadius=v+'px'; }
+    // ── encaje de una imagen dentro de su caja ──────────────────────────────────
+    // 'auto' vuelve al alto natural (la caja sigue a la proporción de la foto);
+    // cover/contain/fill necesitan un alto explícito para tener sentido, así que se
+    // hornea el actual — sin cambio visual, pero desde ahí el encaje manda.
+    else if(p==='fit'){
+      if(v==='auto'){ el.style.objectFit=''; el.style.height='auto'; }
+      else {
+        if(!parseFloat(el.style.height)) el.style.height=Math.round(layoutRect(el).height)+'px';
+        el.style.objectFit=v;
+      }
+    }
     else if(p==='letterSpacing'){ el.style.letterSpacing=v+'px'; }
     // line-height negativo es inválido en CSS y el navegador lo ignoraría en
     // silencio: se aplica con piso en 0 (= líneas totalmente colapsadas).
@@ -1616,10 +1684,25 @@ export const EDITOR_RUNTIME = String.raw`
   // Reemplaza la fuente de la imagen seleccionada (para regenerar con IA, quitar
   // fondo o volver a una versión anterior). Va sumando cada src al historial para
   // poder comparar el fondo nuevo con el anterior y volver si no convence.
-  function setImgSrc(url){
+  /**
+   * Cambia la fuente de la imagen seleccionada.
+   *
+   * Con keepBox (reemplazar una imagen por otra) se congela la caja actual —
+   * left/top/ancho/alto reales — y se pasa a object-fit:cover, así la imagen nueva
+   * ocupa EXACTAMENTE el lugar de la anterior sin deformarse. Sin eso, una foto con
+   * height:auto y otra proporción cambiaba de alto y descolocaba la composición.
+   */
+  function setImgSrc(url, keepBox){
     if(!sels.length) return; var el=sels[0];
     if(el.tagName!=='IMG') return;
     snap();
+    if(keepBox){
+      var lr=layoutRect(el);
+      promoteAbsolute(el);   // fija left/top/ancho reales
+      el.style.width=Math.round(lr.width)+'px';
+      el.style.height=Math.round(lr.height)+'px';
+      if(!el.style.objectFit) el.style.objectFit='cover';
+    }
     var hist=readImgHist(el);
     // Primera vez: sembrar con la fuente actual (el fondo original que había).
     if(!hist.length){ var cur=el.getAttribute('src'); if(cur) hist=[cur]; }
@@ -1679,7 +1762,7 @@ export const EDITOR_RUNTIME = String.raw`
     else if(m.oc==='addText') addText();
     else if(m.oc==='addShape') addShape(m.kind);
     else if(m.oc==='addImage') addImage(m.url);
-    else if(m.oc==='setImgSrc') setImgSrc(m.url);
+    else if(m.oc==='setImgSrc') setImgSrc(m.url, m.keepBox);
     else if(m.oc==='setBg') setBg(m.value);
     else if(m.oc==='setTexture') setTexture(m.url, m.opacity);
     else if(m.oc==='scale'){ viewScale=Number(m.value)||1; }
