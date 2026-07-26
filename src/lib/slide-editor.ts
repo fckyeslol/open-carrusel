@@ -48,7 +48,8 @@ export const EDITOR_FONTS = [
  */
 export const EDITOR_RUNTIME = String.raw`
 (function(){
-  var sels=[], drag=null, rz=null, rot=null, squelch=false, clip=[], hist=[], HMAX=60;
+  var sels=[], drag=null, rz=null, rot=null, grz=null, band=null;
+  var squelch=false, clip=[], hist=[], HMAX=60;
   var W=document.body.clientWidth||1080, H=document.body.clientHeight||1350;
   var baseTf=new WeakMap(), delta=new WeakMap();
 
@@ -62,6 +63,10 @@ export const EDITOR_RUNTIME = String.raw`
     +'.oc-deg{position:absolute;left:0;top:0;background:#ff3b7f;color:#fff;font:600 13px/1.35 -apple-system,system-ui,sans-serif;padding:2px 9px;border-radius:6px;white-space:nowrap;pointer-events:none;z-index:2147483002;display:none;box-shadow:0 2px 8px rgba(0,0,0,.35)}'
     +'.oc-rotating,.oc-rotating *{cursor:grabbing !important}'
     +'.oc-box{position:absolute;outline:2px solid #4f7cff;outline-offset:1px}'
+    // Caja envolvente de una multi-selección (punteada, para distinguirla de la
+    // caja sólida de cada miembro) y banda de selección por arrastre.
+    +'.oc-gbox{position:absolute;left:0;top:0;outline:2px dashed #4f7cff;outline-offset:3px}'
+    +'.oc-band{position:absolute;left:0;top:0;border:1px solid #4f7cff;background:rgba(79,124,255,.14);display:none;z-index:5}'
     +'.oc-gl{position:absolute;left:0;top:0;background:#ff3b7f;z-index:2}'
     // Placeholder de imagen cargando/rota: vive ACÁ (hoja data-oc-ui, que nunca se
     // serializa) y no en el style inline del <img>, para que el recuadro gris no
@@ -213,6 +218,33 @@ export const EDITOR_RUNTIME = String.raw`
       rh.addEventListener('mousedown', startRotate);
       ui.appendChild(rh); handles.push({el:rh,c:'rot'});
     }
+    // ── multi-selección: caja envolvente punteada + 4 esquinas para escalar el
+    //    conjunto manteniendo las proporciones (posición, tamaño y tipografía de
+    //    cada miembro se escalan con el mismo factor). ──────────────────────────
+    else if(sels.length>1){
+      var bb=selBBox();
+      var gb=document.createElement('div'); gb.className='oc-gbox';
+      gb.style.cssText+=';width:'+(bb.right-bb.left)+'px;height:'+(bb.bottom-bb.top)+'px'
+        +';transform:translate('+bb.left+'px,'+bb.top+'px)';
+      ui.appendChild(gb);
+      [['nw',bb.left,bb.top,'nwse'],['ne',bb.right,bb.top,'nesw'],
+       ['sw',bb.left,bb.bottom,'nesw'],['se',bb.right,bb.bottom,'nwse']].forEach(function(c){
+        var h=document.createElement('div'); h.className='oc-h';
+        h.title='Arrastrá para escalar el conjunto';
+        h.style.cssText+=';left:0;top:0;cursor:'+c[3]+'-resize;transform:translate('+(c[1]-7)+'px,'+(c[2]-7)+'px)';
+        h.addEventListener('mousedown', function(ev){ startGroupResize(ev,c[0]); });
+        ui.appendChild(h); handles.push({el:h,c:c[0]});
+      });
+    }
+  }
+  /** Caja envolvente de la selección actual, en coordenadas de lienzo. */
+  function selBBox(){
+    var bb={left:Infinity, top:Infinity, right:-Infinity, bottom:-Infinity};
+    sels.forEach(function(el){
+      var r=el.getBoundingClientRect();
+      bb.left=Math.min(bb.left,r.left); bb.top=Math.min(bb.top,r.top);
+      bb.right=Math.max(bb.right,r.right); bb.bottom=Math.max(bb.bottom,r.bottom); });
+    return bb;
   }
   /** Dónde vive el handle de rotación: arriba del bbox, o abajo si no hay lugar. */
   function rotPos(r){
@@ -411,9 +443,132 @@ export const EDITOR_RUNTIME = String.raw`
   function select(el, additive, solo){
     if(!el){ if(!additive) clearSel(); return; }
     var ms = solo ? [el] : members(el);
-    if(additive){ ms.forEach(function(m){ if(sels.indexOf(m)<0) sels.push(m); }); }
+    if(additive){
+      // Ya estaba seleccionado → lo saca (toggle, como Canva): Shift/Ctrl+clic
+      // sirve tanto para sumar como para descartar sin rehacer la selección.
+      var allIn=true;
+      for(var i=0;i<ms.length;i++){ if(sels.indexOf(ms[i])<0){ allIn=false; break; } }
+      if(allIn) sels=sels.filter(function(s){ return ms.indexOf(s)<0; });
+      else ms.forEach(function(m){ if(sels.indexOf(m)<0) sels.push(m); });
+    }
     else sels=ms.slice();
     paint(); report();
+  }
+
+  // ── selección por arrastre (marquee) ─────────────────────────────────────────
+  // Arrastrar sobre una zona vacía dibuja una banda; al soltar entran todos los
+  // elementos que toca. Es la forma natural de agarrar "todo el bloque de texto"
+  // sin ir con Shift+clic uno por uno.
+  var bandEl=null;
+  function startBand(x,y,add){
+    band={x0:x, y0:y, x1:x, y1:y, moved:false, add:add};
+    if(!bandEl){
+      bandEl=document.createElement('div'); bandEl.className='oc-band';
+      bandEl.setAttribute('data-oc-ui','1'); gl.appendChild(bandEl);
+    }
+    bandEl.style.display='none';
+  }
+  function moveBand(x,y){
+    band.x1=x; band.y1=y;
+    if(Math.abs(x-band.x0)>4||Math.abs(y-band.y0)>4) band.moved=true;
+    if(!band.moved) return;
+    bandEl.style.display='block';
+    bandEl.style.width=Math.abs(x-band.x0)+'px';
+    bandEl.style.height=Math.abs(y-band.y0)+'px';
+    bandEl.style.transform='translate('+Math.min(band.x0,x)+'px,'+Math.min(band.y0,y)+'px)';
+  }
+  /** Cierra la banda. Devuelve true si hubo arrastre real (y por lo tanto selección). */
+  function endBand(){
+    var b=band; band=null;
+    if(bandEl) bandEl.style.display='none';
+    if(!b||!b.moved) return false;
+    var q={left:Math.min(b.x0,b.x1), top:Math.min(b.y0,b.y1),
+           right:Math.max(b.x0,b.x1), bottom:Math.max(b.y0,b.y1)};
+    var found=elementsInRect(q);
+    if(!b.add) sels=[];
+    found.forEach(function(el){
+      members(el).forEach(function(m){ if(sels.indexOf(m)<0) sels.push(m); });
+    });
+    paint(); report();
+    return true;
+  }
+  /**
+   * Elementos "de primera" (texto, imagen, forma) que tocan el rectángulo dado.
+   * Se queda con el más interno cuando uno contiene a otro, para no agarrar el
+   * contenedor y su contenido a la vez.
+   */
+  function elementsInRect(q){
+    var out=[], all=document.querySelectorAll('body *'), root=rootEl();
+    for(var i=0;i<all.length;i++){
+      var el=all[i], t=el.tagName;
+      if(t==='SCRIPT'||t==='STYLE'||t==='LINK') continue;
+      if(el.hasAttribute&&(el.hasAttribute('data-oc-ui')||el.hasAttribute('data-oc-tex'))) continue;
+      if(el.closest&&el.closest('[data-oc-ui]')) continue;
+      if(el===root||el.ownerSVGElement) continue;
+      if(!(isTextEl(el)||t==='IMG'||(el.getAttribute&&el.getAttribute('data-oc-shape'))||isSvgRoot(el))) continue;
+      if(tooBig(el)) continue;
+      var r=el.getBoundingClientRect();
+      if(r.width<1||r.height<1) continue;
+      if(r.right<q.left||r.left>q.right||r.bottom<q.top||r.top>q.bottom) continue;
+      out.push(el);
+    }
+    return out.filter(function(el){
+      return !out.some(function(o){ return o!==el && el.contains(o); });
+    });
+  }
+  function selectAll(){
+    sels=elementsInRect({left:-1e6, top:-1e6, right:1e6, bottom:1e6});
+    paint(); report();
+  }
+
+  // ── escala proporcional de una multi-selección ───────────────────────────────
+  // Un único factor k (del eje horizontal) reescala posición, tamaño y tipografía
+  // de cada miembro respecto de la esquina OPUESTA al handle, que queda fija.
+  function startGroupResize(e,corner){
+    if(sels.length<2) return;
+    drag=null;
+    snap();
+    var bb=selBBox();
+    sels.forEach(function(el){ if(!el.ownerSVGElement) promoteAbsolute(el); });
+    grz={corner:corner, sx:e.clientX, bb:bb,
+      items:sels.map(function(el){
+        var r=el.getBoundingClientRect(), cs=getComputedStyle(el);
+        return {el:el,
+          sl:parseFloat(el.style.left)||0, st:parseFloat(el.style.top)||0,
+          rl:r.left, rt:r.top, w:r.width, h:r.height,
+          fs:parseFloat(cs.fontSize)||0,
+          ls:cs.letterSpacing==='normal'?0:(parseFloat(cs.letterSpacing)||0),
+          isText:isTextEl(el), isImg:el.tagName==='IMG',
+          isLine:!!(el.getAttribute&&el.getAttribute('data-oc-line')),
+          // Formas DENTRO de un svg no tienen left/top ni width CSS: se dejan igual.
+          skip:!!el.ownerSVGElement};
+      })};
+    e.preventDefault(); e.stopPropagation();
+  }
+  function doGroupResize(x){
+    var c=grz.corner, bb=grz.bb;
+    var leftSide=(c==='nw'||c==='sw'), topSide=(c==='nw'||c==='ne');
+    var dx=x-grz.sx, bw=Math.max(1,bb.right-bb.left);
+    var k=Math.max(0.08,(bw+(leftSide?-dx:dx))/bw);
+    var ax=leftSide?bb.right:bb.left, ay=topSide?bb.bottom:bb.top;
+    grz.items.forEach(function(it){
+      if(it.skip) return;
+      var el=it.el;
+      // Posición: el punto se aleja/acerca del ancla con el mismo factor. Se
+      // corrige sobre el left/top REAL sumando el desplazamiento visual.
+      el.style.left=Math.round(it.sl+(ax+(it.rl-ax)*k-it.rl))+'px';
+      el.style.top=Math.round(it.st+(ay+(it.rt-ay)*k-it.rt))+'px';
+      if(it.isText){
+        el.style.fontSize=(Math.round(Math.max(6,it.fs*k)*100)/100)+'px';
+        el.style.width=Math.max(8,Math.round(it.w*k))+'px';
+        if(it.ls) el.style.letterSpacing=(Math.round(it.ls*k*100)/100)+'px';
+      } else {
+        el.style.width=Math.max(2,Math.round(it.w*k))+'px';
+        if(it.isImg) el.style.height='auto';
+        else if(!it.isLine) el.style.height=Math.max(2,Math.round(it.h*k))+'px';
+      }
+    });
+    paint(); showHandles(false);
   }
 
   // ── selección PARCIAL de texto: si el usuario marca un tramo dentro del texto
@@ -485,19 +640,31 @@ export const EDITOR_RUNTIME = String.raw`
   document.addEventListener('click', function(e){
     e.preventDefault(); e.stopPropagation();
     if(squelch){ squelch=false; return; }   // click sintético al soltar un drag/resize/rotación
-    select(candidateAt(e.clientX,e.clientY,e.altKey), e.shiftKey, e.altKey);
+    // Shift o Ctrl/Cmd suman (o descartan) elementos; Alt toma un miembro suelto.
+    select(candidateAt(e.clientX,e.clientY,e.altKey), e.shiftKey||e.ctrlKey||e.metaKey, e.altKey);
   }, true);
 
   // ── arrastre con transform + snap ────────────────────────────────────────────
   document.addEventListener('mousedown', function(e){
-    if(rz||rot||!sels.length) return;
+    if(rz||rot||grz) return;
     var x=e.clientX,y=e.clientY;
+    // Los handles del overlay tienen su propio mousedown (resize/rotación): este
+    // listener no debe armar un arrastre ni una banda encima de ellos.
+    if(e.target&&e.target.closest&&e.target.closest('[data-oc-ui]')) return;
+    // Dentro de una edición de texto el mouse es del caret, no del editor.
+    if(e.target&&e.target.closest&&e.target.closest('[contenteditable="true"]')) return;
     // Zona de agarre con mínimo 28px por eje: un elemento flaco (flecha de 6px de
     // alto) era imposible de "pescar" con el rect exacto.
-    var hit=sels.some(function(el){ var r=el.getBoundingClientRect();
+    var hit=sels.length>0&&sels.some(function(el){ var r=el.getBoundingClientRect();
       var px=Math.max(0,(28-r.width)/2), py=Math.max(0,(28-r.height)/2);
       return x>=r.left-px&&x<=r.right+px&&y>=r.top-py&&y<=r.bottom+py; });
-    if(!hit) return;
+    // Fuera de lo seleccionado: arrancar la banda de selección por arrastre.
+    if(!hit){ startBand(x,y,e.shiftKey||e.ctrlKey||e.metaKey); e.preventDefault(); return; }
+    // Con un modificador apretado el mousedown sobre algo YA seleccionado no
+    // arrastra: si armara un arrastre, su mouseup se comería el clic siguiente
+    // (squelch) y Shift/Ctrl+clic para descartar — o Alt+clic para tomar un
+    // miembro suelto del grupo — no llegaban nunca a ejecutarse.
+    if(e.shiftKey||e.ctrlKey||e.metaKey||e.altKey) return;
     if(sels[0].getAttribute('contenteditable')==='true') return;
     savedRange=null;   // agarrar el elemento entero = adiós al tramo marcado
     snap();
@@ -555,7 +722,9 @@ export const EDITOR_RUNTIME = String.raw`
     raf=0;
     if(!pend) return;
     var x=pend.x, y=pend.y, noSnap=pend.alt; pend=null;
+    if(band){ moveBand(x,y); return; }
     if(rot){ doRotate(x,y); return; }
+    if(grz){ doGroupResize(x); return; }
     if(rz){ doResize(x,y,noSnap); return; }
     if(!drag||!sels.length) return;
     var dx=x-drag.sx, dy=y-drag.sy;
@@ -579,7 +748,7 @@ export const EDITOR_RUNTIME = String.raw`
     drawGuides(gs);
   }
   window.addEventListener('mousemove', function(e){
-    if(!drag&&!rz&&!rot) return;
+    if(!drag&&!rz&&!rot&&!grz&&!band) return;
     pend={x:e.clientX,y:e.clientY,alt:e.altKey};
     if(!raf) raf=requestAnimationFrame(flush);
   });
@@ -589,7 +758,10 @@ export const EDITOR_RUNTIME = String.raw`
     // bajo el puntero (tras rotar suele ser "nada" → deseleccionaba). Lo tragamos.
     // Se auto-apaga en el próximo tick: si el navegador NO emite ese click
     // (targets distintos), el flag no puede comerse el siguiente clic real.
+    // La banda no modifica la lámina: no serializa, solo cambia la selección.
+    if(band){ if(endBand()) squelchNext(); return; }
     if(rot){ rot=null; squelchNext(); document.body.classList.remove('oc-rotating'); degBadge.style.display='none'; paint(); report(); serialize(); return; }
+    if(grz){ grz=null; squelchNext(); paint(); report(); serialize(); return; }
     if(rz){ rz=null; squelchNext(); clearGuides(); paint(); report(); serialize(); return; }
     if(drag){ drag=null; squelchNext(); clearGuides(); showHandles(true); paint(); report(); serialize(); }
   });
@@ -726,7 +898,8 @@ export const EDITOR_RUNTIME = String.raw`
     var ed=document.querySelector('[contenteditable="true"]');
     var mod=e.ctrlKey||e.metaKey;
     if(mod && e.key.toLowerCase()==='z'){ e.preventDefault(); undo(); return; }
-    if(ed) return;
+    if(ed) return;   // editando texto: Ctrl+A / Ctrl+C son del caret
+    if(mod && e.key.toLowerCase()==='a'){ e.preventDefault(); selectAll(); return; }
     if(mod && e.key.toLowerCase()==='c'){ e.preventDefault(); copy(); return; }
     // Ctrl+V NO se intercepta acá: dejamos que dispare el evento 'paste' nativo,
     // que sabe mirar el portapapeles del SISTEMA (imágenes) además del interno.
@@ -784,11 +957,22 @@ export const EDITOR_RUNTIME = String.raw`
   function paste(){
     if(!clip.length) return;
     snap();
-    var added=[];
+    // Duplicar un grupo tiene que dar OTRO grupo, no piezas sueltas: cada id de
+    // grupo del original se remapea a uno nuevo, compartido por las copias.
+    var added=[], gmap={}, gseq=0;
     clip.forEach(function(h){
       var t=document.createElement('div'); t.innerHTML=h;
       var el=t.firstElementChild; if(!el) return;
-      el.removeAttribute('data-oc-g');
+      var og=el.getAttribute('data-oc-g');
+      if(og){
+        if(!gmap[og]) gmap[og]='g'+Date.now().toString(36)+(gseq++);
+        el.setAttribute('data-oc-g', gmap[og]);
+      }
+      // Los ids de capa son únicos por elemento: la copia tiene que pedir el suyo
+      // (si no, el panel de capas ve dos filas con el mismo id).
+      el.removeAttribute('data-oc-id');
+      var kids=el.querySelectorAll('[data-oc-id]');
+      for(var q=0;q<kids.length;q++) kids[q].removeAttribute('data-oc-id');
       rootEl().appendChild(el);
       ensureFontsIn(el);
       var d=[20,20]; delta.set(el,d); baseTf.set(el, el.style.transform||'');

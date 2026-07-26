@@ -573,19 +573,34 @@ export function VisualEditor({
         {/* Cuerpo scrolleable */}
         <div className="flex-1 min-h-0 overflow-y-auto px-3">
           {!hasSel && (
-            <p className="py-4 text-xs text-muted-foreground leading-relaxed">
-              Clic en un elemento para editarlo. <b>Shift+clic</b> para seleccionar varios.
-              Doble clic cambia el texto; ahí podés <b>marcar una parte</b> y los cambios de
-              tipografía se aplican solo a esa parte. Arrastrá para mover; en texto, las{" "}
-              <b>esquinas</b> escalan la tipografía y los <b>laterales</b> ajustan el ancho.
-              El <b>círculo rosa con ↻</b> arriba del elemento lo rota: arrastralo en
-              la dirección del giro (imán cada 45°). Al mover o redimensionar aparecen{" "}
-              <b>guías inteligentes</b>: violeta cuando se alinea con otro elemento,
-              rosa con el centro, los márgenes o los bordes de la lámina. Mantené{" "}
-              <b>Alt</b> para mover libre, sin imán. <b>Copiar</b> (Ctrl+C) y{" "}
-              <b>Pegar</b> (Ctrl+V) funcionan entre láminas: copiá el logo o un texto,
-              cambiá de lámina y pegalo.
-            </p>
+            <div className="space-y-2 py-4 text-xs text-muted-foreground leading-relaxed">
+              <p>
+                Clic en un elemento para editarlo. Doble clic cambia el texto; ahí podés{" "}
+                <b>marcar una parte</b> y los cambios de tipografía se aplican solo a esa
+                parte. Arrastrá para mover; en texto, las <b>esquinas</b> escalan la
+                tipografía y los <b>laterales</b> ajustan el ancho. El{" "}
+                <b>círculo rosa con ↻</b> arriba del elemento lo rota: arrastralo en la
+                dirección del giro (imán cada 45°).
+              </p>
+              <p>
+                <b>Seleccionar varios:</b> arrastrá sobre una zona vacía para dibujar una
+                banda, o sumá con <b>Shift+clic</b> / <b>Ctrl+clic</b> (volver a clickear
+                un elemento lo descarta). <b>Ctrl+A</b> selecciona todo. Con varios
+                elementos, las <b>4 esquinas</b> escalan el conjunto manteniendo las
+                proporciones. <b>Alt+clic</b> toma un miembro suelto de un grupo.
+              </p>
+              <p>
+                Al mover o redimensionar aparecen <b>guías inteligentes</b>: violeta
+                cuando se alinea con otro elemento, rosa con el centro, los márgenes o
+                los bordes de la lámina. Apretá <b>Alt</b> mientras arrastrás para mover
+                libre, sin imán.
+              </p>
+              <p>
+                <b>Copiar</b> (Ctrl+C) y <b>Pegar</b> (Ctrl+V) funcionan entre láminas:
+                copiá el logo o un texto, cambiá de lámina y pegalo. Duplicar un grupo
+                devuelve otro grupo.
+              </p>
+            </div>
           )}
 
           {hasSel && (

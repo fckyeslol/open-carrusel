@@ -60,6 +60,9 @@ function check(name, ok, detail = "") {
 async function drag(page, x0, y0, x1, y1, opts = {}) {
   await page.mouse.move(x0, y0);
   await page.mouse.down();
+  // Alt se aprieta DESPUÉS del mousedown: con Alt ya apretado, el mousedown es
+  // "tomar un miembro suelto del grupo", no un arrastre.
+  if (opts.altDuring) await page.keyboard.down("Alt");
   const steps = 8;
   for (let i = 1; i <= steps; i++) {
     await page.mouse.move(x0 + ((x1 - x0) * i) / steps, y0 + ((y1 - y0) * i) / steps);
@@ -72,6 +75,7 @@ async function drag(page, x0, y0, x1, y1, opts = {}) {
       .map((d) => ({ w: d.style.width, h: d.style.height, tf: d.style.transform }))
   );
   if (!opts.keepDown) await page.mouse.up();
+  if (opts.altDuring) await page.keyboard.up("Alt");
   await new Promise((r) => setTimeout(r, 60));
   return guides;
 }
@@ -81,6 +85,9 @@ const rectOf = (page, id) =>
     const r = document.querySelector(sel).getBoundingClientRect();
     return { left: r.left, top: r.top, width: r.width, height: r.height, right: r.right, bottom: r.bottom };
   }, `#${id}`);
+
+/** Cuenta de elementos seleccionados según el overlay del runtime. */
+const selCount = (page) => page.evaluate(() => document.querySelectorAll(".oc-box").length);
 
 async function main() {
   const runtime = await loadRuntime();
@@ -142,12 +149,17 @@ async function main() {
     );
     check("muestra guía de lienzo en rosa", guides.length >= 2, `guías=${guides.length}`);
 
-    // Alt desactiva el imán: mismo gesto, sin snap.
-    await page.keyboard.down("Alt");
+    // Alt apretado DURANTE el arrastre desactiva el imán: movimiento exacto.
     sq = await rectOf(page, "sq");
     const beforeAlt = sq.left;
-    await drag(page, sq.left + sq.width / 2, sq.top + sq.height / 2, sq.left + sq.width / 2 - 137, sq.top + sq.height / 2);
-    await page.keyboard.up("Alt");
+    await drag(
+      page,
+      sq.left + sq.width / 2,
+      sq.top + sq.height / 2,
+      sq.left + sq.width / 2 - 137,
+      sq.top + sq.height / 2,
+      { altDuring: true }
+    );
     sq = await rectOf(page, "sq");
     check(
       "Alt desactiva el imán (movimiento exacto)",
@@ -169,7 +181,113 @@ async function main() {
       `right=${t1b.right} objetivo=${target}`
     );
 
+    // ── Fase 2: selección múltiple y grupos. Se recarga la lámina para volver a
+    //    geometría conocida (los arrastres anteriores movieron #sq). ────────────
+    const reset = async () => {
+      await page.setContent(html, { waitUntil: "domcontentloaded" });
+      await new Promise((r) => setTimeout(r, 150));
+    };
+
+    console.log("\nSelección por arrastre (marquee)");
+    await reset();
+    await drag(page, 50, 120, 520, 780);
+    check("la banda selecciona los elementos que toca", (await selCount(page)) === 2, `sel=${await selCount(page)}`);
+    const bandGone = await page.evaluate(
+      () => document.querySelector(".oc-band").style.display === "none"
+    );
+    check("la banda se oculta al soltar", bandGone);
+    check(
+      "la banda no toca los elementos fuera de su área",
+      Math.abs((await rectOf(page, "sq")).left - 700) < 0.6
+    );
+
+    console.log("\nSelección aditiva y toggle");
+    await reset();
+    await page.mouse.click(150, 225); // #t1
+    await page.keyboard.down("Shift");
+    await page.mouse.click(800, 300); // #sq
+    await page.keyboard.up("Shift");
+    check("Shift+clic suma a la selección", (await selCount(page)) === 2, `sel=${await selCount(page)}`);
+    await page.keyboard.down("Control");
+    await page.mouse.click(800, 300); // #sq otra vez
+    await page.keyboard.up("Control");
+    check("Ctrl+clic sobre lo ya seleccionado lo descarta", (await selCount(page)) === 1, `sel=${await selCount(page)}`);
+    await page.keyboard.down("Control");
+    await page.mouse.click(650, 1000); // #deep (anidado)
+    await page.keyboard.up("Control");
+    check("Ctrl+clic suma un elemento anidado", (await selCount(page)) === 2, `sel=${await selCount(page)}`);
+
+    await reset();
+    await page.keyboard.down("Control");
+    await page.keyboard.press("a");
+    await page.keyboard.up("Control");
+    check(
+      "Ctrl+A selecciona todos los elementos reales (no contenedores)",
+      (await selCount(page)) === 4,
+      `sel=${await selCount(page)}`
+    );
+
+    console.log("\nEscala proporcional del conjunto");
+    await reset();
+    await drag(page, 50, 120, 520, 780); // #t1 + #t2
+    const bb = await page.evaluate(() => {
+      const a = document.querySelector("#t1").getBoundingClientRect();
+      const b = document.querySelector("#t2").getBoundingClientRect();
+      return {
+        left: Math.min(a.left, b.left),
+        top: Math.min(a.top, b.top),
+        right: Math.max(a.right, b.right),
+        bottom: Math.max(a.bottom, b.bottom),
+      };
+    });
+    const hasGbox = await page.evaluate(() => !!document.querySelector(".oc-gbox"));
+    check("la multi-selección dibuja su caja envolvente", hasGbox);
+    const gHandles = await page.evaluate(
+      () => [...document.querySelectorAll(".oc-h")].length
+    );
+    check("ofrece 4 esquinas para escalar el conjunto", gHandles === 4, `handles=${gHandles}`);
+    // k = 1.5 arrastrando la esquina SE 160px a la derecha sobre un ancho de 320.
+    const bw = bb.right - bb.left;
+    await drag(page, bb.right, bb.bottom, bb.right + bw * 0.5, bb.bottom);
+    const t1s = await page.evaluate(() => ({
+      fs: parseFloat(getComputedStyle(document.querySelector("#t1")).fontSize),
+      left: document.querySelector("#t1").getBoundingClientRect().left,
+      top: document.querySelector("#t1").getBoundingClientRect().top,
+    }));
+    const t2s = await rectOf(page, "t2");
+    check("escala la tipografía del conjunto (52px → 78px)", Math.abs(t1s.fs - 78) < 1.5, `fs=${t1s.fs}`);
+    check("la esquina opuesta queda fija", Math.abs(t1s.left - 100) < 1.5 && Math.abs(t1s.top - 200) < 1.5,
+      `t1=(${t1s.left},${t1s.top})`);
+    check(
+      "reposiciona los miembros con el mismo factor",
+      Math.abs(t2s.top - (200 + (640 - 200) * 1.5)) < 3,
+      `t2.top=${t2s.top} esperado=${200 + (640 - 200) * 1.5}`
+    );
+
+    console.log("\nDuplicar un grupo");
+    await reset();
+    await drag(page, 50, 120, 520, 780);
+    await page.evaluate(() => window.postMessage({ oc: "group" }, "*"));
+    await new Promise((r) => setTimeout(r, 60));
+    await page.evaluate(() => window.postMessage({ oc: "duplicate" }, "*"));
+    await new Promise((r) => setTimeout(r, 120));
+    const groups = await page.evaluate(() => {
+      const els = [...document.querySelectorAll("[data-oc-g]")];
+      const ids = [...new Set(els.map((e) => e.getAttribute("data-oc-g")))];
+      return { count: els.length, ids: ids.length };
+    });
+    check("la copia sigue siendo un grupo", groups.ids === 2, `grupos=${groups.ids}`);
+    check("con los mismos miembros que el original", groups.count === 4, `miembros=${groups.count}`);
+    const dupIds = await page.evaluate(() => {
+      const ids = [...document.querySelectorAll("[data-oc-id]")].map((e) =>
+        e.getAttribute("data-oc-id")
+      );
+      return { total: ids.length, unique: new Set(ids).size };
+    });
+    check("no hay ids de capa duplicados", dupIds.total === dupIds.unique, `${dupIds.unique}/${dupIds.total}`);
+
     console.log("\nSerialización");
+    await reset();
     const serialized = await page.evaluate(() => {
       return new Promise((resolve) => {
         const onMsg = (e) => {
