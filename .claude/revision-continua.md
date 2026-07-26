@@ -17,6 +17,11 @@ es efímero. La regla es:
 Al final de cada ronda mergeás la rama revisada en la del revisor, así el
 marcador avanza solo y vive en git, que sí sobrevive a un reinicio.
 
+**El marcador avanza al PUSHEAR, no al commitear en local.** Aprovechalo: mergeá
+y commiteá apenas resolvés los conflictos, para no perder el trabajo, pero no
+pushees hasta haber revisado de verdad. Si pusheás antes, esos commits quedan
+marcados como revisados y ninguna ronda futura los va a mirar.
+
 ## Ronda
 
 1. `cd /home/user/open-carrusel && git fetch origin --prune`
