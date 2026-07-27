@@ -16,6 +16,9 @@
  * atómica) para que dos ingestas en paralelo no se pisen el archivo.
  */
 import { readDataSafe, updateData } from "./data";
+import { listCarousels } from "./carousels";
+import { listAvatarPresets } from "./style-presets";
+import { isHostedMode } from "./hosted";
 import { generateId, now } from "./utils";
 import type { IngestStageId } from "@/types/ingest-progress";
 
@@ -64,6 +67,11 @@ export interface ManualEntry {
 
 interface Store {
   entries: ManualEntry[];
+  /**
+   * Cuándo se sembró el historial desde los carruseles que ya existían. Es la
+   * marca que hace que la siembra corra UNA sola vez (ver ensureBackfilled).
+   */
+  backfilledAt?: string;
 }
 
 const EMPTY: Store = { entries: [] };
@@ -80,13 +88,88 @@ function isStale(entry: ManualEntry, cutoff: number): boolean {
 }
 
 /**
+ * Reconstruye el historial de los carruseles que YA se habían creado pegando una
+ * URL a mano, antes de que este historial existiera. El carrusel guarda todo lo
+ * necesario (`source: "manual"` + `referenceUrl` + `avatarSlug`), así que la
+ * bitácora no tiene por qué arrancar en blanco.
+ *
+ * Se saltean los hermanos de resize: `createResizedSibling` copia el `source` y
+ * el `referenceUrl` del original, así que sin este filtro cada "Generar otros
+ * tamaños" aparecería como una entrada manual repetida.
+ */
+async function seedsFromCarousels(): Promise<ManualEntry[]> {
+  const carousels = await listCarousels();
+  const manual = carousels.filter(
+    (c) => c.source === "manual" && c.referenceUrl && !c.resizedFrom
+  );
+  if (manual.length === 0) return [];
+
+  // Los presets se leen UNA vez y no uno por carrusel: solo hacen falta para
+  // mostrar "Andrés Bilbao" en vez de "andres-bilbao".
+  const names = new Map(
+    (await listAvatarPresets())
+      .filter((p) => p.avatarSlug)
+      .map((p) => [p.avatarSlug!.toLowerCase(), p.name] as const)
+  );
+
+  return manual.map((c) => ({
+    id: generateId(),
+    referenceUrl: c.referenceUrl!,
+    avatarSlug: c.avatarSlug ?? "",
+    avatarName: names.get((c.avatarSlug ?? "").toLowerCase()) ?? null,
+    note: null,
+    designerId: null,
+    status: "ready" as const,
+    carouselId: c.id,
+    referenceCount: c.referenceImages?.length ?? null,
+    stage: null,
+    error: null,
+    createdAt: c.createdAt,
+    updatedAt: c.updatedAt,
+  }));
+}
+
+/**
+ * Siembra el historial una única vez y devuelve el store ya listo.
+ *
+ * El marcador `backfilledAt` (y no "¿está vacío?") es lo que decide: si se
+ * volviera a derivar del listado de carruseles en cada lectura, cada "Quitar del
+ * historial" se desharía solo en el próximo poll. Una vez sembrado, el store es
+ * la única fuente de verdad. El chequeo se repite DENTRO de `updateData` porque
+ * dos pedidos en paralelo pueden llegar los dos con el archivo sin sembrar; ahí
+ * el mutex los serializa y el segundo ve la marca del primero.
+ *
+ * En modo hosteado NO se siembra: el carrusel no guarda de quién es, así que no
+ * hay forma de atribuirle las entradas viejas a una diseñadora. Quedarían con
+ * `designerId: null` — invisibles para todas y ocupando lugar en el historial.
+ * Igual se deja la marca, para no recalcular la siembra en cada lectura.
+ */
+async function ensureBackfilled(): Promise<Store> {
+  const store = await readDataSafe<Store>(FILE, EMPTY);
+  if (store.backfilledAt) return store;
+
+  const seeds = isHostedMode() ? [] : await seedsFromCarousels();
+  return updateData<Store>(FILE, EMPTY, (current) => {
+    if (current.backfilledAt) return current; // otro pedido ganó la carrera
+    const known = new Set(current.entries.map((e) => e.carouselId).filter(Boolean));
+    return {
+      ...current,
+      entries: [...current.entries, ...seeds.filter((s) => !known.has(s.carouselId))]
+        .sort(byNewest)
+        .slice(0, MAX_ENTRIES),
+      backfilledAt: now(),
+    };
+  });
+}
+
+/**
  * Lista el historial, cerrando de paso las ingestas que quedaron colgadas (ver
  * STALE_MS). La reconciliación va acá y no en un job aparte porque este store
  * solo se lee cuando la UI abre el historial: es el único momento en que
  * alguien puede ver una entrada zombi, y es cuando conviene corregirla.
  */
 export async function listManualEntries(): Promise<ManualEntry[]> {
-  const store = await readDataSafe<Store>(FILE, EMPTY);
+  const store = await ensureBackfilled();
   const cutoff = Date.now() - STALE_MS;
   if (!store.entries.some((e) => isStale(e, cutoff))) {
     return [...store.entries].sort(byNewest);
@@ -107,7 +190,7 @@ export async function listManualEntries(): Promise<ManualEntry[]> {
           }
         : e
     );
-    return { entries: reconciled };
+    return { ...current, entries: reconciled };
   });
   return [...reconciled].sort(byNewest);
 }
@@ -156,6 +239,7 @@ export async function createManualEntry(input: NewManualEntry): Promise<ManualEn
   };
 
   await updateData<Store>(FILE, EMPTY, (store) => ({
+    ...store,
     // Se poda por fecha, no por posición: el orden de inserción y el de creación
     // pueden divergir si dos ingestas escriben intercaladas.
     entries: [...store.entries, entry].sort(byNewest).slice(0, MAX_ENTRIES),
@@ -163,8 +247,14 @@ export async function createManualEntry(input: NewManualEntry): Promise<ManualEn
   return entry;
 }
 
+/**
+ * Parchea una entrada. Todas las mutaciones esparcen `...store` a propósito: si
+ * alguna devolviera solo `{ entries }` se perdería `backfilledAt` y la siembra
+ * volvería a correr, resucitando lo que se hubiera quitado del historial.
+ */
 async function patch(id: string, changes: Partial<ManualEntry>): Promise<void> {
   await updateData<Store>(FILE, EMPTY, (store) => ({
+    ...store,
     entries: store.entries.map((e) =>
       e.id === id ? { ...e, ...changes, updatedAt: now() } : e
     ),
@@ -209,7 +299,7 @@ export async function deleteManualEntry(id: string): Promise<boolean> {
   await updateData<Store>(FILE, EMPTY, (store) => {
     const kept = store.entries.filter((e) => e.id !== id);
     removed = kept.length !== store.entries.length;
-    return { entries: kept };
+    return { ...store, entries: kept };
   });
   return removed;
 }
