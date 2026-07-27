@@ -177,7 +177,12 @@ function validate(input) {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost");
 
-  if (url.pathname === "/healthz" && req.method === "GET") {
+  // ⚠️ `/_health` y NO `/healthz`: en Cloud Run `/healthz` está RESERVADO y lo intercepta la
+  // infra de Google antes de llegar al contenedor. Verificado contra el servicio desplegado:
+  // `/healthz` devuelve un 404 propio (sin el header `server: Google Frontend`), mientras que
+  // `/health`, `/_health`, `/readyz`, `/status`, `/livez` y `/version` devuelven el 403 de IAM
+  // que corresponde. No lo renombres a `/healthz`.
+  if (url.pathname === "/_health" && req.method === "GET") {
     // contractVersion permite que el cliente detecte un deploy a medias (la app y el
     // servicio con versiones distintas del contrato renderizarían distinto en silencio).
     return json(res, 200, {

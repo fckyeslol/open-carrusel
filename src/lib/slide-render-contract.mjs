@@ -22,8 +22,8 @@
  *
  * ⚠️ Si editás este archivo —o `strip-slide-background.mjs`, que se re-exporta acá— subí
  * CONTRACT_VERSION y redesplegá LAS DOS PARTES. El cliente compara su versión con la que
- * reporta /healthz y avisa si divergen: sin eso, un deploy a medias renderiza distinto sin
- * que nadie se entere.
+ * reporta en /_health y avisa si divergen: sin eso, un deploy a medias renderiza distinto
+ * sin que nadie se entere.
  */
 
 /**

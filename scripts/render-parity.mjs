@@ -143,6 +143,7 @@ async function renderRemote() {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      ...(await bearer()),
       ...(TOKEN ? { "X-Internal-Token": TOKEN } : {}),
     },
     body: JSON.stringify(PAYLOAD),
@@ -171,8 +172,50 @@ async function diffPixels(a, b) {
 
 const sha = (b) => createHash("sha256").update(b).digest("hex").slice(0, 16);
 
+/**
+ * Header `Authorization` para el servicio de render.
+ *
+ * El servicio se deploya con `--no-allow-unauthenticated`, así que Cloud Run exige un ID
+ * token con el audience = la URL del servicio. Sin esto el script recibe 403 y no puede
+ * comparar nada. En producción la app lo saca de la metadata server; desde una máquina se
+ * saca con gcloud.
+ *
+ * Orden: RENDER_ID_TOKEN del env (útil en CI) → gcloud. Si no hay ninguno, se avisa con la
+ * instrucción exacta en vez de fallar con un 403 pelado.
+ */
+async function bearer() {
+  if (process.env.RENDER_ID_TOKEN) {
+    return { Authorization: `Bearer ${process.env.RENDER_ID_TOKEN}` };
+  }
+  try {
+    const { execFileSync } = await import("child_process");
+    const cmd = process.platform === "win32" ? "gcloud.cmd" : "gcloud";
+    const token = execFileSync(
+      cmd,
+      ["auth", "print-identity-token", `--audiences=${SERVICE}`],
+      { encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }
+    ).trim();
+    if (token) return { Authorization: `Bearer ${token}` };
+  } catch {
+    // gcloud sin login o no instalado: se avisa abajo.
+  }
+  console.error(
+    `\nNo se pudo obtener un ID token para ${SERVICE}.\n` +
+      `El servicio de render exige auth de IAM. Hacé una de estas dos:\n` +
+      `  gcloud auth login          (y volvé a correr este script)\n` +
+      `  RENDER_ID_TOKEN=$(gcloud auth print-identity-token --audiences=${SERVICE}) node scripts/render-parity.mjs\n`
+  );
+  return {};
+}
+
 async function main() {
-  const health = await fetch(`${SERVICE}/healthz`).then((r) => r.json());
+  // `/_health`, no `/healthz`: ese path está reservado en Cloud Run (ver server.mjs).
+  const health = await fetch(`${SERVICE}/_health`, {
+    headers: {
+      ...(await bearer()),
+      ...(TOKEN ? { "X-Internal-Token": TOKEN } : {}),
+    },
+  }).then((r) => r.json());
   console.log(`contrato — app v${CONTRACT_VERSION} · servicio v${health.contractVersion}`);
   if (health.contractVersion !== CONTRACT_VERSION) {
     console.error(
