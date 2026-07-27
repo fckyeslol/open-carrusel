@@ -146,6 +146,14 @@ export async function readDataSafe<T>(filename: string, fallback: T): Promise<T>
 }
 
 /**
+ * Sentinela para `mutate`: devolverlo CANCELA la escritura y deja el archivo tal
+ * cual. Sirve para las mutaciones que descubren, ya con el lock tomado, que no hay
+ * nada que cambiar (id inexistente, límite alcanzado). Sin esto habría que
+ * reescribir el archivo entero para responder un 404.
+ */
+export const SKIP_WRITE = Symbol("skip-write");
+
+/**
  * Lee, transforma y escribe dentro del mismo lock.
  *
  * `readDataSafe` + `writeData` por separado dejan una ventana entre la lectura y
@@ -161,7 +169,7 @@ export async function readDataSafe<T>(filename: string, fallback: T): Promise<T>
 export async function updateData<T>(
   filename: string,
   fallback: T,
-  mutate: (current: T) => T
+  mutate: (current: T) => T | typeof SKIP_WRITE
 ): Promise<T> {
   const mutex = getMutex(filename);
   return mutex.runExclusive(async () => {
@@ -176,6 +184,7 @@ export async function updateData<T>(
       }
     }
     const next = mutate(current);
+    if (next === SKIP_WRITE) return current;
     await atomicWrite(path.join(DATA_DIR, filename), next);
     return next;
   });
