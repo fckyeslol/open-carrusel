@@ -20,6 +20,12 @@ export interface ManualEntry {
   stage: string | null;
   error: string | null;
   createdAt: string;
+  /**
+   * Entrada sin dueña, del fondo común del equipo: viene de un carrusel que ya
+   * existía antes de que hubiera historial, así que no se sabe quién lo hizo.
+   * Solo llega en modo hosteado — en local no hay dueñas que distinguir.
+   */
+  shared?: boolean;
 }
 
 /** Cuántas entradas se muestran antes de tener que desplegar el resto. */
@@ -162,6 +168,17 @@ export function ManualHistory({ refreshKey = 0, onReuse }: ManualHistoryProps) {
                   </span>
                   <span aria-hidden="true">·</span>
                   <span>{whenLabel(entry.createdAt)}</span>
+                  {entry.shared && (
+                    <>
+                      <span aria-hidden="true">·</span>
+                      <span
+                        title="De antes del historial: no quedó registrado quién lo generó"
+                        className="rounded-full border border-border px-1.5 py-px text-[10px]"
+                      >
+                        del equipo
+                      </span>
+                    </>
+                  )}
                   {entry.referenceCount !== null && (
                     <>
                       <span aria-hidden="true">·</span>

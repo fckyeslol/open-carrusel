@@ -18,7 +18,6 @@
 import { readDataSafe, updateData } from "./data";
 import { listCarousels } from "./carousels";
 import { listAvatarPresets } from "./style-presets";
-import { isHostedMode } from "./hosted";
 import { generateId, now } from "./utils";
 import type { IngestStageId } from "@/types/ingest-progress";
 
@@ -139,16 +138,17 @@ async function seedsFromCarousels(): Promise<ManualEntry[]> {
  * dos pedidos en paralelo pueden llegar los dos con el archivo sin sembrar; ahí
  * el mutex los serializa y el segundo ve la marca del primero.
  *
- * En modo hosteado NO se siembra: el carrusel no guarda de quién es, así que no
- * hay forma de atribuirle las entradas viejas a una diseñadora. Quedarían con
- * `designerId: null` — invisibles para todas y ocupando lugar en el historial.
- * Igual se deja la marca, para no recalcular la siembra en cada lectura.
+ * Lo sembrado queda SIN dueña (`designerId: null`). El carrusel no guarda quién
+ * lo creó, así que no hay a quién atribuírselo — y en modo hosteado esas entradas
+ * se muestran a todas (ver listManualEntriesForDesigner). No filtra nada: la lista
+ * de carruseles ya es compartida, este historial solo apunta a esos mismos
+ * carruseles. La atribución real arranca con las entradas nuevas.
  */
 async function ensureBackfilled(): Promise<Store> {
   const store = await readDataSafe<Store>(FILE, EMPTY);
   if (store.backfilledAt) return store;
 
-  const seeds = isHostedMode() ? [] : await seedsFromCarousels();
+  const seeds = await seedsFromCarousels();
   return updateData<Store>(FILE, EMPTY, (current) => {
     if (current.backfilledAt) return current; // otro pedido ganó la carrera
     const known = new Set(current.entries.map((e) => e.carouselId).filter(Boolean));
@@ -195,11 +195,21 @@ export async function listManualEntries(): Promise<ManualEntry[]> {
   return [...reconciled].sort(byNewest);
 }
 
-/** Historial de UNA diseñadora (modo hosteado). */
+/**
+ * Historial de UNA diseñadora (modo hosteado): lo suyo MÁS lo que no tiene dueña.
+ *
+ * Las entradas sin dueña son las sembradas desde carruseles que ya existían,
+ * de antes de que se registrara quién generaba qué. Se muestran a todas porque
+ * los carruseles a los que apuntan ya son visibles para todas (`GET /api/carousels`
+ * no filtra por usuaria); esconderlas no protegería nada y dejaría a cada una sin
+ * su propio trabajo anterior.
+ */
 export async function listManualEntriesForDesigner(
   designerId: string
 ): Promise<ManualEntry[]> {
-  return (await listManualEntries()).filter((e) => e.designerId === designerId);
+  return (await listManualEntries()).filter(
+    (e) => e.designerId === designerId || e.designerId === null
+  );
 }
 
 export async function getManualEntry(id: string): Promise<ManualEntry | null> {

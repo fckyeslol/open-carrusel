@@ -23,7 +23,9 @@ export async function DELETE(
   if (isHostedMode()) {
     const user = await getSessionUser(request);
     if (!user) return NextResponse.json({ error: "No autenticada" }, { status: 401 });
-    if (entry.designerId !== user.id) {
+    // Las entradas sin dueña son del equipo (sembradas de carruseles viejos):
+    // cualquiera puede limpiarlas. Las de otra diseñadora, no.
+    if (entry.designerId !== null && entry.designerId !== user.id) {
       return NextResponse.json({ error: "Esta entrada no es tuya" }, { status: 403 });
     }
   }
