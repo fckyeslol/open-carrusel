@@ -12,6 +12,21 @@
  * sistema, acentos del español y emoji—. Una lámina real es peor test: sus fuentes viajan
  * inlineadas en base64 dentro del HTML, así que taparían justo la diferencia que buscamos.
  *
+ * ⚠️ DÓNDE CORRERLO IMPORTA, y es fácil sacar la conclusión equivocada.
+ *
+ * El lado "local" es ESTA máquina. La pregunta que de verdad importa no es "¿mi máquina
+ * coincide con el servicio?" sino "¿el contenedor del RENDER coincide con el de la APP?",
+ * porque eso es lo que decide si los exports se siguen viendo igual que antes del cambio.
+ *
+ * Corrido desde Windows o macOS, una divergencia del 3-6% es NORMAL y no dice nada de
+ * producción: son fuentes de sistema distintas (la monoespaciada genérica y los emoji son
+ * los que más se notan). Por eso, fuera de Linux, este script informa la diferencia pero NO
+ * la trata como fallo.
+ *
+ * Para el chequeo que sí es un gate, corré el fixture DENTRO de la imagen de la app y
+ * comparalo contra el servicio — las dos son node:20-bookworm-slim con la misma lista de
+ * paquetes de fuentes, así que ahí sí se espera igualdad byte a byte.
+ *
  * Los dos lados renderizan el MISMO html con los MISMOS args de Chrome y el mismo
  * post-proceso de sharp, así que cualquier diferencia de bytes es diferencia de ENTORNO:
  * fuentes, versión de Chrome o versión de sharp.
@@ -183,36 +198,113 @@ const sha = (b) => createHash("sha256").update(b).digest("hex").slice(0, 16);
  * Orden: RENDER_ID_TOKEN del env (útil en CI) → gcloud. Si no hay ninguno, se avisa con la
  * instrucción exacta en vez de fallar con un 403 pelado.
  */
+/** ¿El destino es local? Entonces no hay IAM de Cloud Run en el medio. */
+function esLocal() {
+  try {
+    const h = new URL(SERVICE).hostname;
+    return h === "localhost" || h === "127.0.0.1" || h === "::1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Header `Authorization` para el servicio de render, o `null` si no se pudo conseguir.
+ *
+ * ⚠️ Con una cuenta de USUARIO no hay forma de emitir el token: `gcloud auth
+ * print-identity-token --audiences=<url>` falla con "Invalid account type for
+ * `--audiences`. Requires valid service account." Y sin `--audiences` el token sale con el
+ * audience del client de gcloud, que Cloud Run rechaza. O sea: estar logueado con
+ * `gcloud auth login` NO alcanza, y volver a loguearse tampoco cambia nada.
+ *
+ * Las tres vías que sí funcionan, en orden de practicidad:
+ *
+ *  1. `gcloud run services proxy` — levanta un proxy local que inyecta la auth con tus
+ *     credenciales de usuario. Apuntás RENDER_SERVICE_URL a localhost y este script no
+ *     manda ningún token (ver esLocal). Es la vía recomendada para una persona.
+ *  2. Impersonar la service account, si tenés roles/iam.serviceAccountTokenCreator sobre
+ *     ella (se intenta abajo).
+ *  3. RENDER_ID_TOKEN en el env, para CI (ahí la identidad ya es una service account).
+ */
 async function bearer() {
+  if (esLocal()) return {}; // proxy local o servicio local: sin IAM en el medio
   if (process.env.RENDER_ID_TOKEN) {
     return { Authorization: `Bearer ${process.env.RENDER_ID_TOKEN}` };
   }
-  try {
-    const { execFileSync } = await import("child_process");
-    const cmd = process.platform === "win32" ? "gcloud.cmd" : "gcloud";
-    const token = execFileSync(
-      cmd,
-      ["auth", "print-identity-token", `--audiences=${SERVICE}`],
-      { encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }
-    ).trim();
-    if (token) return { Authorization: `Bearer ${token}` };
-  } catch {
-    // gcloud sin login o no instalado: lo reporta quien llama.
+
+  const { execFileSync } = await import("child_process");
+  const cmd = process.platform === "win32" ? "gcloud.cmd" : "gcloud";
+  // ⚠️ `shell: true` es OBLIGATORIO en Windows: desde la mitigación de CVE-2024-27980, Node
+  // se NIEGA a ejecutar un .cmd/.bat con execFile sin shell y tira EINVAL. Sin esto, los dos
+  // intentos de gcloud fallan al instante y parece "no hay credenciales" cuando en realidad
+  // nunca se llegó a ejecutar gcloud. Los argumentos no llevan espacios, así que unirlos para
+  // la shell es seguro acá.
+  const run = (args) =>
+    execFileSync(cmd, args, {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: process.platform === "win32",
+    }).trim();
+
+  // Los fallos se ACUMULAN y se reportan: tragárselos en silencio fue justo lo que escondió
+  // el EINVAL de arriba durante la verificación en producción.
+  const fallos = [];
+  const intentar = (etiqueta, args) => {
+    try {
+      const t = run(args);
+      const jwt = t.split(/\r?\n/).find((l) => l.startsWith("ey"));
+      if (jwt) return jwt;
+      fallos.push(`${etiqueta}: gcloud no devolvió un token`);
+    } catch (e) {
+      const detalle = (e.stderr || e.message || String(e)).trim().split(/\r?\n/)[0];
+      fallos.push(`${etiqueta}: ${detalle}`);
+    }
+    return null;
+  };
+
+  // Directo (sirve si la credencial activa YA es una service account).
+  const directo = intentar("directo", [
+    "auth",
+    "print-identity-token",
+    `--audiences=${SERVICE}`,
+  ]);
+  if (directo) return { Authorization: `Bearer ${directo}` };
+
+  // Impersonación de la service account de runtime.
+  const sa = process.env.RENDER_IMPERSONATE_SA;
+  if (sa) {
+    const imp = intentar(`impersonando ${sa}`, [
+      "auth",
+      "print-identity-token",
+      `--impersonate-service-account=${sa}`,
+      `--audiences=${SERVICE}`,
+      "--include-email",
+    ]);
+    if (imp) return { Authorization: `Bearer ${imp}` };
+  } else {
+    fallos.push("impersonación: RENDER_IMPERSONATE_SA no está seteada");
   }
+
   // null y NO {}: sin token el servicio devuelve una página HTML de 403 y seguir adelante
   // termina en "Unexpected token '<'", que esconde la causa real.
+  bearer.fallos = fallos;
   return null;
 }
 
-/** Instrucción para conseguir el token, en la sintaxis de la shell que corresponde. */
+/** Cómo alcanzar el servicio, en la sintaxis de la shell que corresponde. */
 function comoAutenticarse() {
   const psh = process.platform === "win32";
-  return psh
-    ? `  gcloud auth login\n` +
-        `  $env:RENDER_SERVICE_URL = "${SERVICE}"\n` +
-        `  node scripts/render-parity.mjs\n`
-    : `  gcloud auth login\n` +
-        `  RENDER_SERVICE_URL=${SERVICE} node scripts/render-parity.mjs\n`;
+  const set = (v) => (psh ? `$env:${v.split("=")[0]} = "${v.split("=").slice(1).join("=")}"` : v);
+  return (
+    `  A) Proxy local (recomendado). En OTRA terminal, dejá corriendo:\n` +
+    `       gcloud run services proxy open-carrusel-render --region=us-east1 --port=8099\n` +
+    `     y en esta:\n` +
+    `       ${set("RENDER_SERVICE_URL=http://localhost:8099")}\n` +
+    `       node scripts/render-parity.mjs\n\n` +
+    `  B) Impersonando la service account (si tenés serviceAccountTokenCreator):\n` +
+    `       ${set("RENDER_IMPERSONATE_SA=oc-runtime@prewave-prod.iam.gserviceaccount.com")}\n` +
+    `       node scripts/render-parity.mjs\n`
+  );
 }
 
 async function main() {
@@ -224,7 +316,9 @@ async function main() {
       `No se pudo obtener un ID token para\n  ${SERVICE}\n\n` +
         `El servicio de render exige auth de IAM (se deploya con --no-allow-unauthenticated),\n` +
         `así que sin token Cloud Run rechaza el request antes de que llegue al contenedor.\n\n` +
-        `Corré esto:\n${comoAutenticarse()}`
+        `Qué se intentó:\n` +
+        (bearer.fallos ?? []).map((f) => `  - ${f}\n`).join("") +
+        `\nCorré esto:\n${comoAutenticarse()}`
     );
     process.exitCode = 1;
     return;
@@ -274,17 +368,41 @@ async function main() {
   const { distintos, total } = await diffPixels(local, remote.buf);
   const pct = total > 0 ? ((distintos / total) * 100).toFixed(2) : "?";
 
-  console.error(`\nDIVERGENCIA: ${distintos} de ${total} píxeles (${pct}%)`);
-  console.error(`  ${fLocal}`);
-  console.error(`  ${fRemote}`);
+  console.log(`\nDIFERENCIA: ${distintos} de ${total} píxeles (${pct}%)`);
+  console.log(`  ${fLocal}`);
+  console.log(`  ${fRemote}`);
+
+  if (total === -1) {
+    console.error("\nLas dimensiones no coinciden — revisá width/height/scale.");
+    process.exitCode = 2;
+    return;
+  }
+
+  // Fuera de Linux, "local" no es el entorno de la app: la diferencia es esperable y no es
+  // un fallo. Tratarla como fallo daba un falso negativo — el caso real que lo motivó: desde
+  // Windows dio 4.93% solo porque la monoespaciada genérica y los emoji son otros.
+  if (process.platform !== "linux") {
+    console.log(
+      `\nEsto NO es un fallo: estás en ${process.platform}, así que compararse contra un\n` +
+        `contenedor Debian siempre difiere (la monoespaciada genérica y los emoji son los que\n` +
+        `más se notan). Mirá los dos PNG: si Sans, Serif, el fallback y los pesos se ven\n` +
+        `iguales, el entorno del servicio está bien.\n\n` +
+        `El gate de verdad es imagen-de-app vs imagen-de-render, las dos Debian con la misma\n` +
+        `lista de fuentes. Para correrlo así:\n` +
+        `  docker build -t oc-app .\n` +
+        `  docker run --rm -e RENDER_SERVICE_URL -e RENDER_ID_TOKEN -e INTERNAL_API_TOKEN \\\n` +
+        `    oc-app node scripts/render-parity.mjs`
+    );
+    process.exitCode = 0;
+    return;
+  }
+
   console.error(
-    total === -1
-      ? "\nLas dimensiones no coinciden — revisá width/height/scale."
-      : distintos / total > 0.01
-        ? "\nDiferencia grande: casi seguro FUENTES. Compará los paquetes de fuentes de\n" +
-          "render-service/Dockerfile con los del Dockerfile de la app (deben ser idénticos)."
-        : "\nDiferencia chica: probablemente versión de Chrome o de sharp. Compará las\n" +
-          "versiones de render-service/package.json con las de package.json."
+    distintos / total > 0.01
+      ? "\nDiferencia grande: casi seguro FUENTES. Compará los paquetes de fuentes de\n" +
+        "render-service/Dockerfile con los del Dockerfile de la app (deben ser idénticos)."
+      : "\nDiferencia chica: probablemente versión de Chrome o de sharp. Compará las\n" +
+        "versiones de render-service/package.json con las de package.json."
   );
   process.exitCode = 2;
 }
