@@ -30,6 +30,12 @@ export interface IngestParams {
   source: "manual" | "queue";
   /** Opcional: reporta el avance etapa por etapa (la UI lo consume vía SSE). */
   onProgress?: IngestProgressReporter;
+  /**
+   * Se llama apenas el carrusel existe, ANTES de bajar el referente. Lo usa el
+   * historial manual para poder enlazar el carrusel aunque la ingesta reviente
+   * después (que es el caso común: Instagram pide login a mitad de camino).
+   */
+  onCarouselCreated?: (carousel: Carousel) => void;
 }
 
 /** Error de ingesta que recuerda EN QUÉ etapa reventó y cómo salir del paso. */
@@ -84,7 +90,8 @@ export interface IngestResult {
  * referente y las adjunta. NO genera todavía — eso lo dispara el chat (Claude local).
  */
 export async function ingestReference(params: IngestParams): Promise<IngestResult> {
-  const { referenceUrl, avatarSlug, prewaveJobId, source, onProgress } = params;
+  const { referenceUrl, avatarSlug, prewaveJobId, source, onProgress, onCarouselCreated } =
+    params;
 
   // Se recuerda la última etapa arrancada para poder atribuirle un fallo con
   // precisión: si Chrome no abre, el error es de "browser", no de "download".
@@ -130,6 +137,7 @@ export async function ingestReference(params: IngestParams): Promise<IngestResul
     referenceUrl,
     tags: ["30x", `avatar:${avatarSlug}`],
   });
+  onCarouselCreated?.(carousel);
   finish("carousel", preset.aspectRatio);
 
   // 3-5. Navegador + lectura del post + descarga de láminas -------------------

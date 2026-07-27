@@ -10,6 +10,7 @@ import { IngestProgress } from "@/components/thirtyx/IngestProgress";
 import { SectionLabel } from "@/components/thirtyx/SectionLabel";
 import { AssignmentQueue } from "@/components/thirtyx/AssignmentQueue";
 import { AvatarAssetsPanel } from "@/components/thirtyx/AvatarAssetsPanel";
+import { ManualHistory, type ManualEntry } from "@/components/thirtyx/ManualHistory";
 import { useIngest, type IngestDone } from "@/hooks/useIngest";
 import { isInstagramUrl } from "@/lib/instagram-url";
 import { cn } from "@/lib/utils";
@@ -51,6 +52,8 @@ export default function ThirtyXPage() {
   const [avatarSlug, setAvatarSlug] = useState("");
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
+  /** Se incrementa para que el historial manual vuelva a leerse del server. */
+  const [historyKey, setHistoryKey] = useState(0);
 
   // config form
   const [showConfig, setShowConfig] = useState(false);
@@ -105,6 +108,27 @@ export default function ThirtyXPage() {
       })
     );
   }, [ingest, url, avatarSlug, note]);
+
+  /**
+   * Cuando una ingesta manual cierra —bien o mal— la entrada del historial ya
+   * quedó escrita: se relee en ese momento en vez de hacer poll todo el tiempo.
+   */
+  useEffect(() => {
+    if (ingest.runningKey === "manual" && (ingest.finished || ingest.error)) {
+      setHistoryKey((k) => k + 1);
+    }
+  }, [ingest.runningKey, ingest.finished, ingest.error]);
+
+  /** Recarga el formulario con una entrada del historial, para reintentarla. */
+  const reuseEntry = useCallback((entry: ManualEntry) => {
+    setError(null);
+    setUrl(entry.referenceUrl);
+    setAvatarSlug(entry.avatarSlug);
+    setNote(entry.note ?? "");
+    const input = document.getElementById("reference-url");
+    input?.scrollIntoView({ behavior: "smooth", block: "center" });
+    (input as HTMLInputElement | null)?.focus({ preventScroll: true });
+  }, []);
 
   const handleManual = () => {
     setError(null);
@@ -388,10 +412,13 @@ export default function ThirtyXPage() {
           )}
         </section>
 
-        {/* ── 02 · Asignaciones (push desde Prewave) ─────────────────────── */}
+        {/* ── 02 · Historial de lo que se agregó a mano ──────────────────── */}
+        <ManualHistory refreshKey={historyKey} onReuse={reuseEntry} />
+
+        {/* ── 03 · Asignaciones (push desde Prewave) ─────────────────────── */}
         <AssignmentQueue />
 
-        {/* ── 03 · Assets de marca por avenger ───────────────────────────── */}
+        {/* ── 04 · Assets de marca por avenger ───────────────────────────── */}
         <AvatarAssetsPanel syncSlug={avatarSlug || undefined} />
 
         <footer className="mt-16 border-t border-border pt-5">
