@@ -138,12 +138,12 @@ async function renderLocal() {
   }
 }
 
-async function renderRemote() {
+async function renderRemote(auth) {
   const res = await fetch(`${SERVICE}/render`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...(await bearer()),
+      ...auth,
       ...(TOKEN ? { "X-Internal-Token": TOKEN } : {}),
     },
     body: JSON.stringify(PAYLOAD),
@@ -197,25 +197,53 @@ async function bearer() {
     ).trim();
     if (token) return { Authorization: `Bearer ${token}` };
   } catch {
-    // gcloud sin login o no instalado: se avisa abajo.
+    // gcloud sin login o no instalado: lo reporta quien llama.
   }
-  console.error(
-    `\nNo se pudo obtener un ID token para ${SERVICE}.\n` +
-      `El servicio de render exige auth de IAM. Hacé una de estas dos:\n` +
-      `  gcloud auth login          (y volvé a correr este script)\n` +
-      `  RENDER_ID_TOKEN=$(gcloud auth print-identity-token --audiences=${SERVICE}) node scripts/render-parity.mjs\n`
-  );
-  return {};
+  // null y NO {}: sin token el servicio devuelve una página HTML de 403 y seguir adelante
+  // termina en "Unexpected token '<'", que esconde la causa real.
+  return null;
+}
+
+/** Instrucción para conseguir el token, en la sintaxis de la shell que corresponde. */
+function comoAutenticarse() {
+  const psh = process.platform === "win32";
+  return psh
+    ? `  gcloud auth login\n` +
+        `  $env:RENDER_SERVICE_URL = "${SERVICE}"\n` +
+        `  node scripts/render-parity.mjs\n`
+    : `  gcloud auth login\n` +
+        `  RENDER_SERVICE_URL=${SERVICE} node scripts/render-parity.mjs\n`;
 }
 
 async function main() {
+  // Se resuelve el token UNA vez y se corta acá si no hay: sin él, todo lo que sigue
+  // devuelve HTML de 403 y el error real queda enterrado.
+  const auth = await bearer();
+  if (!auth) {
+    console.error(
+      `No se pudo obtener un ID token para\n  ${SERVICE}\n\n` +
+        `El servicio de render exige auth de IAM (se deploya con --no-allow-unauthenticated),\n` +
+        `así que sin token Cloud Run rechaza el request antes de que llegue al contenedor.\n\n` +
+        `Corré esto:\n${comoAutenticarse()}`
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  const headers = { ...auth, ...(TOKEN ? { "X-Internal-Token": TOKEN } : {}) };
+
   // `/_health`, no `/healthz`: ese path está reservado en Cloud Run (ver server.mjs).
-  const health = await fetch(`${SERVICE}/_health`, {
-    headers: {
-      ...(await bearer()),
-      ...(TOKEN ? { "X-Internal-Token": TOKEN } : {}),
-    },
-  }).then((r) => r.json());
+  const healthRes = await fetch(`${SERVICE}/_health`, { headers });
+  if (!healthRes.ok) {
+    throw new Error(
+      `/_health devolvió ${healthRes.status}. ${
+        healthRes.status === 403
+          ? "El token no es válido para este audience, o a la cuenta le falta roles/run.invoker."
+          : (await healthRes.text()).slice(0, 200)
+      }`
+    );
+  }
+  const health = await healthRes.json();
   console.log(`contrato — app v${CONTRACT_VERSION} · servicio v${health.contractVersion}`);
   if (health.contractVersion !== CONTRACT_VERSION) {
     console.error(
@@ -226,7 +254,7 @@ async function main() {
   }
 
   console.log("renderizando el fixture en los dos lados...");
-  const [local, remote] = await Promise.all([renderLocal(), renderRemote()]);
+  const [local, remote] = await Promise.all([renderLocal(), renderRemote(headers)]);
 
   console.log(`  local  → ${local.length} bytes  sha=${sha(local)}`);
   console.log(`  remoto → ${remote.buf.length} bytes  sha=${sha(remote.buf)}`);
