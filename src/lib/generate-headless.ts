@@ -68,6 +68,15 @@ export interface SpawnClaudeResult {
   resultText: string;
   /** El evento `result` vino con `is_error: true` (el turno terminó en error). */
   isError: boolean;
+  /**
+   * El turno lo cortamos NOSOTROS por el `signal` (preempción o cancelación), no un
+   * fallo del agente.
+   *
+   * Importa distinguirlo: un turno preemptado NO es un fallo ni un "stall". Las láminas
+   * que ya escribió están en disco (cada POST pasa por el mutex de data.ts) y el
+   * `sessionId` permite retomar con `--resume` exactamente donde quedó.
+   */
+  preempted: boolean;
 }
 
 /** Error de ARRANQUE del subproceso (ENOENT, permisos, etc.). */
@@ -247,6 +256,24 @@ export function spawnClaude(opts: SpawnClaudeOptions): Promise<SpawnClaudeResult
       } catch {
         /* ya muerto */
       }
+
+      // ⚠️ Cuando abortamos por `signal`, Node emite 'error' con code ABORT_ERR. Si eso
+      // se convirtiera en un reject, CADA preempción se vería como un fallo de ARRANQUE
+      // del CLI ("Failed to start Claude") y el job se marcaría failed en vez de
+      // re-encolarse. Se resuelve como turno preemptado, con el sessionId ya capturado
+      // para poder retomar con --resume.
+      if (e?.code === "ABORT_ERR" || opts.signal?.aborted) {
+        resolve({
+          exitCode: null,
+          sessionId,
+          stderr: stderrBuf,
+          resultText,
+          isError: false,
+          preempted: true,
+        });
+        return;
+      }
+
       reject(
         new ClaudeSpawnError(err.message || "Claude subprocess error", {
           code: e?.code,
@@ -269,7 +296,15 @@ export function spawnClaude(opts: SpawnClaudeOptions): Promise<SpawnClaudeResult
           /* ignorar */
         }
       }
-      resolve({ exitCode: code, sessionId, stderr: stderrBuf, resultText, isError });
+      // El proceso puede salir por la señal ANTES de que llegue el evento 'error'.
+      resolve({
+        exitCode: code,
+        sessionId,
+        stderr: stderrBuf,
+        resultText,
+        isError,
+        preempted: opts.signal?.aborted === true,
+      });
     });
   });
 }
@@ -310,6 +345,20 @@ export async function spawnClaudeWithCentralFallback(
     return { ...res, tokenUsed: null, exhaustedAll: false };
   }
 
+  // Si ya nos abortaron antes de empezar, no gastes un spawn.
+  if (opts.signal?.aborted) {
+    return {
+      exitCode: null,
+      sessionId: opts.sessionId ?? "",
+      stderr: "",
+      resultText: "",
+      isError: false,
+      preempted: true,
+      tokenUsed: null,
+      exhaustedAll: false,
+    };
+  }
+
   let last: SpawnClaudeResult | null = null;
   for (let i = 0; i < order.length; i++) {
     const token = order[i];
@@ -323,6 +372,13 @@ export async function spawnClaudeWithCentralFallback(
 
     const res = await spawnClaude({ ...opts, sessionId, env });
     last = res;
+
+    // Preempción: cortamos NOSOTROS, no la cuenta. Rotar acá sería doblemente malo —
+    // quemaría una cuenta sana y, peor, la cuenta nueva no puede reanudar la sesión de la
+    // anterior, así que se perdería el contexto caro que justo queremos preservar.
+    if (res.preempted) {
+      return { ...res, tokenUsed: token, exhaustedAll: false };
+    }
 
     if (isUsageLimitError(res)) {
       markTokenExhausted(token);

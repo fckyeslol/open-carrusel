@@ -28,33 +28,40 @@ import { getBrand } from "./brand";
 import { getCarousel } from "./carousels";
 import { getPreset, getPresetByAvatarSlug } from "./style-presets";
 import { exportAllSlides } from "./export-slides";
+import { warmupRenderer } from "./render";
 import { isInstagramUrl } from "./instagram-url";
 import { claimJob, completeJob, failJob, uploadCarousel } from "./prewave";
 import { getInternalApiToken, isHostedMode } from "./hosted";
 import { getPrewaveToken } from "./users";
 import { isHiggsfieldConfigured } from "./higgsfield";
+import { tokenForLabel, tokenLabel } from "./claude-tokens";
+import {
+  PRIORITY,
+  PreemptedError,
+  CancelledError,
+  submit,
+  isTracked,
+  type JobControl,
+} from "./job-queue";
 import {
   getAssignment,
   setStatus,
   incrementAttempts,
   listReprocessable,
+  saveCheckpoint,
+  clearCheckpoint,
+  type GenerationCheckpoint,
 } from "./assignments";
 
 /**
- * Cuántos jobs se generan a la vez. Cada uno levanta Puppeteer + un subproceso
- * Claude, así que el tope real lo pone la RAM/CPU de la máquina. Default 4;
- * subilo con THIRTYX_MAX_CONCURRENT si la máquina aguanta. Se limita a
- * MAX_CONCURRENT_CAP para no quemar la máquina por un valor absurdo en el env.
+ * La concurrencia YA NO se decide acá.
+ *
+ * Antes este archivo tenía su propia cola (`queued[]` + `active` + `pump()`) con
+ * DEFAULT_MAX_CONCURRENT = 4, y era el único de los tres caminos de generación que tenía
+ * algún tope: /api/chat y el resize no tenían ninguno. Ahora los tres pasan por el carril
+ * global de src/lib/job-queue.ts (QUEUE_LANE_SIZE, default 1), que además ordena por
+ * prioridad y puede preemptar.
  */
-const DEFAULT_MAX_CONCURRENT = 4;
-const MAX_CONCURRENT_CAP = 8;
-
-function maxConcurrent(): number {
-  const raw = process.env.THIRTYX_MAX_CONCURRENT;
-  const n = raw ? parseInt(raw, 10) : DEFAULT_MAX_CONCURRENT;
-  if (!Number.isFinite(n) || n < 1) return DEFAULT_MAX_CONCURRENT;
-  return Math.min(n, MAX_CONCURRENT_CAP);
-}
 
 /**
  * Tope duro de pasadas de generación por job. Cada pasada es un turno de Claude
@@ -93,6 +100,21 @@ interface GenerationOutcome {
   lastStderr: string;
   /** Exit code del último subproceso: null = lo mató el timeout de 8 min (o una señal). */
   lastExitCode: number | null;
+  /**
+   * Se cortó por preempción, NO por un fallo. El que llama debe re-encolar el job en vez
+   * de tratarlo como incompleto: el checkpoint ya está guardado.
+   */
+  preempted: boolean;
+}
+
+/** Lo que necesita `generateAllSlides` para poder ceder el carril y retomar después. */
+interface GenerationContext {
+  jobId: string;
+  ctl: JobControl;
+  /** Checkpoint previo, si este job ya había arrancado antes. */
+  resume?: GenerationCheckpoint;
+  /** Cuántas veces ya fue preemptado (se persiste en cada checkpoint). */
+  preemptions: number;
 }
 
 /**
@@ -121,34 +143,67 @@ function generationDiagnosis(o: Pick<GenerationOutcome, "lastResult" | "lastStde
 async function generateAllSlides(
   carouselId: string,
   referenceCount: number,
-  systemPrompt: string
+  systemPrompt: string,
+  ctx: GenerationContext
 ): Promise<GenerationOutcome> {
-  let sessionId: string | undefined;
+  // Retomar desde el checkpoint: la sesión de Claude, la cuenta y los contadores.
+  let sessionId = ctx.resume?.claudeSessionId;
   // Token central que viene usando ESTE carrusel (para --resume entre pasadas y
   // como preferencia del fallback). Cambia solo si una cuenta llega a su límite.
-  let currentToken: string | undefined;
-  let stalls = 0;
+  let currentToken = ctx.resume?.claudeTokenLabel
+    ? tokenForLabel(ctx.resume.claudeTokenLabel)
+    : undefined;
+  let stalls = ctx.resume?.stalls ?? 0;
+  let passesDone = ctx.resume?.passesDone ?? 0;
   let lastResult = "";
   let lastStderr = "";
   let lastExitCode: number | null = null;
-  const outcome = async (): Promise<GenerationOutcome> => ({
+  const outcome = async (preempted = false): Promise<GenerationOutcome> => ({
     produced: (await getCarousel(carouselId))?.slides.length ?? 0,
     lastResult,
     lastStderr,
     lastExitCode,
+    preempted,
   });
 
-  for (let pass = 0; pass < MAX_GENERATION_PASSES; pass++) {
+  /** Persiste el avance para que una preempción o un reinicio no cuesten empezar de cero. */
+  const checkpoint = () =>
+    saveCheckpoint(ctx.jobId, {
+      carouselId,
+      claudeSessionId: sessionId,
+      claudeTokenLabel: currentToken ? tokenLabel(currentToken) : undefined,
+      passesDone,
+      stalls,
+      preemptions: ctx.preemptions,
+    });
+
+  ctx.ctl.setPhase("generating");
+
+  for (; passesDone < MAX_GENERATION_PASSES; passesDone++) {
     const before = (await getCarousel(carouselId))?.slides.length ?? 0;
     if (before >= referenceCount) return outcome();
 
+    // Ceder ANTES de arrancar una pasada nueva es la salida más barata: no se pierde
+    // ningún turno a medias.
+    if (ctx.ctl.shouldYield()) {
+      await checkpoint();
+      return outcome(true);
+    }
+
     const message =
-      pass === 0
+      passesDone === 0
         ? buildGenerationMessage(referenceCount)
         : buildContinuationMessage(before, referenceCount);
 
     const gen = await spawnClaudeWithCentralFallback(
-      { message, systemPrompt, sessionId, cwd: process.cwd() },
+      {
+        message,
+        systemPrompt,
+        sessionId,
+        cwd: process.cwd(),
+        // El carril aborta esta señal para preemptar: mata el subproceso Claude.
+        signal: ctx.ctl.signal,
+      },
       "runner",
       currentToken
     );
@@ -156,6 +211,23 @@ async function generateAllSlides(
     if (gen.resultText) lastResult = gen.resultText;
     if (gen.stderr) lastStderr = gen.stderr;
     lastExitCode = gen.exitCode;
+    // Fijá la cuenta que efectivamente se usó (puede haber rotado por límite) para
+    // que la próxima pasada reanude en la MISMA cuenta.
+    if (gen.tokenUsed) currentToken = gen.tokenUsed;
+    // La sesión permite reanudar la conversación en la próxima pasada.
+    if (gen.sessionId) sessionId = gen.sessionId;
+
+    // PREEMPCIÓN: cortamos nosotros. Las láminas que el agente ya escribió están en
+    // disco y el sessionId permite retomar con --resume, así que se guarda y se sale.
+    //
+    // ⚠️ NO se toca `stalls` acá. Si una preempción contara como pasada trabada, tres
+    // preempciones matarían el job con "la generación quedó incompleta" — el bug más
+    // fácil de introducir en todo esto.
+    if (gen.preempted) {
+      await checkpoint();
+      return outcome(true);
+    }
+
     // Todas las cuentas de Claude al límite: reintentar NO ayuda (están rate-
     // limiteadas), así que este SÍ corta — con mensaje accionable.
     if (gen.exhaustedAll) {
@@ -165,14 +237,12 @@ async function generateAllSlides(
         )}`.trim()
       );
     }
-    // Fijá la cuenta que efectivamente se usó (puede haber rotado por límite) para
-    // que la próxima pasada reanude en la MISMA cuenta.
-    if (gen.tokenUsed) currentToken = gen.tokenUsed;
-    // La sesión permite reanudar la conversación en la próxima pasada.
-    if (gen.sessionId) sessionId = gen.sessionId;
 
     const after = (await getCarousel(carouselId))?.slides.length ?? 0;
-    if (after >= referenceCount) return outcome();
+    if (after >= referenceCount) {
+      passesDone++;
+      return outcome();
+    }
 
     // IMPORTANTE: una pasada puede terminar con exit ≠ 0 (timeout/kill → 143, o un
     // error transitorio) y aun así haber dejado láminas nuevas. NO fallamos acá:
@@ -185,6 +255,8 @@ async function generateAllSlides(
     } else {
       stalls = 0;
     }
+    // Guardar en cada pasada: si el proceso muere acá, se retoma sin perder contexto.
+    await checkpoint();
   }
 
   return outcome();
@@ -208,15 +280,17 @@ function runnerInternalToken(): string | undefined {
   return isHostedMode() ? getInternalApiToken() : undefined;
 }
 
+/**
+ * El runner ya no lleva su propia cola: `queued`/`active`/`seen` se fueron al carril
+ * (job-queue.ts), que es el único que sabe qué está corriendo y qué espera. Tener dos
+ * registros del mismo hecho era una fuente garantizada de desincronización.
+ */
 interface Runner {
-  queued: string[];
-  active: Set<string>;
-  seen: Set<string>;
   enqueue: (jobId: string, opts?: { force?: boolean }) => void;
   reconcile: () => Promise<void>;
 }
 
-async function processAssignment(jobId: string): Promise<void> {
+async function processAssignment(jobId: string, ctl: JobControl): Promise<void> {
   const a = await getAssignment(jobId);
   if (!a) return;
   // pending_review espera aprobación humana — no reprocesar.
@@ -241,33 +315,68 @@ async function processAssignment(jobId: string): Promise<void> {
   try {
     await incrementAttempts(jobId);
 
-    // Reclama el job en Prewave (pending → processing) para que otro worker no lo
-    // tome. Best-effort: si el PATCH falla (403 de ownership, red), seguimos con la
-    // generación local igual — el claim es una optimización, no un bloqueo. Ver
-    // docs/PLAN-MIGRACION-CARRUSELES.md §3/§6.5.
-    await writeback(() => claimJob(jobId, designerToken));
+    // ¿Este job venía a medias? El checkpoint es la señal: si trae carouselId, ya se
+    // reclamó y ya se ingirió, así que repetir esas dos etapas crearía un carrusel
+    // duplicado y gastaría otra pasada por el proxy de Instagram.
+    const resume = a.generation;
 
-    if (!isInstagramUrl(a.referenceUrl)) {
-      throw new Error(`El referente no es una URL de Instagram válida: ${a.referenceUrl || "(vacío)"}`);
+    // Precalienta el servicio de render en paralelo con la ingesta, así el cold start
+    // (~5-10s con min-instances=0) no lo paga la primera lámina. Best-effort.
+    void warmupRenderer();
+
+    let carouselId: string;
+    let referenceCount: number;
+    let presetId: string;
+
+    if (resume) {
+      const existing = await getCarousel(resume.carouselId);
+      if (!existing) {
+        // El carrusel del checkpoint no está (borrado a mano): el checkpoint es basura.
+        await clearCheckpoint(jobId);
+        throw new Error(
+          `El carrusel ${resume.carouselId} del checkpoint ya no existe. Reintentá el job para arrancar de cero.`
+        );
+      }
+      carouselId = existing.id;
+      referenceCount = existing.referenceImages.length;
+      presetId = existing.stylePresetId ?? "";
+    } else {
+      // Reclama el job en Prewave (pending → processing) para que otro worker no lo
+      // tome. Best-effort: si el PATCH falla (403 de ownership, red), seguimos con la
+      // generación local igual — el claim es una optimización, no un bloqueo. Ver
+      // docs/PLAN-MIGRACION-CARRUSELES.md §3/§6.5.
+      await writeback(() => claimJob(jobId, designerToken));
+
+      if (!isInstagramUrl(a.referenceUrl)) {
+        throw new Error(`El referente no es una URL de Instagram válida: ${a.referenceUrl || "(vacío)"}`);
+      }
+
+      // 1. Ingesta: baja el referente y crea el carrusel con el ADN del avatar.
+      //    NO es preemptible: dura ~60s y cortarla dejaría un carrusel a medio crear.
+      ctl.setPhase("ingesting");
+      await setStatus(jobId, "ingesting");
+      const ingested = await ingestReference({
+        referenceUrl: a.referenceUrl,
+        avatarSlug: a.avatarSlug,
+        name: a.avatarName ? `${a.avatarName} — job ${jobId.slice(0, 8)}` : undefined,
+        prewaveJobId: jobId,
+        source: "queue",
+      });
+      carouselId = ingested.carousel.id;
+      referenceCount = ingested.referenceCount;
+      presetId = ingested.preset.id;
+      // Checkpoint en cuanto existe el carrusel: desde acá, retomar no repite la ingesta.
+      await saveCheckpoint(jobId, { carouselId });
     }
 
-    // 1. Ingesta: baja el referente y crea el carrusel con el ADN del avatar.
-    await setStatus(jobId, "ingesting");
-    const { carousel, preset, referenceCount } = await ingestReference({
-      referenceUrl: a.referenceUrl,
-      avatarSlug: a.avatarSlug,
-      name: a.avatarName ? `${a.avatarName} — job ${jobId.slice(0, 8)}` : undefined,
-      prewaveJobId: jobId,
-      source: "queue",
-    });
-    await setStatus(jobId, "generating", { carouselId: carousel.id });
+    await setStatus(jobId, "generating", { carouselId });
 
     // 2. Generación headless: mismo subproceso Claude que el chat, sin navegador.
     //    Se generan TODAS las láminas — el loop reanuda a Claude si corta antes de
     //    completar el conteo del referente, para que el QA nunca vea un carrusel a medias.
     const brand = await getBrand();
-    const freshCarousel = await getCarousel(carousel.id);
-    const stylePreset = await getPreset(preset.id);
+    const freshCarousel = await getCarousel(carouselId);
+    const stylePreset = presetId ? await getPreset(presetId) : undefined;
     const systemPrompt = buildSystemPrompt(
       brand,
       freshCarousel,
@@ -279,11 +388,30 @@ async function processAssignment(jobId: string): Promise<void> {
       runnerInternalToken()
     );
 
-    const gen = await generateAllSlides(carousel.id, referenceCount, systemPrompt);
+    const gen = await generateAllSlides(carouselId, referenceCount, systemPrompt, {
+      jobId,
+      ctl,
+      resume,
+      preemptions: (resume?.preemptions ?? 0) + (ctl.shouldYield() ? 1 : 0),
+    });
+
+    // PREEMPTADO: no es un fallo ni una generación incompleta. El checkpoint ya quedó
+    // guardado, así que se marca `preempted` y se re-encola para retomar donde iba.
+    // Sin este early-return, el chequeo de "quedó incompleta" de abajo marcaría failed
+    // un job perfectamente sano que solo cedió su turno.
+    if (gen.preempted) {
+      await saveCheckpoint(jobId, {
+        carouselId,
+        preemptions: (resume?.preemptions ?? 0) + 1,
+      });
+      await setStatus(jobId, "preempted");
+      throw new PreemptedError(jobId);
+    }
 
     // 3. Render a PNG (verifica que la generación produjo TODAS las láminas).
+    ctl.setPhase("rendering");
     await setStatus(jobId, "rendering");
-    const finalCarousel = await getCarousel(carousel.id);
+    const finalCarousel = await getCarousel(carouselId);
     if (!finalCarousel || finalCarousel.slides.length === 0) {
       throw new Error(`La generación no produjo láminas.${generationDiagnosis(gen)}`);
     }
@@ -292,8 +420,13 @@ async function processAssignment(jobId: string): Promise<void> {
         `La generación quedó incompleta: ${gen.produced} de ${referenceCount} láminas. Reintentá el job.${generationDiagnosis(gen)}`
       );
     }
-    const files = await exportAllSlides(finalCarousel.slides, finalCarousel.aspectRatio);
-    const outDir = path.resolve(process.cwd(), "public", "exports", carousel.id);
+    const files = await exportAllSlides(
+      finalCarousel.slides,
+      finalCarousel.aspectRatio,
+      undefined,
+      { signal: ctl.signal }
+    );
+    const outDir = path.resolve(process.cwd(), "public", "exports", carouselId);
     await mkdir(outDir, { recursive: true });
     for (const f of files) {
       await writeFile(path.join(outDir, f.name), f.buffer);
@@ -302,7 +435,9 @@ async function processAssignment(jobId: string): Promise<void> {
     // 4. Listo para QA + writeback a Prewave (→ done). El estado local es la fuente
     //    de verdad de la UI; el writeback es best-effort para no perder el resultado
     //    si Prewave está caído.
-    const resultPath = `/exports/${carousel.id}/`;
+    //    El checkpoint se borra: el job terminó y no hay nada que retomar.
+    await clearCheckpoint(jobId);
+    const resultPath = `/exports/${carouselId}/`;
     if (isHostedMode()) {
       // Híbrido: el borrador queda EN REVISIÓN. La diseñadora lo aprueba desde su
       // bandeja y ahí recién se hace el writeback a Prewave con SU token
@@ -313,7 +448,7 @@ async function processAssignment(jobId: string): Promise<void> {
       // uploadCarousel sube los PNG al endpoint de worker (GCS + siembra el brief) y
       // cierra el job; si no está (404) o el job no tiene brief (422), cae a completeJob.
       await setStatus(jobId, "done", { resultUrl: resultPath });
-      const editorUrl = `http://localhost:${process.env.PORT || "3000"}/carousel/${carousel.id}`;
+      const editorUrl = `http://localhost:${process.env.PORT || "3000"}/carousel/${carouselId}`;
       await writeback(async () => {
         try {
           await uploadCarousel(jobId, files);
@@ -323,6 +458,17 @@ async function processAssignment(jobId: string): Promise<void> {
       });
     }
   } catch (e) {
+    // Preempción: NO es un fallo. Ya se guardó el checkpoint y ya quedó en `preempted`;
+    // se propaga para que el carril lo re-encole y retome donde iba.
+    if (e instanceof PreemptedError) throw e;
+
+    // Cancelación a mano: tampoco es un fallo de generación. Queda `failed` con un
+    // mensaje honesto (que alguien lo canceló), no con un diagnóstico inventado.
+    if (e instanceof CancelledError) {
+      await setStatus(jobId, "failed", { error: "Cancelado a mano desde la cola." });
+      return;
+    }
+
     // Un fallo de la etapa "preset" (avatar sin ADN local o no listo) NO es un fallo
     // real de generación: es la MISMA condición que atrapa el preflight, solo que
     // apareció tarde por una carrera transitoria — import-avatars reescribió
@@ -376,34 +522,62 @@ async function preflightBlockReason(avatarSlug: string): Promise<string | null> 
   return null;
 }
 
+/**
+ * Cuántas veces se re-encola un job preemptado antes de rendirse.
+ *
+ * El carril ya limita las preempciones por job (MAX_PREEMPTIONS), así que esto es solo un
+ * cinturón de seguridad contra un bucle de re-encolado si algo sale mal en la coordinación.
+ */
+const MAX_REQUEUES = 8;
+
+/**
+ * Corre un job en el carril, re-encolándolo si lo preemptan.
+ *
+ * Este loop es la traducción de "preempción" a algo útil: cuando el carril le quita el
+ * turno, `processAssignment` ya dejó el checkpoint guardado, así que volver a encolarlo
+ * hace que retome donde iba (misma sesión de Claude, mismas láminas) en cuanto haya lugar.
+ */
+async function runWithRequeue(jobId: string): Promise<void> {
+  for (let attempt = 0; attempt < MAX_REQUEUES; attempt++) {
+    const a = await getAssignment(jobId);
+    if (!a) return;
+
+    try {
+      await setStatus(jobId, "queued");
+      await submit((ctl) => processAssignment(jobId, ctl), {
+        id: jobId,
+        priority: a.priority ?? PRIORITY.NORMAL,
+        label: a.avatarName ? `${a.avatarName} (cola)` : `job ${jobId.slice(0, 8)}`,
+        preemptions: a.generation?.preemptions ?? 0,
+      });
+      return;
+    } catch (e) {
+      // Preemptado: volver a la fila y retomar desde el checkpoint.
+      if (e instanceof PreemptedError) continue;
+      // Cancelado a mano: processAssignment ya dejó el estado; no re-encolar.
+      if (e instanceof CancelledError) return;
+      // Duplicado (ya estaba en la cola) o error inesperado del carril: no reintentar.
+      return;
+    }
+  }
+  await setStatus(jobId, "failed", {
+    error: `El job cedió su turno ${MAX_REQUEUES} veces sin poder terminar. Subile la prioridad para que corra sin interrupciones.`,
+  });
+}
+
 function createRunner(): Runner {
   const runner: Runner = {
-    queued: [],
-    active: new Set<string>(),
-    seen: new Set<string>(),
     enqueue(jobId, opts) {
-      if (!opts?.force && runner.seen.has(jobId)) return;
-      runner.seen.add(jobId);
-      runner.queued.push(jobId);
-      pump();
+      // El carril es ahora el dueño del "¿ya está encolado?": preguntarle a él evita que
+      // este runner y el carril tengan dos ideas distintas de qué está en vuelo.
+      if (!opts?.force && isTracked(jobId)) return;
+      void runWithRequeue(jobId);
     },
     async reconcile() {
       const pending = await listReprocessable();
       for (const a of pending) runner.enqueue(a.jobId);
     },
   };
-
-  function pump() {
-    while (runner.active.size < maxConcurrent() && runner.queued.length > 0) {
-      const jobId = runner.queued.shift()!;
-      runner.active.add(jobId);
-      void processAssignment(jobId).finally(() => {
-        runner.active.delete(jobId);
-        runner.seen.delete(jobId);
-        pump();
-      });
-    }
-  }
 
   return runner;
 }

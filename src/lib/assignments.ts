@@ -15,25 +15,67 @@ import type { AgentJob } from "./prewave";
 const FILE = "thirtyx-assignments.json";
 
 export type AssignmentStatus =
-  | "received" // llegó el webhook, en cola
+  | "received" // llegó el webhook, sin encolar todavía
+  | "queued" // ESPERANDO su turno en el carril (ver job-queue.ts) — no está trabajando
   | "blocked" // no se puede generar acá (avatar sin preset local / sin resolver): NO se reclama ni se toca Prewave
   | "claiming" // reclamando el job en Prewave (pending → processing)
   | "ingesting" // bajando el referente + creando el carrusel
   | "generating" // Claude generando las láminas
   | "rendering" // exportando a PNG
+  | "preempted" // cedió el carril a algo más urgente; retoma desde su checkpoint
   | "pending_review" // (hosteado) borrador listo — espera que la diseñadora apruebe antes del writeback
   | "done" // generado y renderizado, listo para QA (modo local: ya se hizo writeback)
   | "delivered" // aprobado/entregado: job cerrado en Prewave
   | "failed"; // reventó en alguna etapa
 
-/** Etapas "en vuelo": si el proceso se reinicia, hay que re-encolarlas. */
+/**
+ * Etapas "en vuelo": si el proceso se reinicia, hay que re-encolarlas.
+ *
+ * `queued` y `preempted` están acá a propósito: son trabajo pendiente que todavía no
+ * terminó. Si faltaran, un reinicio dejaría esos jobs colgados para siempre — nadie los
+ * volvería a encolar y no aparecerían como fallidos.
+ */
 export const IN_FLIGHT: readonly AssignmentStatus[] = [
   "received",
+  "queued",
   "claiming",
   "ingesting",
   "generating",
   "rendering",
+  "preempted",
 ];
+
+/**
+ * Checkpoint de una generación, para poder RETOMARLA tras una preempción o un reinicio.
+ *
+ * Existe porque el carril puede quitarle el turno a una generación en curso. Sin esto,
+ * retomar significaría empezar de cero: volver a bajar el referente, volver a leer las
+ * imágenes con visión (el gasto caro) y volver a escribir láminas que ya existían.
+ */
+export interface GenerationCheckpoint {
+  /** El carrusel ya creado. Su presencia es la señal de "no repitas claim ni ingesta". */
+  carouselId: string;
+  /**
+   * Sesión de Claude para `--resume`. Llega en el evento `system/init`, a los segundos
+   * del spawn, así que un corte en cualquier momento es recuperable.
+   */
+  claudeSessionId?: string;
+  /**
+   * ETIQUETA de la cuenta central usada (no el token).
+   *
+   * Se guarda la etiqueta y NUNCA el token: este archivo va a disco (y en hosteado a un
+   * bucket), y un token de OAuth en disco es un secreto filtrado. La etiqueta alcanza
+   * porque una sesión de Claude solo se puede reanudar en la cuenta que la creó, y
+   * `tokenTryOrder` sabe volver de la etiqueta al token.
+   */
+  claudeTokenLabel?: string;
+  /** Pasadas de generación ya consumidas (tope MAX_GENERATION_PASSES). */
+  passesDone: number;
+  /** Pasadas seguidas sin producir láminas. NO se toca en una preempción. */
+  stalls: number;
+  /** Cuántas veces fue preemptado. Al llegar al tope se vuelve inpreemptable. */
+  preemptions: number;
+}
 
 export interface Assignment {
   jobId: string;
@@ -52,6 +94,10 @@ export interface Assignment {
   attempts: number;
   receivedAt: string;
   updatedAt: string;
+  /** Prioridad en el carril. Ausente = PRIORITY.NORMAL. */
+  priority?: number;
+  /** Estado para retomar una generación cortada. Ausente = arrancar de cero. */
+  generation?: GenerationCheckpoint;
 }
 
 interface Store {
@@ -185,6 +231,59 @@ export async function incrementAttempts(jobId: string): Promise<void> {
   await updateData<Store>(FILE, EMPTY, (store) => ({
     assignments: store.assignments.map((a) =>
       a.jobId === jobId ? { ...a, attempts: a.attempts + 1, updatedAt: now() } : a
+    ),
+  }));
+}
+
+/**
+ * Guarda (o mezcla) el checkpoint de generación.
+ *
+ * Se mergea en vez de reemplazar: cada etapa conoce solo su parte (la ingesta sabe el
+ * `carouselId`, el loop de pasadas sabe el `sessionId` y los `stalls`), y perder un campo
+ * al guardar otro haría que el retomar empiece de cero.
+ */
+export async function saveCheckpoint(
+  jobId: string,
+  patch: Partial<GenerationCheckpoint> & { carouselId: string }
+): Promise<void> {
+  await updateData<Store>(FILE, EMPTY, (store) => ({
+    assignments: store.assignments.map((a) =>
+      a.jobId === jobId
+        ? {
+            ...a,
+            generation: {
+              passesDone: 0,
+              stalls: 0,
+              preemptions: 0,
+              ...a.generation,
+              ...patch,
+            },
+            updatedAt: now(),
+          }
+        : a
+    ),
+  }));
+}
+
+/**
+ * Borra el checkpoint. Se llama al terminar bien y al "Regenerar desde 0" — si no, un
+ * retry reusaría el carrusel viejo y la sesión vieja en vez de arrancar limpio.
+ */
+export async function clearCheckpoint(jobId: string): Promise<void> {
+  await updateData<Store>(FILE, EMPTY, (store) => ({
+    assignments: store.assignments.map((a) => {
+      if (a.jobId !== jobId) return a;
+      const { generation: _drop, ...rest } = a;
+      return { ...rest, updatedAt: now() };
+    }),
+  }));
+}
+
+/** Fija la prioridad en el carril (la persiste para que sobreviva a un reinicio). */
+export async function setPriority(jobId: string, priority: number): Promise<void> {
+  await updateData<Store>(FILE, EMPTY, (store) => ({
+    assignments: store.assignments.map((a) =>
+      a.jobId === jobId ? { ...a, priority, updatedAt: now() } : a
     ),
   }));
 }

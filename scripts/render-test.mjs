@@ -14,15 +14,27 @@ const ROOT = process.cwd();
 const htmlPath = path.join(ROOT, "public", "30x-slides", slug, file);
 const publicDir = path.join(ROOT, "public");
 
+/**
+ * Espejo de findChrome() de src/lib/browser-pool.ts (que es .ts y este script corre con
+ * node directo). Antes esta copia IGNORABA PUPPETEER_EXECUTABLE_PATH, así que el "mismo
+ * motor que usa la app" que promete el encabezado podía ser otro Chrome distinto —
+ * justo el env var con el que se arregla el cuelgue de captureScreenshot en Windows.
+ */
 function findChrome() {
+  if (process.env.PUPPETEER_EXECUTABLE_PATH) return process.env.PUPPETEER_EXECUTABLE_PATH;
   const local = process.env.LOCALAPPDATA || "";
-  const cands = [
-    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
-    `${local}\\Google\\Chrome\\Application\\chrome.exe`,
-    "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
-  ];
-  return cands.find((p) => existsSync(p));
+  const cands =
+    process.platform === "win32"
+      ? [
+          "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+          "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+          `${local}\\Google\\Chrome\\Application\\chrome.exe`,
+          "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+        ]
+      : process.platform === "darwin"
+        ? ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"]
+        : ["/usr/bin/google-chrome", "/usr/bin/chromium-browser", "/usr/bin/chromium"];
+  return cands.find((p) => p && existsSync(p));
 }
 
 const exe = findChrome();

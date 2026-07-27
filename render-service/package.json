@@ -1,0 +1,18 @@
+{
+  "name": "open-carrusel-render-service",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Servicio de render sin estado: recibe HTML autocontenido y devuelve PNG/PDF. Chrome vive acá y no en la instancia de la app.",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "comment": "Las versiones de puppeteer y sharp deben coincidir EXACTAMENTE con las del package.json de la app: un Chrome o un sharp distinto renderiza distinto, y el export dejaría de coincidir con el preview. El test de paridad (scripts/render-parity.mjs) lo verifica byte a byte.",
+  "dependencies": {
+    "puppeteer": "^24.40.0",
+    "sharp": "^0.34.5"
+  }
+}

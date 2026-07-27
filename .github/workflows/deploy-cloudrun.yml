@@ -24,6 +24,7 @@ jobs:
 
     env:
       IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.AR_REPO }}/app:${{ github.sha }}
+      RENDER_IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.AR_REPO }}/render:${{ github.sha }}
 
     steps:
       - uses: actions/checkout@v4
@@ -53,9 +54,38 @@ jobs:
           docker build -t "$IMAGE" .
           docker push "$IMAGE"
 
+      # El servicio de render: Chrome vive ahí, no en la instancia de la app. El build
+      # context es la RAÍZ del repo (no render-service/) porque el Dockerfile copia
+      # src/lib/slide-render-contract.mjs desde su lugar real — así no hay una segunda
+      # copia del contrato que se pueda desincronizar.
+      - name: Build & push imagen del servicio de render
+        run: |
+          docker build -f render-service/Dockerfile -t "$RENDER_IMAGE" .
+          docker push "$RENDER_IMAGE"
+
+      # ⚠ ORDEN: el render va ANTES que la app. La app nueva lo necesita; la vieja lo
+      # ignora. Al revés habría una ventana con la app apuntando a un servicio inexistente.
+      - name: Deploy del servicio de render
+        id: render_deploy
+        env:
+          IMAGE: ${{ env.RENDER_IMAGE }}
+          PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          REGION: ${{ vars.GCP_REGION }}
+          RUNTIME_SA_EMAIL: ${{ vars.RUNTIME_SA_EMAIL }}
+          RENDER_SERVICE: ${{ vars.RENDER_SERVICE }}
+        run: |
+          bash deploy/render-deploy.sh
+          echo "url=$(gcloud run services describe "${RENDER_SERVICE:-open-carrusel-render}" \
+            --project="$PROJECT_ID" --region="$REGION" --format='value(status.url)')" >> "$GITHUB_OUTPUT"
+
       - name: Deploy a Cloud Run
         env:
           IMAGE: ${{ env.IMAGE }}
+          # URL del servicio recién deployado. Vaciar esta var es el kill switch: la app
+          # vuelve a renderizar en proceso (y ahí conviene subir APP_MEMORY de nuevo).
+          RENDER_SERVICE_URL: ${{ steps.render_deploy.outputs.url }}
+          APP_MEMORY: ${{ vars.APP_MEMORY }}
+          QUEUE_LANE_SIZE: ${{ vars.QUEUE_LANE_SIZE }}
           PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
           REGION: ${{ vars.GCP_REGION }}
           SERVICE: ${{ vars.CLOUD_RUN_SERVICE }}

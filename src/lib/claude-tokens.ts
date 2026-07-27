@@ -44,6 +44,22 @@ export function tokenLabel(token: string): string {
   return crypto.createHash("sha256").update(token).digest("hex").slice(0, 12);
 }
 
+/**
+ * Vuelve de una etiqueta al token que la produjo, buscando entre las cuentas configuradas.
+ *
+ * Es lo que hace posible persistir un checkpoint de generación SIN escribir un token de
+ * OAuth a disco (data/thirtyx-assignments.json va a un bucket en modo hosteado). Se guarda
+ * la etiqueta —que es un hash, no reversible— y al retomar se resuelve acá.
+ *
+ * Devuelve undefined si la cuenta ya no está configurada (se rotó o se quitó del env). El
+ * que llama debe tratarlo como "arrancá con la cuenta que toque": la sesión de Claude no
+ * se podrá reanudar, pero las láminas ya escritas siguen en disco y el agente continúa
+ * desde ahí, que es la degradación correcta.
+ */
+export function tokenForLabel(label: string): string | undefined {
+  return getCentralClaudeTokens().find((t) => tokenLabel(t) === label);
+}
+
 /** Parte una var de entorno con posibles múltiples tokens (coma/espacio/línea). */
 function splitList(raw: string | undefined): string[] {
   if (!raw) return [];

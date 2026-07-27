@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AssignmentThumb } from "@/components/thirtyx/AssignmentThumb";
+import { cn } from "@/lib/utils";
 import type { Carousel } from "@/types/carousel";
 
 /**
@@ -16,15 +17,28 @@ const PROGRESS_POLL_MS = 4000;
 
 const STAGE_LABEL: Record<string, string> = {
   received: "En cola",
+  queued: "En cola",
   ingesting: "Bajando referente",
   generating: "Generando",
   rendering: "Renderizando",
+  preempted: "En pausa",
 };
+
+/**
+ * Estados en los que el pedido NO está trabajando, solo esperando su turno.
+ *
+ * La distinción importa: antes el modelo no podía expresar "esperando" y `received` se
+ * pintaba con el mismo punto pulsante que una generación activa, así que una cola de 4
+ * parecía cuatro generaciones en curso. Con un solo carril, la mayoría espera.
+ */
+const WAITING = new Set(["received", "queued", "preempted"]);
 
 interface GeneratingCardProps {
   carouselId: string | null;
   title: string;
   status: string;
+  /** Puesto en el carril (1-based). null si está trabajando o no se sabe. */
+  queuePosition?: number | null;
 }
 
 interface Progress {
@@ -32,7 +46,12 @@ interface Progress {
   target: number;
 }
 
-export function GeneratingCard({ carouselId, title, status }: GeneratingCardProps) {
+export function GeneratingCard({
+  carouselId,
+  title,
+  status,
+  queuePosition,
+}: GeneratingCardProps) {
   const [progress, setProgress] = useState<Progress | null>(null);
 
   // Poll al carrusel: las láminas crecen a medida que el agente las crea, así que
@@ -67,7 +86,12 @@ export function GeneratingCard({ carouselId, title, status }: GeneratingCardProp
     };
   }, [carouselId]);
 
-  const label = STAGE_LABEL[status] ?? "En proceso";
+  const waiting = WAITING.has(status);
+  const baseLabel = STAGE_LABEL[status] ?? "En proceso";
+  // "En cola — puesto 2" dice algo accionable; "En cola" solo, no.
+  const label =
+    waiting && queuePosition ? `${baseLabel} — puesto ${queuePosition}` : baseLabel;
+
   const produced = progress?.produced ?? 0;
   const target = progress?.target ?? 0;
   const pct = target > 0 ? Math.min(100, Math.round((produced / target) * 100)) : 0;
@@ -80,12 +104,29 @@ export function GeneratingCard({ carouselId, title, status }: GeneratingCardProp
         : "";
 
   const inner = (
-    <div className="flex items-center gap-3 rounded-lg border border-border border-l-4 border-l-info bg-surface p-3 transition-shadow hover:shadow-md">
-      <AssignmentThumb carouselId={carouselId} isActive />
+    <div
+      className={cn(
+        "flex items-center gap-3 rounded-lg border border-border border-l-4 bg-surface p-3 transition-shadow hover:shadow-md",
+        waiting ? "border-l-muted-foreground/40" : "border-l-info"
+      )}
+    >
+      <AssignmentThumb carouselId={carouselId} isActive={!waiting} />
       <div className="min-w-0 flex-1">
         <p className="truncate text-xs font-medium">{title}</p>
-        <p className="flex items-center gap-1.5 text-[11px] font-medium text-info-strong">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-info" />
+        <p
+          className={cn(
+            "flex items-center gap-1.5 text-[11px] font-medium",
+            waiting ? "text-muted-foreground" : "text-info-strong"
+          )}
+        >
+          {/* Punto pulsante SOLO cuando de verdad está trabajando. Un pedido que espera
+              con animación de actividad es exactamente la confusión que queremos evitar. */}
+          <span
+            className={cn(
+              "h-1.5 w-1.5 rounded-full",
+              waiting ? "bg-muted-foreground/50" : "animate-pulse bg-info"
+            )}
+          />
           {label}
           <span className="tabular-nums">{counter}</span>
         </p>

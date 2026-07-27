@@ -1,59 +1,20 @@
-import puppeteer, { type Browser, type Page } from "puppeteer";
 import { readFile } from "fs/promises";
-import { existsSync } from "fs";
 import path from "path";
-import sharp from "sharp";
 import { wrapSlideHtml, extractFontFamilies } from "./slide-html";
 import { getInlinedFontCSS } from "./fonts";
-import { stripBackgroundInPage } from "./strip-slide-background.mjs";
+import { renderPng, type RenderOptions } from "./render";
 import type { Slide, AspectRatio } from "@/types/carousel";
 import { DIMENSIONS } from "@/types/carousel";
 
-// Singleton browser with lifecycle management
-let browser: Browser | null = null;
-let exportCount = 0;
-const MAX_EXPORTS_BEFORE_RESTART = 50;
-
 /**
- * Find a system Chrome/Edge to use instead of Puppeteer's bundled Chromium.
- * On some Windows setups the bundled Chromium hangs at Page.captureScreenshot;
- * the full system Chrome renders reliably. Override with PUPPETEER_EXECUTABLE_PATH.
+ * El ciclo de vida de Chrome NO vive más acá. Este módulo se quedó con el dominio
+ * —armar el HTML autocontenido de una lámina— y delega el rasterizado en el seam
+ * `renderPng` (src/lib/render.ts), que corre local o en el servicio de render.
+ *
+ * Lo que había antes (un singleton `Browser` de módulo, `getBrowser`, `findChrome` y un
+ * contador de reciclado) se movió a src/lib/browser-pool.ts, donde además se arreglaron
+ * la carrera del launch, el huérfano en shutdown y el contador que no contaba.
  */
-function findChrome(): string | undefined {
-  if (process.env.PUPPETEER_EXECUTABLE_PATH) return process.env.PUPPETEER_EXECUTABLE_PATH;
-  const local = process.env.LOCALAPPDATA || "";
-  const candidates =
-    process.platform === "win32"
-      ? [
-          "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-          "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
-          `${local}\\Google\\Chrome\\Application\\chrome.exe`,
-          "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
-        ]
-      : process.platform === "darwin"
-        ? ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"]
-        : ["/usr/bin/google-chrome", "/usr/bin/chromium-browser", "/usr/bin/chromium"];
-  return candidates.find((p) => p && existsSync(p));
-}
-
-export async function getBrowser(): Promise<Browser> {
-  if (browser && exportCount >= MAX_EXPORTS_BEFORE_RESTART) {
-    await browser.close().catch(() => {});
-    browser = null;
-    exportCount = 0;
-  }
-  if (!browser || !browser.isConnected()) {
-    const executablePath = findChrome();
-    browser = await puppeteer.launch({
-      headless: true,
-      protocolTimeout: 120000,
-      ...(executablePath ? { executablePath } : {}),
-      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu"],
-    });
-    exportCount = 0;
-  }
-  return browser;
-}
 
 const MIME_POR_EXT: Record<string, string> = {
   ".png": "image/png",
@@ -128,108 +89,55 @@ export async function prepareRenderableHtml(
 }
 
 /**
- * Export a single slide to PNG buffer.
- */
-/**
- * Render scale for exports. 2 = supersampling: Chrome renders at 2160×2700
- * (4:5), so text and edges come out crisp. Instagram accepts up to 2160px
- * wide and downscales with better results than a 1080px source.
+ * Escala de render de los exports. 2 = supersampling: Chrome rasteriza a 2160×2700
+ * (4:5), así el texto y los bordes salen nítidos. Instagram acepta hasta 2160px de
+ * ancho y reduce mejor que si le mandáramos un original de 1080px.
  */
 const EXPORT_SCALE = 2;
 
 /**
- * En la página ya renderizada, neutraliza la capa de fondo del slide para
- * exportar "sin fondo" (PNG transparente). La lógica vive en
- * `strip-slide-background.mjs` porque corre dentro de la página de Puppeteer y así
- * se puede probar contra una lámina real (scripts/check-editor.mjs).
+ * Exporta UNA lámina a PNG.
+ *
+ * El "sin fondo" ya no se aplica acá: `stripBackgroundInPage`
+ * (src/lib/strip-slide-background.mjs) corre DENTRO de la página, y la página ahora vive
+ * del otro lado del seam de render — puede ser este proceso o el servicio de render. Se
+ * pasa como el flag `transparent` y lo aplica quien tenga el navegador.
  */
-async function stripSlideBackground(page: Page): Promise<void> {
-  await page.evaluate(stripBackgroundInPage);
-}
-
 export async function exportSlide(
   slide: Slide,
   aspectRatio: AspectRatio,
-  options: { transparent?: boolean } = {}
+  options: { transparent?: boolean } = {},
+  renderOpts: RenderOptions = {}
 ): Promise<Buffer> {
   const { width, height } = DIMENSIONS[aspectRatio];
+  const html = await prepareRenderableHtml(slide.html, aspectRatio);
 
-  const fullHtml = await prepareRenderableHtml(slide.html, aspectRatio);
-
-  const br = await getBrowser();
-  const page = await br.newPage();
-
-  try {
-    await page.setViewport({ width, height, deviceScaleFactor: EXPORT_SCALE });
-    await page.setContent(fullHtml, { waitUntil: "domcontentloaded", timeout: 15000 });
-
-    // Wait for fonts to be ready
-    await page
-      .waitForFunction(
-        () =>
-          document.fonts.ready.then(() =>
-            [...document.fonts].every((f) => f.status === "loaded")
-          ),
-        { timeout: 10000 }
-      )
-      .catch(() => {
-        // Font loading timeout — proceed with whatever loaded
-      });
-
-    // "Sin fondo": neutralizamos la capa de fondo antes de capturar y dejamos que
-    // Puppeteer respete la transparencia (omitBackground no rasteriza el blanco).
-    if (options.transparent) await stripSlideBackground(page);
-
-    const screenshotBuffer = await page.screenshot({
-      type: "png",
-      clip: { x: 0, y: 0, width, height },
-      // captureBeyondViewport defaults to true when `clip` is set, which routes
-      // through an Emulation path that hangs captureScreenshot on this Windows/
-      // Chromium combo. Viewport == clip here, so disabling it is equivalent + reliable.
-      captureBeyondViewport: false,
-      omitBackground: options.transparent === true,
-    });
-
-    exportCount++;
-
-    // Post-process with Sharp: enforce sRGB. En transparente preservamos el canal
-    // alfa (png lo mantiene); en opaco es el mismo camino que siempre.
-    const processed = await sharp(screenshotBuffer)
-      .toColorspace("srgb")
-      .png()
-      .toBuffer();
-
-    return processed;
-  } finally {
-    await page.close().catch(() => {});
-  }
+  return renderPng(
+    { html, width, height, scale: EXPORT_SCALE, transparent: options.transparent },
+    renderOpts
+  );
 }
 
 /**
- * Export all slides of a carousel to PNG buffers.
- * Processes up to 3 slides concurrently.
+ * Exporta todas las láminas del carrusel a PNG, UNA POR VEZ.
+ *
+ * La serialización ya no se decide acá: el tope real lo pone el semáforo de
+ * browser-pool (o `--concurrency=1` del servicio de render). Antes este loop tenía un
+ * andamiaje de batches con `Promise.all` y `CONCURRENCY = 1`, más un comentario que
+ * decía "hasta 3 láminas en paralelo" y hacía años que era mentira.
  */
 export async function exportAllSlides(
   slides: Slide[],
   aspectRatio: AspectRatio,
-  onProgress?: (current: number, total: number) => void
+  onProgress?: (current: number, total: number) => void,
+  renderOpts: RenderOptions = {}
 ): Promise<{ name: string; buffer: Buffer }[]> {
   const results: { name: string; buffer: Buffer }[] = [];
-  // Serialize: concurrent Page.captureScreenshot calls on one browser can deadlock
-  // (the screenshot hang seen on Windows). One page at a time is reliable.
-  const CONCURRENCY = 1;
 
-  for (let i = 0; i < slides.length; i += CONCURRENCY) {
-    const batch = slides.slice(i, i + CONCURRENCY);
-    const batchResults = await Promise.all(
-      batch.map(async (slide, batchIdx) => {
-        const idx = i + batchIdx;
-        const buffer = await exportSlide(slide, aspectRatio);
-        onProgress?.(idx + 1, slides.length);
-        return { name: `slide-${idx + 1}.png`, buffer };
-      })
-    );
-    results.push(...batchResults);
+  for (let i = 0; i < slides.length; i++) {
+    const buffer = await exportSlide(slides[i], aspectRatio, {}, renderOpts);
+    results.push({ name: `slide-${i + 1}.png`, buffer });
+    onProgress?.(i + 1, slides.length);
   }
 
   return results;

@@ -1,6 +1,14 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // La raíz del workspace, explícita. `render-service/` tiene su propio package.json
+  // (es un deployable aparte con sus propias deps) y eso hacía que Turbopack dudara de
+  // cuál era la raíz. Fijarla evita que infiera mal y resuelva assets desde otro lugar.
+  //
+  // Se usa `__dirname` pelado, sin `path.resolve()`: cualquier llamada al filesystem en
+  // este archivo dispara el heurístico de Turbopack "se trazó todo el proyecto" y termina
+  // metiendo el repo entero en el bundle del server.
+  turbopack: { root: __dirname },
   serverExternalPackages: [
     "sharp",
     "archiver",

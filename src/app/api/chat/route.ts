@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { mkdir, stat } from "fs/promises";
+import crypto from "crypto";
 import path from "path";
 import { isClaudeAvailable } from "@/lib/claude-path";
+import { PRIORITY, submit, cancel as cancelLaneJob } from "@/lib/job-queue";
 import { spawnClaude, ClaudeSpawnError, isUsageLimitError } from "@/lib/generate-headless";
 import { configDirForToken, markTokenExhausted } from "@/lib/claude-tokens";
 import { buildSystemPrompt } from "@/lib/chat-system-prompt";
@@ -184,6 +186,12 @@ export async function POST(request: NextRequest) {
   const abortController = new AbortController();
   const encoder = new TextEncoder();
 
+  /**
+   * Id único de ESTE turno en el carril. No se usa el sessionId de Claude porque un mismo
+   * chat manda muchos turnos y el carril rechaza ids duplicados.
+   */
+  const laneJobId = `chat:${crypto.randomUUID()}`;
+
   const stream = new ReadableStream({
     start(controller) {
       const enqueue = (chunk: string) => {
@@ -194,18 +202,43 @@ export async function POST(request: NextRequest) {
         }
       };
 
-      spawnClaude({
-        message: effectiveMessage,
-        systemPrompt,
-        sessionId,
-        cwd: process.cwd(),
-        signal: abortController.signal,
-        env: spawnEnv,
-        onToken: (text) =>
-          enqueue(`data: ${JSON.stringify({ type: "token", text })}\n\n`),
-        onResult: (text) =>
-          enqueue(`data: ${JSON.stringify({ type: "result", text })}\n\n`),
-      })
+      /**
+       * El turno de chat entra al carril global con la prioridad MÁS ALTA: hay una
+       * diseñadora mirando la pantalla, mientras un job de la cola puede esperar.
+       *
+       * Consecuencia buscada de tener un único carril: si hay una generación de la cola
+       * corriendo y cumple las condiciones, este turno la PREEMPTA (ella guarda checkpoint
+       * y retoma después). Está acotado por el quantum mínimo, la retención pegajosa y el
+       * tope de preempciones — ver job-queue.ts.
+       *
+       * `stickyKey` es la sesión de chat: turnos consecutivos de la misma conversación
+       * conservan el carril un rato, para no preemptar al batch en cada mensaje.
+       */
+      submit(
+        () =>
+          spawnClaude({
+            message: effectiveMessage,
+            systemPrompt,
+            sessionId,
+            cwd: process.cwd(),
+            signal: abortController.signal,
+            env: spawnEnv,
+            onToken: (text) =>
+              enqueue(`data: ${JSON.stringify({ type: "token", text })}\n\n`),
+            onResult: (text) =>
+              enqueue(`data: ${JSON.stringify({ type: "result", text })}\n\n`),
+          }),
+        {
+          id: laneJobId,
+          priority: PRIORITY.INTERACTIVE,
+          label: "chat",
+          stickyKey: sessionId ? `chat:${sessionId}` : laneJobId,
+          // Avisale al cliente que está esperando y en qué puesto, así la UI no parece
+          // colgada mientras el carril está ocupado.
+          onQueued: (position) =>
+            enqueue(`data: ${JSON.stringify({ type: "queued", position })}\n\n`),
+        }
+      )
         .then((res) => {
           // Cuenta central que llegó a su límite → cooldown, para que el próximo
           // request rote a otra cuenta solo.
@@ -269,6 +302,10 @@ export async function POST(request: NextRequest) {
     },
 
     cancel() {
+      // La diseñadora cerró la pestaña o navegó. Además de matar el subproceso, hay que
+      // SACARLO DEL CARRIL: si solo se abortara, un turno que todavía estaba esperando
+      // seguiría en la fila y le robaría el turno a otro trabajo para nada.
+      cancelLaneJob(laneJobId);
       abortController.abort();
     },
   });

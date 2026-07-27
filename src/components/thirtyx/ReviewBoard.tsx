@@ -26,8 +26,36 @@ const POLL_MAX_MS = 60000;
 /** Cadencia del pull pesado de Prewave (encola briefs nuevos), en background. */
 const SYNC_MS = 30000;
 
-/** Estados en curso (aún generándose). */
-const GENERATING = ["received", "claiming", "ingesting", "generating", "rendering"];
+/**
+ * Estados en curso: generándose O esperando su turno en el carril.
+ *
+ * `queued` y `preempted` son nuevos y tienen que estar acá: con un solo carril global la
+ * mayoría de los pedidos está esperando, y si no aparecieran en el board se verían como
+ * desaparecidos. La card distingue visualmente "esperando" de "trabajando".
+ */
+const GENERATING = [
+  "received",
+  "queued",
+  "claiming",
+  "ingesting",
+  "generating",
+  "rendering",
+  "preempted",
+];
+
+interface QueueItem {
+  id: string;
+  state: "active" | "queued";
+  position: number | null;
+  priority: number;
+}
+
+/**
+ * Espejo de PRIORITY.URGENT de src/lib/job-queue.ts. Se duplica el número porque este es
+ * un componente cliente y job-queue.ts es código de servidor (toca process.env y guarda
+ * estado en globalThis); importarlo lo arrastraría al bundle.
+ */
+const PRIORITY_URGENT = 10;
 
 function shortAvatar(name: string | null, slug: string): string {
   return (name || slug || "Sin avatar").replace(/^30X\s*[—–-]\s*/i, "").trim();
@@ -43,6 +71,7 @@ export function ReviewBoard() {
   const [loaded, setLoaded] = useState(false);
   const [displayName, setDisplayName] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
+  const [queue, setQueue] = useState<QueueItem[]>([]);
   const busyRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -50,6 +79,19 @@ export function ReviewBoard() {
       .then((r) => r.json())
       .then((b) => setDisplayName(b?.user?.displayName || ""))
       .catch(() => {});
+  }, []);
+
+  // Estado del carril: quién está corriendo y en qué puesto espera el resto. Va junto al
+  // poll rápido porque es lo que convierte "En cola" en "En cola — puesto 2".
+  const loadQueue = useCallback(async (): Promise<void> => {
+    try {
+      const res = await fetch("/api/queue");
+      if (!res.ok) return;
+      const data: { items?: QueueItem[] } = await res.json();
+      setQueue(data.items || []);
+    } catch {
+      // Sin el carril las cards siguen mostrando su etapa; solo se pierde el puesto.
+    }
   }, []);
 
   // Lectura RÁPIDA: solo la base local (GET /mine), sin tocar Prewave. Gatea el
@@ -114,6 +156,7 @@ export function ReviewBoard() {
 
     const fastTick = async () => {
       const ok = await loadMine();
+      await loadQueue();
       if (cancelled) return;
       delay = ok ? POLL_OK_MS : Math.min(delay * 2, POLL_MAX_MS);
       fastTimer = setTimeout(fastTick, delay);
@@ -133,7 +176,32 @@ export function ReviewBoard() {
       if (fastTimer) clearTimeout(fastTimer);
       if (slowTimer) clearTimeout(slowTimer);
     };
-  }, [loadMine, syncPrewave]);
+  }, [loadMine, loadQueue, syncPrewave]);
+
+  // Priorizar: manda este pedido al frente de la fila. Si algo está corriendo y cumple
+  // las condiciones de preempción (fase interrumpible, pasó el quantum mínimo, no llegó al
+  // tope), le cede el turno guardando checkpoint y lo retoma después.
+  const prioritize = useCallback(
+    async (jobId: string) => {
+      if (busyRef.current.has(jobId)) return;
+      busyRef.current.add(jobId);
+      try {
+        const res = await fetch(`/api/queue/${jobId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ priority: "urgente" }),
+        });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          setError(d.error || "No se pudo priorizar el pedido");
+        }
+        await loadQueue();
+      } finally {
+        busyRef.current.delete(jobId);
+      }
+    },
+    [loadQueue]
+  );
 
   const approve = useCallback(
     async (jobId: string) => {
@@ -186,6 +254,8 @@ export function ReviewBoard() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.replace("/login");
   }, [router]);
+
+  const queueById = new Map(queue.map((q) => [q.id, q]));
 
   const porRevisar = assignments.filter((a) => a.status === "pending_review");
   const generando = assignments.filter((a) => GENERATING.includes(a.status));
@@ -295,15 +365,32 @@ export function ReviewBoard() {
           <div className="space-y-5">
             {generando.length > 0 && (
               <Column title="Generando" count={generando.length}>
-                {generando.map((a) => (
-                  <li key={a.jobId}>
-                    <GeneratingCard
-                      carouselId={a.carouselId}
-                      title={shortAvatar(a.avatarName, a.avatarSlug)}
-                      status={a.status}
-                    />
-                  </li>
-                ))}
+                {generando.map((a) => {
+                  const q = queueById.get(a.jobId);
+                  const esperando = q?.state === "queued";
+                  return (
+                    <li key={a.jobId}>
+                      <GeneratingCard
+                        carouselId={a.carouselId}
+                        title={shortAvatar(a.avatarName, a.avatarSlug)}
+                        status={a.status}
+                        queuePosition={q?.position ?? null}
+                      />
+                      {/* Priorizar solo tiene sentido si está ESPERANDO y no es ya urgente:
+                          sobre el que ya corre no aceleraría nada. */}
+                      {esperando && q!.priority > PRIORITY_URGENT && (
+                        <div className="mt-1 flex justify-end">
+                          <button
+                            onClick={() => prioritize(a.jobId)}
+                            className="text-[11px] font-medium text-accent-strong underline-offset-2 hover:underline"
+                          >
+                            Priorizar ↑
+                          </button>
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
               </Column>
             )}
 

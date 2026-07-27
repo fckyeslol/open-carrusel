@@ -1,5 +1,6 @@
-import { getBrowser, inlineImages } from "./export-slides";
+import { inlineImages } from "./export-slides";
 import { getInlinedFontCSS } from "./fonts";
+import { renderPdf, type RenderOptions } from "./render";
 import { extractFontFamilies } from "./slide-html";
 import type { Slide, AspectRatio } from "@/types/carousel";
 import { DIMENSIONS } from "@/types/carousel";
@@ -83,54 +84,22 @@ ${pages.join("\n")}
 </html>`;
 }
 
-/** Espera a que las fuentes carguen antes de capturar (mismo criterio que PNG). */
-async function waitForFonts(
-  page: Awaited<ReturnType<Awaited<ReturnType<typeof getBrowser>>["newPage"]>>
-): Promise<void> {
-  await page
-    .waitForFunction(
-      () =>
-        document.fonts.ready.then(() =>
-          [...document.fonts].every((f) => f.status === "loaded")
-        ),
-      { timeout: 10000 }
-    )
-    .catch(() => {
-      // Font loading timeout — seguimos con lo que haya cargado.
-    });
-}
-
 /**
  * Exporta láminas a un único PDF, una lámina por página, al tamaño exacto de
  * Instagram. El texto se preserva como texto editable.
+ *
+ * La espera de fuentes vive ahora en el seam (`render.ts` + el contrato compartido);
+ * antes estaba duplicada acá y en export-slides.ts con timeouts distintos.
  */
 export async function exportPdf(
   slides: Slide[],
-  aspectRatio: AspectRatio
+  aspectRatio: AspectRatio,
+  renderOpts: RenderOptions = {}
 ): Promise<Buffer> {
   const { width, height } = DIMENSIONS[aspectRatio];
   const html = await buildMultiSlideDocument(slides, aspectRatio, "pdf");
 
-  const br = await getBrowser();
-  const page = await br.newPage();
-
-  try {
-    await page.setViewport({ width, height, deviceScaleFactor: 1 });
-    await page.setContent(html, { waitUntil: "domcontentloaded", timeout: 20000 });
-    await waitForFonts(page);
-
-    const pdf = await page.pdf({
-      width: `${width}px`,
-      height: `${height}px`,
-      printBackground: true,
-      margin: { top: "0", right: "0", bottom: "0", left: "0" },
-      preferCSSPageSize: false,
-    });
-
-    return Buffer.from(pdf);
-  } finally {
-    await page.close().catch(() => {});
-  }
+  return renderPdf({ html, width, height, scale: 1 }, renderOpts);
 }
 
 /**

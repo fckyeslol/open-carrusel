@@ -18,6 +18,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "node --test \"src/**/*.test.mts\"",
     "doctor": "node scripts/doctor.mjs",
     "check:editor": "node scripts/check-editor.mjs",
     "hosted:setup": "node scripts/setup-hosted.mjs",

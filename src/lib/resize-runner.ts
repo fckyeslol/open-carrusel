@@ -19,6 +19,7 @@ import { getPreset, getPresetByAvatarSlug } from "./style-presets";
 import { isHiggsfieldConfigured } from "./higgsfield";
 import { getInternalApiToken, isHostedMode } from "./hosted";
 import { buildResizeSystemPrompt, buildAdaptSlideMessage } from "./resize-prompt";
+import { PRIORITY, PreemptedError, CancelledError, submit } from "./job-queue";
 
 export type ResizeStatus = "pending" | "running" | "done" | "failed";
 
@@ -175,13 +176,29 @@ export async function startResize(
   registry().jobs.set(sourceId, job);
 
   // Background: no lo esperamos. Cada hermano falla aislado (uno roto no tumba al otro).
+  //
+  // Cada hermano entra al CARRIL GLOBAL con prioridad baja. Antes este loop era la única
+  // serialización ("un hermano a la vez"), pero solo dentro de este job: dos carruseles
+  // re-maquetando a la vez levantaban dos subprocesos Claude sin ningún tope, encima de
+  // los de la cola. Ahora el carril los ordena junto con todo lo demás, y el chat les pasa
+  // por delante porque tiene prioridad mayor.
   void (async () => {
     for (const state of siblings) {
       try {
-        await adaptSibling(state, source);
+        await submit(() => adaptSibling(state, source), {
+          id: `resize:${state.carouselId}`,
+          priority: PRIORITY.RESIZE,
+          label: `re-maquetar ${state.ratio}`,
+        });
       } catch (e) {
+        // Una preempción acá NO se retoma: adaptSibling va lámina por lámina y su avance
+        // queda en `state.completed`, pero no hay checkpoint durable. Se marca failed con
+        // una causa clara y la diseñadora puede volver a pedirlo.
         state.status = "failed";
-        state.error = (e as Error).message || "Error en la re-maquetación";
+        state.error =
+          e instanceof PreemptedError || e instanceof CancelledError
+            ? "Se interrumpió por otro trabajo más urgente. Volvé a pedir este tamaño."
+            : (e as Error).message || "Error en la re-maquetación";
       }
     }
   })();

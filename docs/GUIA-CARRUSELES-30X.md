@@ -86,5 +86,7 @@ Prewave  ←  la diseñadora entrega el diseño (flujo normal del tablero)
 |---|---|---|
 | `PREWAVE_TOKEN` | `.env.local` de cada compu | Token JWT de esa diseñadora (30 días). Opcional: si no, lo pega en el panel. |
 | `PREWAVE_API_BASE` | `.env.local` | Base de la API de Prewave (default ya correcto). |
-| `THIRTYX_MAX_CONCURRENT` | `.env.local` | Cuántos genera en paralelo (default `4`, tope `8`). |
+| `QUEUE_LANE_SIZE` | `.env.local` | Cuántos trabajos pesados a la vez (default `1` = serializado, tope `4`). Reemplaza a `THIRTYX_MAX_CONCURRENT`, que ya se ignora. |
+| `QUEUE_PREEMPTION` | `.env.local` | `0` desactiva la preempción: un pedido en curso nunca cede el turno al chat. |
+| `RENDER_SERVICE_URL` | solo hosteado | URL del servicio de render. Con esto seteado Chrome NO corre en la app. Vaciarlo vuelve al render en proceso. |
 | `CLAUDE_CLI_PATH` | `.env.local` | Solo si el Claude CLI no está en el PATH. |

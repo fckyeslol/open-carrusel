@@ -60,13 +60,32 @@ ENV_VARS="HOSTED_MODE=1,DOMAIN=${APP_DOMAIN},CLAUDE_CLI_PATH=/usr/local/bin/clau
 if [ -n "${CLAUDE_TOKEN_COOLDOWN_MIN:-}" ]; then
   ENV_VARS="${ENV_VARS},CLAUDE_TOKEN_COOLDOWN_MIN=${CLAUDE_TOKEN_COOLDOWN_MIN}"
 fi
+# Servicio de render: con esto seteado, Chrome NO se abre en esta instancia — el render
+# sale por HTTP (ver src/lib/render.ts). Deployá el servicio PRIMERO (deploy/render-deploy.sh).
+# Vaciarlo es el kill switch: vuelve al render en proceso sin revertir código.
+if [ -n "${RENDER_SERVICE_URL:-}" ]; then
+  ENV_VARS="${ENV_VARS},RENDER_SERVICE_URL=${RENDER_SERVICE_URL}"
+fi
+# Tamaño del carril de generación. Default 1 en la app: TODO lo pesado (chat, cola 30x,
+# resize) pasa por un único carril serializado. Subilo solo si la instancia tiene aire.
+if [ -n "${QUEUE_LANE_SIZE:-}" ]; then
+  ENV_VARS="${ENV_VARS},QUEUE_LANE_SIZE=${QUEUE_LANE_SIZE}"
+fi
 
 # --concurrency=80: requests HTTP simultáneas por instancia. NO bajarlo para
-#   "limitar generaciones": la generación pesada (Puppeteer + subproceso Claude)
-#   ya está capada aparte por el runner (THIRTYX_MAX_CONCURRENT). Con max-instances=1,
+#   "limitar generaciones": la generación pesada ya está capada aparte por el carril de
+#   trabajos (src/lib/job-queue.ts, QUEUE_LANE_SIZE, default 1). Con max-instances=1,
 #   un concurrency bajo estrangula el tráfico web liviano (chunks JS, polling, SSE)
 #   y Cloud Run devuelve 429 "no available instance" hasta para el propio bundle,
 #   dejando la app en "Cargando…". Estuvo en 4 y rompía el arranque de la página.
+# --memory: sigue en 4Gi A PROPÓSITO en este deploy, aunque Chrome se haya ido al servicio
+#   de render y el carril deje UNA generación a la vez.
+#
+#   Bajarlo a 2Gi es el paso siguiente, NO este: (1) hay que ver primero en las métricas
+#   cuánto baja de verdad el uso, y (2) RENDER_SERVICE_URL es el kill switch — si el
+#   servicio de render da problemas y se lo vacía, la app vuelve a abrir Chrome localmente,
+#   y con 2Gi eso quedaría PEOR que antes del cambio. Un kill switch que empeora las cosas
+#   no es un kill switch. Se baja con APP_MEMORY una vez que el render esté probado.
 # --no-cpu-throttling: CPU siempre asignada — el subproceso de Claude (hasta
 #   8 min) y el streaming SSE necesitan CPU fuera del ciclo request/response.
 # --execution-environment gen2: requerido para montar volúmenes GCS.
@@ -80,7 +99,7 @@ gcloud run deploy "$SERVICE" \
   --execution-environment=gen2 \
   --min-instances=1 --max-instances=1 \
   --concurrency=80 \
-  --cpu=2 --memory=4Gi --cpu-boost --no-cpu-throttling \
+  --cpu=2 --memory="${APP_MEMORY:-4Gi}" --cpu-boost --no-cpu-throttling \
   --timeout=3600 \
   --ingress=internal-and-cloud-load-balancing \
   --allow-unauthenticated \

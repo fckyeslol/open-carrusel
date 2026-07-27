@@ -10,9 +10,9 @@
  * Fallback si el JSON no aparece: og:image + imgs del artículo.
  */
 import { writeFile } from "fs/promises";
-import { existsSync } from "fs";
 import path from "path";
-import puppeteer, { type Page } from "puppeteer";
+import { type Page } from "puppeteer";
+import { withContext } from "./browser-pool";
 import { normalizeInstagramUrl, hasCarouselHint } from "./instagram-url";
 
 /**
@@ -98,23 +98,6 @@ async function blockHeavyRequests(page: Page): Promise<void> {
       req.continue().catch(() => {});
     }
   });
-}
-
-function findChrome(): string | undefined {
-  if (process.env.PUPPETEER_EXECUTABLE_PATH) return process.env.PUPPETEER_EXECUTABLE_PATH;
-  const local = process.env.LOCALAPPDATA || "";
-  const candidates =
-    process.platform === "win32"
-      ? [
-          "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-          "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
-          `${local}\\Google\\Chrome\\Application\\chrome.exe`,
-          "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
-        ]
-      : process.platform === "darwin"
-        ? ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"]
-        : ["/usr/bin/google-chrome", "/usr/bin/chromium-browser", "/usr/bin/chromium"];
-  return candidates.find((p) => p && existsSync(p));
 }
 
 export interface DownloadedSlide {
@@ -313,78 +296,75 @@ export async function downloadInstagramReference(
   const postUrl = normalizeInstagramUrl(rawUrl);
   if (!postUrl) throw new Error("URL de Instagram inválida");
 
-  const executablePath = findChrome();
   const proxy = instagramProxy();
-  const browser = await puppeteer.launch({
-    headless: true,
-    protocolTimeout: 60000,
-    ...(executablePath ? { executablePath } : {}),
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-gpu",
-      ...(proxy ? [`--proxy-server=${proxy.server}`] : []),
-    ],
-  });
-  hooks.onBrowserReady?.();
 
-  const page = await browser.newPage();
-  const imgPage = await browser.newPage();
-  await applyProxyAuth(page, proxy);
-  await applyProxyAuth(imgPage, proxy);
-  // Con proxy (metered) la página de extracción no baja imágenes/CSS: solo el JSON.
-  if (proxy) await blockHeavyRequests(page);
-  try {
-    hooks.onExtractStart?.();
-    const { urls: imageUrls, usedFallback } = await extractImageUrls(page, postUrl);
-    if (imageUrls.length === 0) {
-      throw new Error(
-        "No se pudieron extraer imágenes del post (¿privado, borrado, o Instagram pide login?). Probá subir capturas del referente a mano."
-      );
-    }
+  // Un CONTEXTO aislado del Chrome compartido, en vez de un Chrome propio. El proxy
+  // residencial y la cookie de sesión aplican solo a este contexto, así que el render
+  // sigue saliendo por la IP normal — que es lo que queremos (las imágenes se bajan con
+  // un fetch de Node, fuera del proxy metered; ver downloadImageBytes).
+  //
+  // Antes esto lanzaba su propio browser con `--proxy-server`, y con 4 jobs en paralelo
+  // eran 4 Chrome completos navegando Instagram: la mayor fuente de consumo de memoria.
+  return withContext(
+    async (context) => {
+      const page = await context.newPage();
+      const imgPage = await context.newPage();
+      hooks.onBrowserReady?.();
+      await applyProxyAuth(page, proxy);
+      await applyProxyAuth(imgPage, proxy);
+      // Con proxy (metered) la página de extracción no baja imágenes/CSS: solo el JSON.
+      if (proxy) await blockHeavyRequests(page);
 
-    // GUARD anti-basura: si Instagram no dio el JSON del post y hubo que caer a
-    // la portada (usedFallback), o si la URL apunta a un carrusel pero solo se
-    // recuperó 1 lámina, el referente está INCOMPLETO. Antes se seguía de largo
-    // y el agente generaba un carrusel de 1 lámina inventada (institucional) que
-    // se marcaba como válido — el peor resultado posible. Mejor fallar claro:
-    // así el job queda failed con una causa accionable en vez de entregar basura.
-    const looksLikeCarousel = hasCarouselHint(rawUrl);
-    if (usedFallback || (looksLikeCarousel && imageUrls.length < 2)) {
-      const sessionHint = instagramSessionId()
-        ? "La cookie IG_SESSIONID quizás venció — renovala."
-        : "Configurá IG_SESSIONID en el server (cookie de sesión de Instagram) para scrapear posts completos desde la nube, o subí las capturas del referente a mano.";
-      throw new Error(
-        `Instagram no devolvió el carrusel completo desde el servidor: solo se pudo leer ${imageUrls.length} ${imageUrls.length === 1 ? "imagen (la portada)" : "imágenes"}. ${sessionHint}`
-      );
-    }
+      hooks.onExtractStart?.();
+      const { urls: imageUrls, usedFallback } = await extractImageUrls(page, postUrl);
+      if (imageUrls.length === 0) {
+        throw new Error(
+          "No se pudieron extraer imágenes del post (¿privado, borrado, o Instagram pide login?). Probá subir capturas del referente a mano."
+        );
+      }
 
-    hooks.onExtracted?.(imageUrls.length);
+      // GUARD anti-basura: si Instagram no dio el JSON del post y hubo que caer a
+      // la portada (usedFallback), o si la URL apunta a un carrusel pero solo se
+      // recuperó 1 lámina, el referente está INCOMPLETO. Antes se seguía de largo
+      // y el agente generaba un carrusel de 1 lámina inventada (institucional) que
+      // se marcaba como válido — el peor resultado posible. Mejor fallar claro:
+      // así el job queda failed con una causa accionable en vez de entregar basura.
+      const looksLikeCarousel = hasCarouselHint(rawUrl);
+      if (usedFallback || (looksLikeCarousel && imageUrls.length < 2)) {
+        const sessionHint = instagramSessionId()
+          ? "La cookie IG_SESSIONID quizás venció — renovala."
+          : "Configurá IG_SESSIONID en el server (cookie de sesión de Instagram) para scrapear posts completos desde la nube, o subí las capturas del referente a mano.";
+        throw new Error(
+          `Instagram no devolvió el carrusel completo desde el servidor: solo se pudo leer ${imageUrls.length} ${imageUrls.length === 1 ? "imagen (la portada)" : "imágenes"}. ${sessionHint}`
+        );
+      }
 
-    const slides: DownloadedSlide[] = [];
-    for (let i = 0; i < imageUrls.length; i++) {
-      const buffer = await downloadImageBytes(imgPage, imageUrls[i]);
-      if (!buffer) continue;
-      const ext = detectImageExt(buffer);
-      if (!ext) continue; // no es una imagen que reconozcamos
-      const fileName = `${makeId()}.${ext}`;
-      const absPath = path.join(uploadDir, fileName);
-      await writeFile(absPath, buffer);
-      slides.push({
-        url: `/uploads/${fileName}`,
-        absPath,
-        name: `Referente ${i + 1}`,
-      });
-      hooks.onSlideDownloaded?.(slides.length, imageUrls.length);
-    }
+      hooks.onExtracted?.(imageUrls.length);
 
-    if (slides.length === 0) {
-      throw new Error("Se encontraron URLs pero ninguna imagen se pudo descargar (403 o formato inesperado).");
-    }
-    return slides;
-  } finally {
-    await page.close().catch(() => {});
-    await imgPage.close().catch(() => {});
-    await browser.close().catch(() => {});
-  }
+      const slides: DownloadedSlide[] = [];
+      for (let i = 0; i < imageUrls.length; i++) {
+        const buffer = await downloadImageBytes(imgPage, imageUrls[i]);
+        if (!buffer) continue;
+        const ext = detectImageExt(buffer);
+        if (!ext) continue; // no es una imagen que reconozcamos
+        const fileName = `${makeId()}.${ext}`;
+        const absPath = path.join(uploadDir, fileName);
+        await writeFile(absPath, buffer);
+        slides.push({
+          url: `/uploads/${fileName}`,
+          absPath,
+          name: `Referente ${i + 1}`,
+        });
+        hooks.onSlideDownloaded?.(slides.length, imageUrls.length);
+      }
+
+      if (slides.length === 0) {
+        throw new Error("Se encontraron URLs pero ninguna imagen se pudo descargar (403 o formato inesperado).");
+      }
+      return slides;
+      // Sin `finally`: withContext cierra el contexto (y con él sus dos páginas) pase lo
+      // que pase, y libera el permiso del semáforo.
+    },
+    { proxyServer: proxy?.server }
+  );
 }

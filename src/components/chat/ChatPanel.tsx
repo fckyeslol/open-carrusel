@@ -167,6 +167,24 @@ export function ChatPanel({
                         : m
                     )
                   );
+                } else if (data.type === "queued" && typeof data.position === "number") {
+                  // El turno está esperando su lugar en el carril global (hay una
+                  // generación de la cola corriendo). Sin este aviso el chat parecería
+                  // colgado. Es un texto provisorio: el primer token real lo reemplaza,
+                  // porque `accumulated` arranca vacío y se pisa entero.
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === assistantId && !accumulated
+                        ? {
+                            ...m,
+                            content:
+                              data.position === 1
+                                ? "Esperando turno (sos el próximo)…"
+                                : `Esperando turno — puesto ${data.position} en la cola…`,
+                          }
+                        : m
+                    )
+                  );
                 }
               } catch {
                 // skip unparseable

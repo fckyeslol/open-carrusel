@@ -26,7 +26,10 @@ apretar nada. En el panel `/30x` los ves agrupados por avenger con su estado en 
 - La entrada manual por URL (sección 01) sigue disponible, y ahora **queda registrada** en
   *Historial manual* (sección 02): cada URL que pegaste, con qué avenger y cómo terminó. Si la
   ingesta falla o cerrás la pestaña, la URL no se pierde — *Volver a usar* recarga el formulario.
-- Cuántos genera en paralelo: `THIRTYX_MAX_CONCURRENT` (default `4`, tope `8`).
+- **Uno a la vez:** los pedidos se generan de a uno, en una cola con prioridad. El chat va
+  primero (si estás chateando, un pedido de la cola le cede el turno y lo retoma después) y
+  desde el board podés priorizar un pedido que espera. Subilo con `QUEUE_LANE_SIZE` solo si
+  la máquina tiene aire de sobra.
 
 ## Qué hay dónde
 

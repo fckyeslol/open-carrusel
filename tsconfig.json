@@ -3,6 +3,10 @@
     "target": "ES2017",
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
+    // Los tests corren con el runner nativo de Node (sin vitest/jest). Node resuelve ESM
+    // con extensión explícita, así que job-queue.test.mts importa "./job-queue.ts" y TS
+    // necesita este permiso para no marcarlo como error. Es seguro con noEmit.
+    "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
@@ -30,5 +34,7 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules", "impeccable"]
+  // render-service es un deployable aparte: corre con node directo, tiene sus propias
+  // dependencias y no comparte el tsconfig de la app.
+  "exclude": ["node_modules", "impeccable", "render-service"]
 }
