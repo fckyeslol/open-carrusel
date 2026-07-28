@@ -34,6 +34,16 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
   }
 
+  // Archivado no se reintenta: `setStatus` ignora a los archivados a propósito (para que
+  // una generación cancelada no vuelva sola al tablero), así que sin este 409 el retry
+  // encolaría un job que el runner descarta al instante — un no-op silencioso.
+  if (a.status === "archived") {
+    return NextResponse.json(
+      { error: "El pedido está en la Biblioteca; restauralo antes de reintentarlo" },
+      { status: 409 }
+    );
+  }
+
   const body = await request.json().catch(() => ({}) as { resume?: boolean });
   const resume = body?.resume === true;
   if (!resume) await clearCheckpoint(jobId);
