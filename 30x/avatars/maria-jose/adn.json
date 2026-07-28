@@ -1,9 +1,11 @@
 {
   "avatar": {
     "slug": "maria-jose",
-    "name": "Maria Jose Echeverri",
+    "name": "María José Echeverry",
     "prewave_avatar_id": "<uuid opcional>",
     "prewave_program_match": [
+      "María José Echeverry",
+      "Maria Jose Echeverry",
       "Maria Jose Echeverri"
     ]
   },
@@ -49,7 +51,7 @@
     "do": [
       "mantener cifras/datos EXACTOS del referente",
       "respetar el tono y el estilo de comunicación de arriba (voz cargada en Prewave)",
-      "firmar como 'María José Echeverri.'"
+      "firmar como 'María José Echeverry.'"
     ],
     "dont": [
       "NO inventar cifras, fuentes ni datos que no estén en el referente",
@@ -61,7 +63,7 @@
     "_fuente": "Manual '8 marcas · 1 ADN' — ADN 6 MARÍA JOSÉ E. (pág. 31-36).",
     "_nota_critica": "La API de Canva NO cambia la familia tipográfica ni puede crear texto. Esta identidad es la especificación para construir/validar el molde del avatar, no algo que el agente aplique por texto en cada carrusel.",
     "titulo_rol": "Founder ColombiaTech Week",
-    "firma": "María José Echeverri.",
+    "firma": "María José Echeverry.",
     "tipografia": {
       "familia": "Poppins",
       "licencia": "https://fonts.google.com/specimen/Poppins",
@@ -74,7 +76,7 @@
         "rol": "complementario base 30x (fondo claro)"
       },
       {
-        "hex": "#5A4633",
+        "hex": "#412D15",
         "nombre": "Café Oscuro",
         "rol": "oscuro / textos"
       },
@@ -90,6 +92,15 @@
       }
     ],
     "_paleta_nota": "ADN 6, pág. 35 (hex confirmados con su etiqueta).",
+    "_paleta_fuente_hex": "Hex canónicos entregados por el equipo de marca 30x (2026-07-28): Amarillo Pastel #F0EF9F (acento), Crema #D9CBB2 (complementario) y Café Oscuro #412D15 (textos y fondos oscuros). Corrigen el oscuro, que se había cargado como #5A4633 — un café más claro y lavado que el canónico.",
+    "_paleta_hex_previos_nota": "Hex que este avatar tenía mal antes del 2026-07-28 → su valor canónico. Lo consume scripts/repalette-carousels.mjs para migrar los carruseles ya creados. Al corregir otro hex en el futuro, sumar la entrada acá.",
+    "_paleta_hex_previos": {
+      "#5A4633": "#412D15",
+      "#3A2C1E": "#281C0D",
+      "#6B543F": "#503E28",
+      "#A2917C": "#8D8173"
+    },
+    "_paleta_reparto": "El hueso #F6F5F0 cubre ~40% de la pieza (fondos y aire). El 60% restante se reparte entre Café Oscuro, Amarillo Pastel y Crema.",
     "fondos": [
       "FONDO 1 - IMAGEN",
       "FONDO 2 - PLANO",
