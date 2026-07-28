@@ -85,13 +85,17 @@ export interface GeneratedImage {
 
 /** Error de la generación con un mensaje apto para mostrar al usuario. */
 export class HiggsfieldError extends Error {
-  constructor(
-    message: string,
-    /** Código HTTP sugerido para la respuesta del endpoint. */
-    readonly status: number = 502
-  ) {
+  // Campo declarado y asignado a mano, NO parameter property (`constructor(readonly x)`):
+  // el type-stripping de Node no las soporta, y como este módulo lo importa el runner,
+  // una parameter property acá rompe CUALQUIER test que cargue esa cadena (fallaba con
+  // ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX). Mismo criterio que IngestError y ProxyUnavailableError.
+  /** Código HTTP sugerido para la respuesta del endpoint. */
+  readonly status: number;
+
+  constructor(message: string, status: number = 502) {
     super(message);
     this.name = "HiggsfieldError";
+    this.status = status;
   }
 }
 

@@ -122,7 +122,7 @@ export function ManualHistory({ refreshKey = 0, onReuse }: ManualHistoryProps) {
   return (
     <section className="mt-12">
       <SectionLabel
-        index="02"
+        index="03"
         aside={entries.length > 0 ? `${entries.length} en total` : undefined}
       >
         Historial manual

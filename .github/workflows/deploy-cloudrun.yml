@@ -86,6 +86,11 @@ jobs:
           RENDER_SERVICE_URL: ${{ steps.render_deploy.outputs.url }}
           APP_MEMORY: ${{ vars.APP_MEMORY }}
           QUEUE_LANE_SIZE: ${{ vars.QUEUE_LANE_SIZE }}
+          # Zona horaria del contenedor (default America/Bogota en el script). Define qué
+          # es "la noche" para el lote CSV; Cloud Run sin esto corre en UTC.
+          APP_TZ: ${{ vars.APP_TZ }}
+          # Hora de arranque del lote nocturno (0-23, local). Default 20 en la app.
+          BATCH_NIGHT_HOUR: ${{ vars.BATCH_NIGHT_HOUR }}
           PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
           REGION: ${{ vars.GCP_REGION }}
           SERVICE: ${{ vars.CLOUD_RUN_SERVICE }}

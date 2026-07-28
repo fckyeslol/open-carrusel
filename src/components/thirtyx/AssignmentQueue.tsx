@@ -172,7 +172,7 @@ export function AssignmentQueue() {
   return (
     <section className="mt-12">
       <SectionLabel
-        index="03"
+        index="04"
         aside={
           assignments.length > 0
             ? activeCount > 0

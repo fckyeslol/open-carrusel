@@ -78,6 +78,17 @@ export interface GenerationCheckpoint {
   preemptions: number;
 }
 
+/**
+ * De dónde salió este trabajo.
+ *
+ * `prewave` es el de siempre (webhook/pull de la cola `agent_jobs`): tiene un job real
+ * del otro lado, así que se reclama y se hace writeback. `csv` es el lote nocturno que
+ * carga una diseñadora: NO existe en Prewave, así que tocar la API con su `jobId`
+ * sintético daría 404 en cada llamada. Ausente = `prewave` (todo lo guardado antes de
+ * que existiera el lote).
+ */
+export type AssignmentOrigin = "prewave" | "csv";
+
 export interface Assignment {
   jobId: string;
   briefId: string | null; // curated_briefs.id — dedup del design-queue + writeback
@@ -89,6 +100,16 @@ export interface Assignment {
   referenceUrl: string;
   designerId: string | null;
   status: AssignmentStatus;
+  /** Ausente = "prewave" (compatibilidad con lo guardado antes del lote CSV). */
+  origin?: AssignmentOrigin;
+  /** Lote CSV que lo creó. Solo en `origin: "csv"`. */
+  batchId?: string;
+  /**
+   * ¿Esta fila usa Higgsfield? Viene de la columna Si/No del CSV y decide, por job, si
+   * el prompt del agente habilita la generación de imágenes con IA. Ausente = se usa la
+   * config global (comportamiento de siempre para los jobs de Prewave).
+   */
+  higgsfield?: boolean;
   carouselId: string | null;
   resultUrl: string | null;
   error: string | null;
@@ -184,6 +205,67 @@ export async function upsertFromAgentJob(
   });
 
   return { assignment: result, isNew };
+}
+
+/** Una fila del lote CSV, ya resuelta contra los avatares y las diseñadoras locales. */
+export interface NewCsvAssignment {
+  jobId: string;
+  batchId: string;
+  avatarSlug: string;
+  avatarName: string | null;
+  referenceUrl: string;
+  designerId: string | null;
+  higgsfield: boolean;
+}
+
+/**
+ * Crea la asignación de una fila del lote CSV, ya en `queued`.
+ *
+ * Arranca en `queued` y no en `received` para que el reconcile del arranque la vuelva a
+ * encolar sola si el server se reinicia a mitad de la noche — que es exactamente el
+ * escenario para el que existe el lote: nadie mirando.
+ *
+ * `briefId`/`avatarId`/`deliveryId` van en null: no hay brief de Prewave detrás. Eso es
+ * lo que hace que `sync-mine` no la confunda con un brief ya encolado.
+ */
+export async function createCsvAssignment(input: NewCsvAssignment): Promise<Assignment> {
+  const ts = now();
+  const created: Assignment = {
+    jobId: input.jobId,
+    briefId: null,
+    avatarId: null,
+    deliveryId: null,
+    event: "csv",
+    avatarSlug: input.avatarSlug,
+    avatarName: input.avatarName,
+    referenceUrl: input.referenceUrl,
+    designerId: input.designerId,
+    status: "queued",
+    origin: "csv",
+    batchId: input.batchId,
+    higgsfield: input.higgsfield,
+    carouselId: null,
+    resultUrl: null,
+    error: null,
+    attempts: 0,
+    receivedAt: ts,
+    updatedAt: ts,
+  };
+
+  await updateData<Store>(FILE, EMPTY, (store) =>
+    store.assignments.some((a) => a.jobId === created.jobId)
+      ? store // idempotente: no duplicar si se reenvía el lote
+      : { assignments: [...store.assignments, created] }
+  );
+  return created;
+}
+
+/** Todas las asignaciones de un lote CSV, en el orden en que entraron. */
+export async function listAssignmentsForBatch(batchId: string): Promise<Assignment[]> {
+  const store = await readDataSafe<Store>(FILE, EMPTY);
+  return store.assignments
+    .filter((a) => a.batchId === batchId)
+    .sort((a, b) => a.receivedAt.localeCompare(b.receivedAt));
 }
 
 /** Actualiza status (+ campos opcionales) de forma serializada. */

@@ -44,6 +44,7 @@ import {
   isTracked,
   type JobControl,
 } from "./job-queue";
+import { closeBatchIfFinished } from "./batches";
 import {
   getAssignment,
   setStatus,
@@ -310,6 +311,14 @@ async function processAssignment(jobId: string, ctl: JobControl): Promise<void> 
     return;
   }
 
+  /**
+   * ¿Este job existe en Prewave? Los del lote CSV NO: su `jobId` es local, así que
+   * reclamarlo o cerrarlo allá daría 404 en cada llamada. `writeback()` se traga esos
+   * errores, así que el síntoma no sería un crash sino algo peor — decenas de requests
+   * inútiles por noche y un log lleno de fallos fantasma que esconden los reales.
+   */
+  const isPrewaveJob = (a.origin ?? "prewave") === "prewave";
+
   // Modo hosteado: este job se reclama/escribe con el token de SU diseñadora
   // (scope por persona), no con el global. En local: undefined → token global.
   const designerToken =
@@ -359,7 +368,7 @@ async function processAssignment(jobId: string, ctl: JobControl): Promise<void> 
       // tome. Best-effort: si el PATCH falla (403 de ownership, red), seguimos con la
       // generación local igual — el claim es una optimización, no un bloqueo. Ver
       // docs/PLAN-MIGRACION-CARRUSELES.md §3/§6.5.
-      await writeback(() => claimJob(jobId, designerToken));
+      if (isPrewaveJob) await writeback(() => claimJob(jobId, designerToken));
 
       if (!isInstagramUrl(a.referenceUrl)) {
         throw new Error(`El referente no es una URL de Instagram válida: ${a.referenceUrl || "(vacío)"}`);
@@ -398,7 +407,12 @@ async function processAssignment(jobId: string, ctl: JobControl): Promise<void> 
       localBase(),
       // Mismo criterio que /api/chat: si hay credenciales de Higgsfield, el agente
       // regenera las imágenes del referente con IA también en el flujo headless.
-      await isHiggsfieldConfigured(),
+      //
+      // El lote CSV manda por fila (columna Higgsfield Si/No): un "No" explícito apaga
+      // la generación de imágenes AUNQUE haya credenciales. Al revés no funciona y no
+      // debe intentarse — sin credenciales no hay API a la que llamar, así que un "Sí"
+      // solo puede habilitar lo que ya está configurado.
+      a.higgsfield === false ? false : await isHiggsfieldConfigured(),
       runnerInternalToken()
     );
 
@@ -452,7 +466,13 @@ async function processAssignment(jobId: string, ctl: JobControl): Promise<void> 
     //    El checkpoint se borra: el job terminó y no hay nada que retomar.
     await clearCheckpoint(jobId);
     const resultPath = `/exports/${carouselId}/`;
-    if (isHostedMode()) {
+    if (!isPrewaveJob) {
+      // Lote CSV: no hay nada que aprobar ni a quién escribirle. Queda `done` —
+      // "Listo para QA" en el tablero — que es justo lo que la diseñadora espera
+      // encontrar a la mañana. Mandarlo a `pending_review` la obligaría a apretar
+      // "Aprobar" en cada uno de los 40 carruseles para un writeback que no existe.
+      await setStatus(jobId, "done", { resultUrl: resultPath });
+    } else if (isHostedMode()) {
       // Híbrido: el borrador queda EN REVISIÓN. La diseñadora lo aprueba desde su
       // bandeja y ahí recién se hace el writeback a Prewave con SU token
       // (POST /api/thirtyx/assignments/[jobId]/approve). NO se toca Prewave acá.
@@ -497,7 +517,7 @@ async function processAssignment(jobId: string, ctl: JobControl): Promise<void> 
     }
     const msg = (e as Error).message || "Error desconocido en la generación";
     await setStatus(jobId, "failed", { error: msg });
-    await writeback(() => failJob(jobId, msg, designerToken));
+    if (isPrewaveJob) await writeback(() => failJob(jobId, msg, designerToken));
   }
 }
 
@@ -552,6 +572,23 @@ const MAX_REQUEUES = 8;
  * hace que retome donde iba (misma sesión de Claude, mismas láminas) en cuanto haya lugar.
  */
 async function runWithRequeue(jobId: string): Promise<void> {
+  const assignment = await getAssignment(jobId);
+  try {
+    await runPasses(jobId);
+  } finally {
+    // El lote se cierra cuando su ÚLTIMA fila termina, sin importar cómo terminó. Va en
+    // `finally` porque las salidas de `runPasses` son muchas (ok, fallo, cancelación,
+    // tope de re-encolados) y un lote que se queda en "corriendo" para siempre porque
+    // la última fila falló es exactamente el estado zombi que hay que evitar.
+    if (assignment?.batchId) {
+      await closeBatchIfFinished(assignment.batchId).catch(() => {
+        /* cerrar el lote es cosmético: nunca debe tapar el resultado del job */
+      });
+    }
+  }
+}
+
+async function runPasses(jobId: string): Promise<void> {
   for (let attempt = 0; attempt < MAX_REQUEUES; attempt++) {
     const a = await getAssignment(jobId);
     if (!a) return;
