@@ -44,6 +44,13 @@ describe("store de documentos en Postgres", { skip: saltear ? "sin TEST_DATABASE
       "SELECT to_regclass('public.documents') IS NOT NULL AS existe"
     );
     assert.equal(t[0]?.existe, true, "falta aplicar db/001_esquema_inicial.sql");
+
+    // La guarda anti-store-vacío exige la marca de migración. En los tests la base arranca
+    // legítimamente vacía, así que se pone a mano — el test de abajo verifica que SIN ella
+    // el store se niega a funcionar, que es el comportamiento que protege producción.
+    await query(
+      "INSERT INTO schema_migrations (version) VALUES ('datos_migrados') ON CONFLICT DO NOTHING"
+    );
   });
 
   beforeEach(async () => {
@@ -105,6 +112,22 @@ describe("store de documentos en Postgres", { skip: saltear ? "sin TEST_DATABASE
     const final = await readDataPg<Store>(CLAVE);
     assert.equal(final.items.length, N, "no se perdió ninguna escritura");
     assert.equal(new Set(final.items.map((i) => i.id)).size, N, "no hay duplicados");
+  });
+
+  it("sin la marca de migración se niega a leer, en vez de devolver vacío", async () => {
+    // Es el escenario que arruinaría producción: base configurada y esquema creado, pero
+    // los JSON todavía sin volcar. Sin la guarda, readDataSafe devolvería el store VACÍO —
+    // igual que si se hubieran perdido todos los carruseles— y la primera escritura lo
+    // persistiría. Tiene que reventar fuerte y con instrucciones.
+    const modulo = await import(`./data-pg.ts?sin-marca=${Date.now()}`);
+    await query("DELETE FROM schema_migrations WHERE version = 'datos_migrados'");
+    try {
+      await assert.rejects(modulo.readDataPg(CLAVE), /datos todavía NO se migraron/);
+    } finally {
+      await query(
+        "INSERT INTO schema_migrations (version) VALUES ('datos_migrados') ON CONFLICT DO NOTHING"
+      );
+    }
   });
 
   it("si la mutación tira, no deja escritura a medias", async () => {

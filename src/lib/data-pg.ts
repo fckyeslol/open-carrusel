@@ -25,8 +25,54 @@ interface FilaDocumento {
   payload: unknown;
 }
 
+/**
+ * Marca que el script de migración escribe cuando terminó de volcar los JSON.
+ *
+ * ⚠️ ESTO EVITA UN INCIDENTE CONCRETO, no es ceremonia. `carousels.ts` y `assignments.ts`
+ * leen por `readDataSafe`, que ante un documento inexistente devuelve el fallback VACÍO. Si
+ * alguien configura `DATABASE_URL` con el esquema recién creado y sin migrar los datos, la
+ * app arrancaría feliz mostrando cero carruseles y cero pedidos — indistinguible de haber
+ * perdido todo— y peor: la primera escritura persistiría ese vacío.
+ *
+ * Con esta guarda, Postgres sin migrar falla FUERTE en la primera lectura, con instrucciones.
+ */
+const MARCA_MIGRACION = "datos_migrados";
+
+/** Se chequea una sola vez por proceso; después es un booleano en memoria. */
+let migracionVerificada = false;
+
+async function exigirMigracion(): Promise<void> {
+  if (migracionVerificada) return;
+
+  const tabla = await queryOne<{ existe: boolean }>(
+    "SELECT to_regclass('public.schema_migrations') IS NOT NULL AS existe"
+  );
+  if (!tabla?.existe) {
+    throw new Error(
+      "Hay una base de datos configurada pero el esquema no está aplicado. " +
+        "Corré: psql \"$DATABASE_URL\" -f db/001_esquema_inicial.sql"
+    );
+  }
+
+  const marca = await queryOne<{ version: string }>(
+    "SELECT version FROM schema_migrations WHERE version = $1",
+    [MARCA_MIGRACION]
+  );
+  if (!marca) {
+    throw new Error(
+      "Hay una base de datos configurada pero los datos todavía NO se migraron desde los " +
+        "JSON. Arrancar así mostraría el store vacío y la primera escritura lo persistiría. " +
+        "Corré el script de migración, o quitá DATABASE_URL/CLOUD_SQL_CONNECTION_NAME para " +
+        "seguir usando los archivos."
+    );
+  }
+
+  migracionVerificada = true;
+}
+
 /** Lee un documento. Lanza `DataFileNotFoundError` si no existe (igual que la versión FS). */
 export async function readDataPg<T>(key: string): Promise<T> {
+  await exigirMigracion();
   const fila = await queryOne<FilaDocumento>(
     "SELECT payload FROM documents WHERE key = $1",
     [key]
@@ -37,6 +83,7 @@ export async function readDataPg<T>(key: string): Promise<T> {
 
 /** Escribe (o crea) un documento entero. */
 export async function writeDataPg<T>(key: string, data: T): Promise<void> {
+  await exigirMigracion();
   await query(
     `INSERT INTO documents (key, payload) VALUES ($1, $2::jsonb)
      ON CONFLICT (key) DO UPDATE
@@ -77,6 +124,7 @@ export async function updateDataPg<T>(
   fallback: T,
   mutate: (current: T) => T | typeof SKIP_WRITE
 ): Promise<T> {
+  await exigirMigracion();
   return transaction(async (cliente) => {
     const res = await cliente.query<FilaDocumento>(
       "SELECT payload FROM documents WHERE key = $1 FOR UPDATE",
