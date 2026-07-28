@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { TopBar } from "@/components/layout/TopBar";
+import { BoardHeader } from "@/components/thirtyx/BoardHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { IngestProgress } from "@/components/thirtyx/IngestProgress";
@@ -171,7 +171,7 @@ export default function ThirtyXPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
-      <TopBar />
+      <BoardHeader active="manual" />
       <main className="mx-auto w-full max-w-4xl flex-1 px-6 py-12 sm:px-8">
         {/* ── Masthead editorial ─────────────────────────────────────────── */}
         <header className="border-b border-foreground/15 pb-6">
