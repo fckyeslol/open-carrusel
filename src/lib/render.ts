@@ -22,6 +22,7 @@
 import sharp from "sharp";
 import { type Page } from "puppeteer";
 import { withPage } from "./browser-pool";
+import { renderFallo, renderOk } from "./telemetry";
 import {
   CONTRACT_VERSION,
   FONTS_READY_TIMEOUT_MS,
@@ -235,14 +236,41 @@ export async function warmupRenderer(): Promise<void> {
   }
 }
 
+/**
+ * Envuelve un render para medirlo y registrarlo.
+ *
+ * Va acá y no en cada call site porque este es el único punto por el que pasa TODO render
+ * —local y remoto, PNG y PDF—, así que las métricas salen completas por construcción. Un
+ * render cancelado por preempción no cuenta como fallo: no es un problema del render.
+ */
+async function medido(
+  remoto: boolean,
+  fn: () => Promise<Buffer>,
+  opts: RenderOptions
+): Promise<Buffer> {
+  const t0 = Date.now();
+  try {
+    const buf = await fn();
+    renderOk(Date.now() - t0, remoto, buf.length);
+    return buf;
+  } catch (e) {
+    if (!opts.signal?.aborted) {
+      renderFallo((e as Error).message || String(e), remoto, remoto ? MAX_ATTEMPTS : 1);
+    }
+    throw e;
+  }
+}
+
 /** Rasteriza una lámina a PNG. */
 export async function renderPng(input: RenderInput, opts: RenderOptions = {}): Promise<Buffer> {
   const base = renderServiceUrl();
-  if (base) return renderRemote(base, { ...input, format: "png" }, opts);
+  if (base) {
+    return medido(true, () => renderRemote(base, { ...input, format: "png" }, opts), opts);
+  }
 
   const { html, width, height, scale, transparent } = input;
 
-  return withPage(async (page) => {
+  return medido(false, () => withPage(async (page) => {
     await page.setViewport({ width, height, deviceScaleFactor: scale });
     await page.setContent(html, {
       waitUntil: "domcontentloaded",
@@ -265,7 +293,7 @@ export async function renderPng(input: RenderInput, opts: RenderOptions = {}): P
     // sharp fuerza sRGB. Corre del lado del renderer a propósito: así el buffer crudo de
     // 2160×2700 nunca cruza el seam ni vive en la memoria de quien pide el render.
     return sharp(shot).toColorspace("srgb").png().toBuffer();
-  }, opts);
+  }, opts), opts);
 }
 
 /**
@@ -274,11 +302,13 @@ export async function renderPng(input: RenderInput, opts: RenderOptions = {}): P
  */
 export async function renderPdf(input: RenderInput, opts: RenderOptions = {}): Promise<Buffer> {
   const base = renderServiceUrl();
-  if (base) return renderRemote(base, { ...input, format: "pdf" }, opts);
+  if (base) {
+    return medido(true, () => renderRemote(base, { ...input, format: "pdf" }, opts), opts);
+  }
 
   const { html, width, height, scale } = input;
 
-  return withPage(async (page) => {
+  return medido(false, () => withPage(async (page) => {
     await page.setViewport({ width, height, deviceScaleFactor: scale });
     await page.setContent(html, {
       waitUntil: "domcontentloaded",
@@ -294,5 +324,5 @@ export async function renderPdf(input: RenderInput, opts: RenderOptions = {}): P
       preferCSSPageSize: false,
     });
     return Buffer.from(pdf);
-  }, opts);
+  }, opts), opts);
 }

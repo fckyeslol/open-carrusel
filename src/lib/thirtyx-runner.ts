@@ -35,6 +35,7 @@ import { getInternalApiToken, isHostedMode } from "./hosted";
 import { getPrewaveToken } from "./users";
 import { isHiggsfieldConfigured } from "./higgsfield";
 import { tokenForLabel, tokenLabel } from "./claude-tokens";
+import { generacionCheckpoint, generacionPasada } from "./telemetry";
 import {
   PRIORITY,
   PreemptedError,
@@ -167,8 +168,8 @@ async function generateAllSlides(
   });
 
   /** Persiste el avance para que una preempción o un reinicio no cuesten empezar de cero. */
-  const checkpoint = () =>
-    saveCheckpoint(ctx.jobId, {
+  const checkpoint = async () => {
+    await saveCheckpoint(ctx.jobId, {
       carouselId,
       claudeSessionId: sessionId,
       claudeTokenLabel: currentToken ? tokenLabel(currentToken) : undefined,
@@ -176,6 +177,8 @@ async function generateAllSlides(
       stalls,
       preemptions: ctx.preemptions,
     });
+    generacionCheckpoint(ctx.jobId, carouselId, passesDone, stalls, ctx.preemptions);
+  };
 
   ctx.ctl.setPhase("generating");
 
@@ -239,6 +242,9 @@ async function generateAllSlides(
     }
 
     const after = (await getCarousel(carouselId))?.slides.length ?? 0;
+    // Una línea por pasada: con esto se ve si el agente avanza, se traba o lo cortan, sin
+    // tener que inferirlo del resultado final.
+    generacionPasada(ctx.jobId, passesDone, before, after, gen.exitCode, false);
     if (after >= referenceCount) {
       passesDone++;
       return outcome();

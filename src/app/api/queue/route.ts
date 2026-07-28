@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { snapshot, LANE_TUNING } from "@/lib/job-queue";
+import { resumen } from "@/lib/telemetry";
+import { poolStats } from "@/lib/browser-pool";
 import { isHostedMode } from "@/lib/hosted";
 import { getSessionUser } from "@/lib/auth";
 
@@ -30,5 +32,12 @@ export async function GET(request: NextRequest) {
       stickyHoldMs: LANE_TUNING.STICKY_HOLD_MS,
       preemptiblePhases: [...LANE_TUNING.PREEMPTIBLE_PHASES],
     },
+    // Contadores desde que arrancó el proceso: cuánto se espera en la cola, cuántas
+    // preempciones hubo, y si los renders están fallando (con los últimos motivos). Es lo
+    // que permite responder "¿anda bien?" sin abrir Cloud Logging.
+    metricas: resumen(),
+    // Chrome de ESTA instancia. En hosteado debería estar abajo salvo durante una ingesta
+    // de Instagram, que es lo único que todavía abre navegador acá.
+    navegador: poolStats(),
   });
 }

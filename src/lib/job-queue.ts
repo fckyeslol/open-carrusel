@@ -22,6 +22,14 @@
  * segundo carril, que anularía todo el propósito.
  */
 
+import {
+  colaArranque,
+  colaCancelacion,
+  colaEncolado,
+  colaFin,
+  colaPreempcion,
+} from "./telemetry";
+
 /**
  * Prioridades. MENOR = más urgente.
  *
@@ -274,6 +282,12 @@ function pump(): void {
   }
   if (victim) {
     victim.preempting = true;
+    colaPreempcion(
+      victim.entry.id,
+      next.id,
+      victim.entry.preemptions + 1,
+      Date.now() - victim.startedAt
+    );
     // La retención pegajosa no debe frenar al que va a ocupar el lugar liberado.
     if (victim.entry.stickyKey) l.stickyUntil.delete(victim.entry.stickyKey);
     victim.controller.abort();
@@ -285,15 +299,18 @@ function pump(): void {
 function start(entry: Entry): void {
   const l = lane();
   const controller = new AbortController();
+  const startedAt = Date.now();
   const active: Active = {
     entry,
-    startedAt: Date.now(),
+    startedAt,
     phase: "other",
     controller,
     preempting: false,
     cancelling: false,
   };
   l.active.set(entry.id, active);
+  // La espera en la fila es la métrica que dice si el carril de 1 alcanza o estrangula.
+  colaArranque(entry.id, entry.priority, startedAt - entry.enqueuedAt);
 
   const ctl: JobControl = {
     id: entry.id,
@@ -317,6 +334,12 @@ function start(entry: Entry): void {
       else if (active.cancelling) entry.reject(new CancelledError(entry.id));
       else entry.reject(e as Error);
     } finally {
+      const motivo = active.preempting
+        ? "preemptado"
+        : active.cancelling
+          ? "cancelado"
+          : undefined;
+      colaFin(entry.id, Date.now() - active.startedAt, !motivo, motivo);
       l.active.delete(entry.id);
       // Retención pegajosa: solo si terminó por su cuenta. Un job preemptado no debe
       // conservar el carril que justo le acabamos de quitar.
@@ -366,6 +389,7 @@ export function submit<T>(
       onQueued: opts.onQueued,
     };
     l.queued.push(entry);
+    colaEncolado(entry.id, entry.priority, l.queued.length);
     pump();
   });
 }
@@ -400,6 +424,7 @@ export function cancel(id: string): boolean {
   const i = l.queued.findIndex((e) => e.id === id);
   if (i >= 0) {
     const [entry] = l.queued.splice(i, 1);
+    colaCancelacion(id, "en_fila");
     entry.reject(new CancelledError(id));
     pump();
     return true;
@@ -407,6 +432,7 @@ export function cancel(id: string): boolean {
   const active = l.active.get(id);
   if (active) {
     active.cancelling = true;
+    colaCancelacion(id, "activo");
     active.controller.abort();
     return true;
   }

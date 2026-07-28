@@ -13,6 +13,7 @@
  * Bajar los tiempos es indispensable: probar "no preempta antes del quantum mínimo" con el
  * valor de producción costaría un minuto por caso.
  */
+process.env.OC_TELEMETRY_SILENT = "1";
 process.env.QUEUE_MIN_QUANTUM_MS = "80";
 process.env.QUEUE_STICKY_HOLD_MS = "0";
 process.env.QUEUE_LANE_SIZE = "1";
@@ -20,6 +21,10 @@ process.env.QUEUE_MAX_PREEMPTIONS = "2";
 
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
+
+// Resuelve los imports sin extensión de la app (job-queue.ts importa "./telemetry").
+// Va antes del await import() de abajo, que es lo que carga el módulo bajo prueba.
+import "./test-resolve.mts";
 
 const {
   CancelledError,
