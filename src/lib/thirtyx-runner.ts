@@ -293,8 +293,16 @@ interface Runner {
 async function processAssignment(jobId: string, ctl: JobControl): Promise<void> {
   const a = await getAssignment(jobId);
   if (!a) return;
-  // pending_review espera aprobación humana — no reprocesar.
-  if (a.status === "done" || a.status === "delivered" || a.status === "pending_review") return;
+  // pending_review espera aprobación humana y archived lo sacó la diseñadora del
+  // tablero — ninguno se reprocesa (procesarlos los devolvería al tablero solos).
+  if (
+    a.status === "done" ||
+    a.status === "delivered" ||
+    a.status === "pending_review" ||
+    a.status === "archived"
+  ) {
+    return;
+  }
 
   // Modo hosteado: este job se reclama/escribe con el token de SU diseñadora
   // (scope por persona), no con el global. En local: undefined → token global.

@@ -26,6 +26,7 @@ export type AssignmentStatus =
   | "pending_review" // (hosteado) borrador listo — espera que la diseñadora apruebe antes del writeback
   | "done" // generado y renderizado, listo para QA (modo local: ya se hizo writeback)
   | "delivered" // aprobado/entregado: job cerrado en Prewave
+  | "archived" // la diseñadora lo sacó del tablero: vive en la Biblioteca, se puede restaurar
   | "failed"; // reventó en alguna etapa
 
 /**
@@ -98,6 +99,10 @@ export interface Assignment {
   priority?: number;
   /** Estado para retomar una generación cortada. Ausente = arrancar de cero. */
   generation?: GenerationCheckpoint;
+  /** Cuándo pasó a la Biblioteca. Solo en `archived`. */
+  archivedAt?: string;
+  /** Estado que tenía antes de archivarse, para poder devolverlo ahí. Solo en `archived`. */
+  archivedFrom?: AssignmentStatus;
 }
 
 interface Store {
@@ -202,6 +207,58 @@ export async function setStatus(
         : a
     ),
   }));
+}
+
+/**
+ * ¿Se puede mandar este estado a la Biblioteca?
+ *
+ * Todo menos las etapas en vuelo: si el runner está trabajando en el job, archivarlo no
+ * lo detendría y el siguiente `setStatus` de la generación lo devolvería al tablero solo.
+ * Para sacar del medio algo que se está generando primero hay que dejarlo terminar (o
+ * que falle).
+ */
+export function isArchivable(status: AssignmentStatus): boolean {
+  return !IN_FLIGHT.includes(status);
+}
+
+/**
+ * Manda la asignación a la Biblioteca: sale del tablero pero NO se borra del store.
+ *
+ * Archivar en vez de borrar es lo que hace que "eliminar" sea durable: el pull de
+ * Prewave (sync-mine) decide qué encolar comparando los `briefId` que YA existen
+ * localmente, así que un registro borrado de verdad volvería a entrar en el próximo
+ * ciclo de poll y la diseñadora lo vería reaparecer. Guarda el estado anterior para
+ * poder restaurarlo tal cual.
+ */
+export async function archiveAssignment(jobId: string): Promise<void> {
+  const ts = now();
+  await updateData<Store>(FILE, EMPTY, (store) => ({
+    assignments: store.assignments.map((a) =>
+      a.jobId === jobId && a.status !== "archived"
+        ? { ...a, status: "archived", archivedFrom: a.status, archivedAt: ts, updatedAt: ts }
+        : a
+    ),
+  }));
+}
+
+/**
+ * Saca la asignación de la Biblioteca y la devuelve al estado que tenía antes.
+ * Devuelve ese estado, o null si el job no existía o no estaba archivado.
+ */
+export async function restoreAssignment(jobId: string): Promise<AssignmentStatus | null> {
+  let restored: AssignmentStatus | null = null;
+  await updateData<Store>(FILE, EMPTY, (store) => ({
+    assignments: store.assignments.map((a) => {
+      if (a.jobId !== jobId || a.status !== "archived") return a;
+      // El fallback solo aplica a datos editados a mano: `archiveAssignment` siempre
+      // guarda `archivedFrom`.
+      const target: AssignmentStatus = a.archivedFrom ?? (a.carouselId ? "pending_review" : "failed");
+      restored = target;
+      const { archivedFrom: _from, archivedAt: _at, ...rest } = a;
+      return { ...rest, status: target, updatedAt: now() };
+    }),
+  }));
+  return restored;
 }
 
 /**
