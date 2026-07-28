@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AssignmentThumb } from "@/components/thirtyx/AssignmentThumb";
+import { BoardHeader } from "@/components/thirtyx/BoardHeader";
 import { GeneratingCard } from "@/components/thirtyx/GeneratingCard";
 import { cn } from "@/lib/utils";
 
@@ -66,7 +67,6 @@ function refHost(url: string): string {
 }
 
 export function ReviewBoard() {
-  const router = useRouter();
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [displayName, setDisplayName] = useState<string>("");
@@ -250,10 +250,30 @@ export function ReviewBoard() {
     [retry]
   );
 
-  const logout = useCallback(async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    router.replace("/login");
-  }, [router]);
+  // Eliminar del tablero. No borra nada: el pedido pasa a la Biblioteca (/biblioteca) y
+  // desde ahí se puede restaurar. Confirma porque la card desaparece de la vista.
+  const discard = useCallback(
+    async (jobId: string) => {
+      if (busyRef.current.has(jobId)) return;
+      const ok = window.confirm(
+        "El pedido sale del tablero y queda guardado en la Biblioteca, de donde lo podés restaurar. ¿Eliminar?"
+      );
+      if (!ok) return;
+      busyRef.current.add(jobId);
+      setError(null);
+      try {
+        const res = await fetch(`/api/thirtyx/assignments/${jobId}`, { method: "DELETE" });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          setError(d.error || "No se pudo eliminar el pedido");
+        }
+        await loadMine();
+      } finally {
+        busyRef.current.delete(jobId);
+      }
+    },
+    [loadMine]
+  );
 
   const queueById = new Map(queue.map((q) => [q.id, q]));
 
@@ -264,24 +284,7 @@ export function ReviewBoard() {
 
   return (
     <main className="min-h-screen bg-muted/20">
-      <header className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-background/90 px-6 py-3 backdrop-blur">
-        <div className="flex items-center gap-2">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/30x/logo-dark.svg" alt="30x" className="h-6 w-auto" />
-          <span className="text-sm font-semibold tracking-tight">Open Carrusel</span>
-        </div>
-        <nav className="flex items-center gap-4 text-sm text-muted-foreground">
-          <Link href="/30x" className="transition-colors hover:text-foreground">
-            Generar manual
-          </Link>
-          <Link href="/cuenta" className="transition-colors hover:text-foreground">
-            Mi cuenta
-          </Link>
-          <button onClick={logout} className="transition-colors hover:text-destructive">
-            Salir
-          </button>
-        </nav>
-      </header>
+      <BoardHeader active="tablero" />
 
       <div className="mx-auto max-w-6xl px-6 py-8">
         <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
@@ -336,27 +339,36 @@ export function ReviewBoard() {
                     </a>
                   </div>
                 </div>
-                {a.carouselId && (
-                  <div className="mt-3 flex items-center gap-2">
+                {/* La fila de acciones va siempre: "Eliminar" tiene que estar incluso si
+                    el pedido quedó sin carrusel (nada que abrir ni aprobar). */}
+                <div className="mt-3 flex items-center gap-2">
+                  {a.carouselId && (
                     <Link
                       href={`/carousel/${a.carouselId}`}
                       className="text-xs font-medium text-accent-strong underline-offset-2 hover:underline"
                     >
                       Abrir para revisar →
                     </Link>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="ml-auto"
-                      onClick={() => regenerate(a.jobId)}
-                    >
-                      Regenerar desde 0
-                    </Button>
-                    <Button size="sm" onClick={() => approve(a.jobId)}>
-                      Aprobar y entregar
-                    </Button>
-                  </div>
-                )}
+                  )}
+                  <button
+                    onClick={() => discard(a.jobId)}
+                    title="Sacar del tablero y guardarlo en la Biblioteca"
+                    className="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Eliminar
+                  </button>
+                  {a.carouselId && (
+                    <>
+                      <Button size="sm" variant="outline" onClick={() => regenerate(a.jobId)}>
+                        Regenerar desde 0
+                      </Button>
+                      <Button size="sm" onClick={() => approve(a.jobId)}>
+                        Aprobar y entregar
+                      </Button>
+                    </>
+                  )}
+                </div>
               </li>
             ))}
           </Column>

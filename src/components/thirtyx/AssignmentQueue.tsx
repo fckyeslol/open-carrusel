@@ -32,6 +32,7 @@ const STATUS: Record<string, { label: string; tone: Tone }> = {
   pending_review: { label: "En revisión", tone: "ready" },
   done: { label: "Listo para QA", tone: "ready" },
   delivered: { label: "Entregado", tone: "done" },
+  archived: { label: "En biblioteca", tone: "muted" },
   failed: { label: "Falló", tone: "error" },
 };
 
