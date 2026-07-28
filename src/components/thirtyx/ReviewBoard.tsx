@@ -252,11 +252,17 @@ export function ReviewBoard() {
 
   // Eliminar del tablero. No borra nada: el pedido pasa a la Biblioteca (/biblioteca) y
   // desde ahí se puede restaurar. Confirma porque la card desaparece de la vista.
+  //
+  // `generating` cambia el mensaje, no el endpoint: sobre algo en vuelo el DELETE además
+  // lo saca del carril, y eso hay que decirlo antes de que la diseñadora acepte —
+  // descartar una generación a medias tira trabajo ya pagado.
   const discard = useCallback(
-    async (jobId: string) => {
+    async (jobId: string, generating = false) => {
       if (busyRef.current.has(jobId)) return;
       const ok = window.confirm(
-        "El pedido sale del tablero y queda guardado en la Biblioteca, de donde lo podés restaurar. ¿Eliminar?"
+        generating
+          ? "Se corta la generación en curso y el pedido queda guardado en la Biblioteca, de donde lo podés restaurar y reintentar. ¿Cancelar?"
+          : "El pedido sale del tablero y queda guardado en la Biblioteca, de donde lo podés restaurar. ¿Eliminar?"
       );
       if (!ok) return;
       busyRef.current.add(jobId);
@@ -268,11 +274,13 @@ export function ReviewBoard() {
           setError(d.error || "No se pudo eliminar el pedido");
         }
         await loadMine();
+        // El carril cambió: el que se canceló liberó su lugar y los puestos se corren.
+        if (generating) await loadQueue();
       } finally {
         busyRef.current.delete(jobId);
       }
     },
-    [loadMine]
+    [loadMine, loadQueue]
   );
 
   const queueById = new Map(queue.map((q) => [q.id, q]));
@@ -388,18 +396,29 @@ export function ReviewBoard() {
                         status={a.status}
                         queuePosition={q?.position ?? null}
                       />
-                      {/* Priorizar solo tiene sentido si está ESPERANDO y no es ya urgente:
-                          sobre el que ya corre no aceleraría nada. */}
-                      {esperando && q!.priority > PRIORITY_URGENT && (
-                        <div className="mt-1 flex justify-end">
+                      {/* Acciones de la card. Van FUERA de GeneratingCard porque la card
+                          entera es un <Link> al editor y un botón adentro sería
+                          interactivo dentro de interactivo. */}
+                      <div className="mt-1 flex items-center gap-3">
+                        <button
+                          onClick={() => discard(a.jobId, true)}
+                          title="Cortar la generación y guardarlo en la Biblioteca"
+                          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                          Cancelar
+                        </button>
+                        {/* Priorizar solo tiene sentido si está ESPERANDO y no es ya urgente:
+                            sobre el que ya corre no aceleraría nada. */}
+                        {esperando && q!.priority > PRIORITY_URGENT && (
                           <button
                             onClick={() => prioritize(a.jobId)}
-                            className="text-[11px] font-medium text-accent-strong underline-offset-2 hover:underline"
+                            className="ml-auto text-[11px] font-medium text-accent-strong underline-offset-2 hover:underline"
                           >
                             Priorizar ↑
                           </button>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </li>
                   );
                 })}

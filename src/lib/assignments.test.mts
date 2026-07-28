@@ -48,10 +48,12 @@ process.chdir(workDir);
 
 const {
   archiveAssignment,
+  archiveCancelled,
   getAssignment,
   isArchivable,
   listAssignmentsForDesigner,
   restoreAssignment,
+  setStatus,
   upsertFromAgentJob,
 } = await import("./assignments.ts");
 
@@ -162,6 +164,50 @@ describe("eliminar del tablero (archivar)", () => {
     assert.equal(isArchivable("pending_review"), true);
     assert.equal(isArchivable("failed"), true);
     assert.equal(isArchivable("delivered"), true);
+  });
+});
+
+/**
+ * Eliminar desde la columna "Generando". El riesgo acá no es archivar —eso es un write y
+ * ya está probado arriba— sino que la generación que se está muriendo devuelva el pedido
+ * al tablero con su último `setStatus`, o que restaurarlo lo deje como un fantasma en
+ * "Generando" sin nadie generándolo.
+ */
+describe("cancelar y archivar algo en vuelo", () => {
+  it("queda archivado con el motivo, y como failed para poder restaurarlo", async () => {
+    await archiveCancelled("job-generando", "Cancelado desde el tablero.");
+
+    const a = await getAssignment("job-generando");
+    assert.equal(a?.status, "archived");
+    assert.equal(a?.archivedFrom, "failed", "no vuelve a 'generating': nadie lo generaría");
+    assert.equal(a?.error, "Cancelado desde el tablero.");
+    assert.ok(a?.archivedAt);
+  });
+
+  it("restaurarlo lo deja en Con problemas, con su Reintentar", async () => {
+    await archiveCancelled("job-generando", "Cancelado desde el tablero.");
+
+    assert.equal(await restoreAssignment("job-generando"), "failed");
+    const a = await getAssignment("job-generando");
+    assert.equal(a?.status, "failed");
+    assert.equal(a?.archivedFrom, undefined);
+  });
+
+  it("un estado tardío de la generación cancelada NO lo devuelve al tablero", async () => {
+    await archiveCancelled("job-generando", "Cancelado desde el tablero.");
+
+    // Lo que el runner escribe segundos después de que el AbortSignal llega al subproceso.
+    await setStatus("job-generando", "preempted");
+    await setStatus("job-generando", "failed", { error: "Cancelado a mano desde la cola." });
+
+    const a = await getAssignment("job-generando");
+    assert.equal(a?.status, "archived");
+    assert.equal(a?.error, "Cancelado desde el tablero.", "conserva el motivo real");
+  });
+
+  it("setStatus sigue funcionando en un pedido que no está archivado", async () => {
+    await setStatus("job-generando", "rendering");
+    assert.equal((await getAssignment("job-generando"))?.status, "rendering");
   });
 });
 

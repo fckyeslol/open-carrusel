@@ -193,29 +193,36 @@ export async function setStatus(
   patch: StatusPatch = {}
 ): Promise<void> {
   await updateData<Store>(FILE, EMPTY, (store) => ({
-    assignments: store.assignments.map((a) =>
-      a.jobId === jobId
-        ? {
-            ...a,
-            status,
-            carouselId: patch.carouselId ?? a.carouselId,
-            resultUrl: patch.resultUrl ?? a.resultUrl,
-            // error se limpia al avanzar y se setea explícito al fallar
-            error: patch.error !== undefined ? patch.error : status === "failed" ? a.error : null,
-            updatedAt: now(),
-          }
-        : a
-    ),
+    assignments: store.assignments.map((a) => {
+      if (a.jobId !== jobId) return a;
+      // `archived` GANA sobre cualquier estado que llegue después.
+      //
+      // Cancelar un pedido en vuelo no lo mata al instante: el AbortSignal viaja hasta el
+      // subproceso de Claude y la generación agonizante todavía escribe su `preempted` /
+      // `failed` unos segundos más tarde. Sin este guard, ese estado tardío devolvería al
+      // tablero un pedido que la diseñadora ya eliminó. Solo `restoreAssignment` saca de
+      // `archived`.
+      if (a.status === "archived") return a;
+      return {
+        ...a,
+        status,
+        carouselId: patch.carouselId ?? a.carouselId,
+        resultUrl: patch.resultUrl ?? a.resultUrl,
+        // error se limpia al avanzar y se setea explícito al fallar
+        error: patch.error !== undefined ? patch.error : status === "failed" ? a.error : null,
+        updatedAt: now(),
+      };
+    }),
   }));
 }
 
 /**
- * ¿Se puede mandar este estado a la Biblioteca?
+ * ¿Se puede mandar este estado a la Biblioteca TAL CUAL, sin cortar nada?
  *
- * Todo menos las etapas en vuelo: si el runner está trabajando en el job, archivarlo no
- * lo detendría y el siguiente `setStatus` de la generación lo devolvería al tablero solo.
- * Para sacar del medio algo que se está generando primero hay que dejarlo terminar (o
- * que falle).
+ * Todo menos las etapas en vuelo: si el runner está trabajando en el job, archivarlo a
+ * secas no lo detendría. Para eliminar algo en vuelo hay que cancelarlo primero en el
+ * carril y archivarlo con `archiveCancelled` — ver el DELETE de
+ * /api/thirtyx/assignments/[jobId].
  */
 export function isArchivable(status: AssignmentStatus): boolean {
   return !IN_FLIGHT.includes(status);
@@ -231,11 +238,42 @@ export function isArchivable(status: AssignmentStatus): boolean {
  * poder restaurarlo tal cual.
  */
 export async function archiveAssignment(jobId: string): Promise<void> {
+  await archive(jobId);
+}
+
+/**
+ * Archiva un pedido que estaba EN VUELO y la diseñadora canceló desde el tablero.
+ *
+ * Existe aparte de `archiveAssignment` por el `archivedFrom`: guardar la etapa real
+ * ("generating", "queued") haría que al restaurarlo volviera a la columna "Generando"
+ * cuando ya no hay nadie generándolo — un pedido fantasma que solo se destraba
+ * reiniciando el server. Guardando `failed` + el motivo, restaurarlo lo deja en "Con
+ * problemas" con su botón Reintentar, que es lo accionable.
+ *
+ * Quien llama tiene que haber cortado el trabajo en el carril (`cancel` de job-queue)
+ * antes; del estado tardío de la generación moribunda se encarga el guard de `setStatus`.
+ */
+export async function archiveCancelled(jobId: string, reason: string): Promise<void> {
+  await archive(jobId, { archivedFrom: "failed", error: reason });
+}
+
+/** Escritura común de los dos "archivar". Idempotente: no re-archiva lo ya archivado. */
+async function archive(
+  jobId: string,
+  patch: Partial<Pick<Assignment, "archivedFrom" | "error">> = {}
+): Promise<void> {
   const ts = now();
   await updateData<Store>(FILE, EMPTY, (store) => ({
     assignments: store.assignments.map((a) =>
       a.jobId === jobId && a.status !== "archived"
-        ? { ...a, status: "archived", archivedFrom: a.status, archivedAt: ts, updatedAt: ts }
+        ? {
+            ...a,
+            ...patch,
+            status: "archived",
+            archivedFrom: patch.archivedFrom ?? a.status,
+            archivedAt: ts,
+            updatedAt: ts,
+          }
         : a
     ),
   }));
