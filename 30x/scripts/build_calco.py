@@ -12,7 +12,7 @@ AV={
  "daniel-bilbao":  dict(name="Daniel Bilbao", font="Arimo",              dark="#0C1030", C=["#7B79E8","#3A34E0","#221E9E"]),
  "andres":         dict(name="Andrés Bilbao", font="Inter",              dark="#15142B", C=["#F0412A","#FF791A","#EBFF6F"]),
  "dylan-rosemberg":dict(name="Dylan Rosemberg", font="Bricolage Grotesque", dark="#1E010B", C=["#FF6B4A","#F92424","#B3121C"]),
- "maria-jose":     dict(name="María José Echeverri", font="Poppins",     dark="#5A4633", C=["#E9E39A","#DFCB6E","#B79246"]),
+ "maria-jose":     dict(name="María José Echeverry", font="Poppins",     dark="#412D15", C=["#E9E39A","#DFCB6E","#B79246"]),
  "alejandra-deik": dict(name="Alejandra Deik", font="Playfair Display",  dark="#1B1233", C=["#3FB0B8","#15868E","#0B2D72"]),
  "liz":            dict(name="Liz Hernández", font="Nunito Sans",        dark="#000000", C=["#A79FFF","#8177FE","#5B50D6"]),
 }

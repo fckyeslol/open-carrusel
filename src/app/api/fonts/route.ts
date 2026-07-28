@@ -12,7 +12,7 @@ const POPULAR_FONTS = [
   { name: "Inter", category: "sans-serif" }, // Andrés Bilbao
   { name: "Arimo", category: "sans-serif" }, // Daniel Bilbao
   { name: "Playfair Display", category: "serif" }, // Cora Bilbao (titulares) · Alejandra Deik
-  { name: "Poppins", category: "sans-serif" }, // Cora Bilbao (cuerpo) · Maria Jose Echeverri
+  { name: "Poppins", category: "sans-serif" }, // Cora Bilbao (cuerpo) · María José Echeverry
   { name: "Bricolage Grotesque", category: "sans-serif" }, // Dylan Rosemberg
   { name: "Nunito Sans", category: "sans-serif" }, // Liz Hernández
   // resto
