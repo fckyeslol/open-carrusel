@@ -129,6 +129,24 @@ bloquean imágenes/CSS en la extracción) para gastar poca banda del proxy.
   ADD_IG_PROXY=1 bash deploy/cloudrun-deploy.sh   # (o ADD_IG_PROXY=1 en deploy/gcp.env)
   ```
 
+**Poné más de uno.** Un solo proxy es punto único de falla, y ya se cayó: el
+2026-07-28 el proveedor empezó a rechazar todo CONNECT con `500` y la ingesta del
+hosteado murió entera. El pool (`src/lib/ig-proxies.ts`) intenta
+`IG_PROXY` → `IG_PROXY_2` → … → IP directa, deja en cooldown 30 min al que falla
+(`IG_PROXY_COOLDOWN_MIN`) y sigue con el siguiente sin intervención.
+
+- **Docker:** `IG_PROXY_2=http://user:pass@otro:puerto` (o varios en `IG_PROXY`,
+  separados por coma).
+- **Cloud Run:** `gcloud secrets create IG_PROXY_2 …` + `bash deploy/gcp-setup.sh`
+  + variable de repo `ADD_IG_PROXY_2=1`.
+
+Que sean de **proveedores distintos**: dos puertos del mismo proveedor se caen
+juntos, que es exactamente lo que pasó. Para ver el estado de todos:
+
+```bash
+npm run doctor     # prueba el túnel CONNECT de cada proxy del pool
+```
+
 **Opción B — Cookie de sesión (`IG_SESSIONID`).** Alternativa sin proxy. Es el
 valor de la cookie `sessionid` de una cuenta IG logueada (DevTools → Application
 → Cookies → instagram.com → `sessionid`). ⚠ Usá una cuenta **descartable**, no la

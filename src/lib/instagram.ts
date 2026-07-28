@@ -14,6 +14,12 @@ import path from "path";
 import { type Page } from "puppeteer";
 import { withContext } from "./browser-pool";
 import { normalizeInstagramUrl, hasCarouselHint } from "./instagram-url";
+import {
+  type ProxyConfig,
+  markProxyDown,
+  markProxyUp,
+  proxyTryOrder,
+} from "./ig-proxies";
 
 /**
  * Cookie de sesión de Instagram para pasar el muro de login cuando se scrapea
@@ -45,35 +51,14 @@ async function applyInstagramSession(page: Page): Promise<void> {
   });
 }
 
-interface ProxyConfig {
-  /** http://host:port — SIN credenciales (Chrome no las acepta en --proxy-server). */
-  server: string;
-  username?: string;
-  password?: string;
-}
-
 /**
- * Proxy residencial para scrapear Instagram desde el server. IG bloquea las IPs
- * de datacenter (Cloud Run) pero sirve el post completo a IPs residenciales — que
- * es la condición exacta que funciona en la compu de una diseñadora, SIN cookie ni
- * login. Un proxy residencial hace que la request salga por una IP de casa, así
- * que suele resolver el problema sin el riesgo de que IG trabe una cuenta (que sí
- * tiene [[instagram cookie]]). Formato del env: http://usuario:pass@host:puerto.
+ * Los proxies residenciales para scrapear Instagram desde el server viven en
+ * ig-proxies.ts (pool + cooldown). IG bloquea las IPs de datacenter (Cloud Run) pero
+ * sirve el post completo a IPs residenciales — que es la condición exacta que funciona
+ * en la compu de una diseñadora, SIN cookie ni login. Un proxy residencial hace que la
+ * request salga por una IP de casa, así que resuelve el problema sin el riesgo de que
+ * IG trabe una cuenta (que sí tiene la cookie IG_SESSIONID).
  */
-function instagramProxy(): ProxyConfig | undefined {
-  const raw = process.env.IG_PROXY;
-  if (!raw || !raw.trim()) return undefined;
-  try {
-    const u = new URL(raw.trim());
-    return {
-      server: `${u.protocol}//${u.host}`,
-      username: u.username ? decodeURIComponent(u.username) : undefined,
-      password: u.password ? decodeURIComponent(u.password) : undefined,
-    };
-  } catch {
-    return undefined;
-  }
-}
 
 /** Autentica el proxy (si trae credenciales) — debe correr antes de navegar. */
 async function applyProxyAuth(page: Page, proxy: ProxyConfig | undefined): Promise<void> {
@@ -284,7 +269,68 @@ function detectImageExt(b: Buffer): "jpg" | "png" | "webp" | null {
 }
 
 /**
+ * Códigos de red de Chrome que significan "falló EL PROXY", no "falló Instagram".
+ *
+ * Distinguirlos importa porque el mensaje que ve la diseñadora es distinto: un
+ * ERR_TUNNEL_CONNECTION_FAILED no se arregla revisando si el post es público (que
+ * es lo que decía la UI antes, mandando a buscar donde no era) — se arregla en el
+ * panel del proveedor del proxy. Caso real 2026-07-28: Litport aceptaba el TCP y
+ * el Basic auth pero devolvía `500 / X-Proxy-Error-Code: 2` a TODO CONNECT, y
+ * Chrome lo traduce a ERR_TUNNEL_CONNECTION_FAILED.
+ */
+const PROXY_NET_ERRORS = [
+  "ERR_TUNNEL_CONNECTION_FAILED",
+  "ERR_PROXY_CONNECTION_FAILED",
+  "ERR_PROXY_AUTH_REQUESTED",
+  "ERR_PROXY_AUTH_UNSUPPORTED",
+  "ERR_PROXY_CERTIFICATE_INVALID",
+  "ERR_NO_SUPPORTED_PROXIES",
+  "ERR_SOCKS_CONNECTION_FAILED",
+  "ERR_MANDATORY_PROXY_CONFIGURATION_FAILED",
+];
+
+function isProxyFailure(err: unknown): boolean {
+  const msg = (err as Error)?.message || "";
+  return PROXY_NET_ERRORS.some((code) => msg.includes(code));
+}
+
+/**
+ * El proxy residencial no abrió el túnel Y el reintento por la IP directa tampoco
+ * alcanzó. Es un tipo aparte para que la UI pueda decir "el proxy está caído" en vez
+ * de la pista genérica de "¿el post es público?" — ver RECOVERY_BY_STAGE en thirtyx.ts.
+ */
+export class ProxyUnavailableError extends Error {
+  // Campos declarados a mano (no parameter properties): `node --test` corre los .mts
+  // en modo strip-only, que no soporta `constructor(readonly x)`. Ver instagram-proxy.test.mts.
+  /** Etiquetas (host:puerto#hash) de los proxies que fallaron, en orden de intento. */
+  readonly failedProxies: string[];
+  readonly directError: Error;
+
+  constructor(failed: Array<{ label: string; error: Error }>, directError: Error) {
+    const detail = failed.map((f) => `${f.label} [${f.error.message}]`).join("; ");
+    const count =
+      failed.length === 1
+        ? "El proxy residencial no abrió el túnel"
+        : `Ninguno de los ${failed.length} proxies residenciales abrió el túnel`;
+    super(
+      `${count} a Instagram (${detail}), y el reintento por la IP directa tampoco funcionó: ${directError.message}`
+    );
+    this.name = "ProxyUnavailableError";
+    this.failedProxies = failed.map((f) => f.label);
+    this.directError = directError;
+  }
+}
+
+/**
  * Descarga las slides del referente a public/uploads/ y devuelve sus rutas.
+ *
+ * El proxy residencial es una OPTIMIZACIÓN, no una dependencia dura: si el túnel
+ * falla se reintenta por la IP directa antes de rendirse. En una máquina con IP
+ * residencial (la laptop de una diseñadora) ese reintento alcanza solo, así que un
+ * proxy muerto ya no tumba una ingesta que habría funcionado igual sin él. Desde
+ * datacenter el reintento casi siempre cae en el guard anti-basura — pero entonces
+ * el error dice que el proxy está caído, que es la causa accionable.
+ *
  * @param uploadDir directorio absoluto de public/uploads
  */
 export async function downloadInstagramReference(
@@ -296,8 +342,62 @@ export async function downloadInstagramReference(
   const postUrl = normalizeInstagramUrl(rawUrl);
   if (!postUrl) throw new Error("URL de Instagram inválida");
 
-  const proxy = instagramProxy();
+  return withProxyFallback(proxyTryOrder(), (p) =>
+    attemptDownload(postUrl, rawUrl, uploadDir, makeId, hooks, p)
+  );
+}
 
+/**
+ * Corre `run` con cada proxy del pool en orden y, si NINGUNO abre el túnel, reintenta
+ * por la IP directa. Un proxy que falla se marca en cooldown para que las próximas
+ * ingestas lo salteen en vez de volver a pagar el intento muerto.
+ *
+ * Vive aparte de `downloadInstagramReference` para poder testear la política de
+ * reintento sin levantar Chrome ni salir a la red (ver instagram-proxy.test.mts).
+ *
+ * Un error que NO es del proxy (post privado, borrado, guard anti-basura) se propaga
+ * tal cual y corta la cadena: fallaría igual con cualquier proxy, así que seguir
+ * rotando solo multiplicaría la espera para dar el mismo error.
+ */
+export async function withProxyFallback<T>(
+  proxies: ProxyConfig[],
+  run: (proxy: ProxyConfig | undefined) => Promise<T>
+): Promise<T> {
+  const failed: Array<{ label: string; error: Error }> = [];
+
+  for (const proxy of proxies) {
+    try {
+      const result = await run(proxy);
+      // Funcionó: si venía marcado como caído, se lo saca del cooldown.
+      markProxyUp(proxy);
+      return result;
+    } catch (err) {
+      if (!isProxyFailure(err)) throw err;
+      const error = err as Error;
+      markProxyDown(proxy, error.message);
+      failed.push({ label: proxy.label, error });
+    }
+  }
+
+  // Último recurso: la IP directa. Es la única opción cuando no hay proxies
+  // configurados, y el rescate real en máquinas con IP residencial.
+  try {
+    return await run(undefined);
+  } catch (directErr) {
+    if (failed.length === 0) throw directErr;
+    throw new ProxyUnavailableError(failed, directErr as Error);
+  }
+}
+
+/** Un intento de descarga, con o sin proxy. Ver downloadInstagramReference. */
+async function attemptDownload(
+  postUrl: string,
+  rawUrl: string,
+  uploadDir: string,
+  makeId: () => string,
+  hooks: DownloadProgressHooks,
+  proxy: ProxyConfig | undefined
+): Promise<DownloadedSlide[]> {
   // Un CONTEXTO aislado del Chrome compartido, en vez de un Chrome propio. El proxy
   // residencial y la cookie de sesión aplican solo a este contexto, así que el render
   // sigue saliendo por la IP normal — que es lo que queremos (las imágenes se bajan con

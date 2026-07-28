@@ -10,7 +10,7 @@ import path from "path";
 import { mkdir } from "fs/promises";
 import { createCarousel, addReferenceImage } from "./carousels";
 import { getPresetByAvatarSlug } from "./style-presets";
-import { downloadInstagramReference } from "./instagram";
+import { downloadInstagramReference, ProxyUnavailableError } from "./instagram";
 import { generateId, now } from "./utils";
 import type { Carousel } from "@/types/carousel";
 import type { StylePreset } from "@/types/style-preset";
@@ -40,13 +40,17 @@ export interface IngestParams {
 
 /** Error de ingesta que recuerda EN QUÉ etapa reventó y cómo salir del paso. */
 export class IngestError extends Error {
-  constructor(
-    message: string,
-    readonly stage: IngestStageId,
-    readonly recovery?: string
-  ) {
+  // Campos declarados a mano, NO parameter properties (`constructor(readonly x)`):
+  // Next las compila bien, pero el type-stripping de Node no las soporta, y eso hacía
+  // imposible cargar este módulo desde `node --test` o un script suelto.
+  readonly stage: IngestStageId;
+  readonly recovery?: string;
+
+  constructor(message: string, stage: IngestStageId, recovery?: string) {
     super(message);
     this.name = "IngestError";
+    this.stage = stage;
+    this.recovery = recovery;
   }
 }
 
@@ -59,6 +63,27 @@ const RECOVERY_BY_STAGE: Partial<Record<IngestStageId, string>> = {
   download:
     "Instagram devolvió las imágenes pero no se pudieron guardar. Probá de nuevo o subí capturas a mano.",
 };
+
+/**
+ * Pista de recuperación para la usuaria. Depende del ERROR, no solo de la etapa:
+ * cuando el que falla es el proxy residencial, la pista genérica de "extract"
+ * ("verificá que el post sea público") manda a buscar donde no es — el post está
+ * público y el que está roto es el proveedor del proxy.
+ */
+function recoveryFor(error: unknown, stage: IngestStageId): string | undefined {
+  if (error instanceof ProxyUnavailableError) {
+    const which =
+      error.failedProxies.length === 1
+        ? `El proxy residencial de Instagram está caído (${error.failedProxies[0]})`
+        : `Los ${error.failedProxies.length} proxies residenciales están caídos (${error.failedProxies.join(", ")})`;
+    // OJO con lo que se afirma acá: cuando el proxy no abre el túnel NO podemos saber
+    // si además el post está mal. Se apunta al proxy (que es lo seguro y lo accionable)
+    // sin jurar que el post esté bien — el mensaje del error ya trae la causa del
+    // intento directo, que es donde se vería "privado, borrado o pide login".
+    return `${which}. Revisá plan, tráfico y puerto en el panel del proveedor, o agregá otro proxy (IG_PROXY_2). Sin proxy, desde la nube Instagram no entrega el carrusel completo aunque el post sea público. Mientras tanto: corré la app en una máquina con IP residencial, o subí las capturas del referente a mano.`;
+  }
+  return RECOVERY_BY_STAGE[stage];
+}
 
 /** Traduce cualquier fallo de la ingesta al evento que la UI sabe pintar. */
 export function toIngestErrorEvent(
@@ -166,7 +191,7 @@ export async function ingestReference(params: IngestParams): Promise<IngestResul
     // El mensaje de instagram.ts ya explica la causa probable; acá se le adjunta
     // la etapa REAL en la que se cortó. Atribuirlo siempre a "download" dejaría
     // "browser" o "extract" pulsando como activas para siempre.
-    throw new IngestError((e as Error).message, currentStage, RECOVERY_BY_STAGE[currentStage]);
+    throw new IngestError((e as Error).message, currentStage, recoveryFor(e, currentStage));
   }
   finish("download", `${slides.length} ${slides.length === 1 ? "lámina" : "láminas"}`);
 

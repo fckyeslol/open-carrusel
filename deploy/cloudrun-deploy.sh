@@ -54,11 +54,26 @@ fi
 if [ "${ADD_IG_PROXY:-}" = "1" ]; then
   SECRETS="${SECRETS},IG_PROXY=IG_PROXY:latest"
 fi
+# Proxies ADICIONALES para el fallback por caída del proveedor (ver src/lib/ig-proxies.ts):
+# poné ADD_IG_PROXY_2=1 (y _3, _4, _5) y creá el secreto IG_PROXY_2 en Secret Manager.
+# Cada uno se monta como env con su mismo nombre, que es justo lo que escanea el pool.
+# Existe porque un solo proveedor ya demostró ser punto único de falla (2026-07-28:
+# Litport devolviendo 500 a todo CONNECT tumbó la ingesta del hosteado).
+for i in 2 3 4 5; do
+  var="ADD_IG_PROXY_${i}"
+  if [ "${!var:-}" = "1" ]; then
+    SECRETS="${SECRETS},IG_PROXY_${i}=IG_PROXY_${i}:latest"
+  fi
+done
 
 ENV_VARS="HOSTED_MODE=1,DOMAIN=${APP_DOMAIN},CLAUDE_CLI_PATH=/usr/local/bin/claude,CLAUDE_CONFIG_BASE=/tmp/claude-config,AVATAR_ASSETS_DIR=/app/public/uploads/avatar-assets"
 # Cooldown de cuenta tras límite (opcional; default 300 min en la app).
 if [ -n "${CLAUDE_TOKEN_COOLDOWN_MIN:-}" ]; then
   ENV_VARS="${ENV_VARS},CLAUDE_TOKEN_COOLDOWN_MIN=${CLAUDE_TOKEN_COOLDOWN_MIN}"
+fi
+# Cooldown de un proxy de Instagram tras caerse (opcional; default 30 min en la app).
+if [ -n "${IG_PROXY_COOLDOWN_MIN:-}" ]; then
+  ENV_VARS="${ENV_VARS},IG_PROXY_COOLDOWN_MIN=${IG_PROXY_COOLDOWN_MIN}"
 fi
 # Servicio de render: con esto seteado, Chrome NO se abre en esta instancia — el render
 # sale por HTTP (ver src/lib/render.ts). Deployá el servicio PRIMERO (deploy/render-deploy.sh).

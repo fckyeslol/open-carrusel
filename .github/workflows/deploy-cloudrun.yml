@@ -106,4 +106,10 @@ jobs:
           # repo en "1" y creá el secreto correspondiente en Secret Manager.
           ADD_IG_PROXY: ${{ vars.ADD_IG_PROXY }}
           ADD_IG_SESSIONID: ${{ vars.ADD_IG_SESSIONID }}
+          # Opcional: proxies adicionales para el fallback por caída del proveedor.
+          # Poné la var en "1" y creá el secreto IG_PROXY_2 (y _3, _4, _5).
+          ADD_IG_PROXY_2: ${{ vars.ADD_IG_PROXY_2 }}
+          ADD_IG_PROXY_3: ${{ vars.ADD_IG_PROXY_3 }}
+          # Opcional: minutos de cooldown de un proxy tras caerse (default 30).
+          IG_PROXY_COOLDOWN_MIN: ${{ vars.IG_PROXY_COOLDOWN_MIN }}
         run: bash deploy/cloudrun-deploy.sh

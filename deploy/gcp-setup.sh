@@ -87,10 +87,13 @@ SECRETS_TO_BIND="AUTH_SECRET INTERNAL_API_TOKEN"
 if gcloud secrets describe IG_SESSIONID >/dev/null 2>&1; then
   SECRETS_TO_BIND="$SECRETS_TO_BIND IG_SESSIONID"
 fi
-# Idem para el proxy residencial del scraping (IG_PROXY), si ya existe.
-if gcloud secrets describe IG_PROXY >/dev/null 2>&1; then
-  SECRETS_TO_BIND="$SECRETS_TO_BIND IG_PROXY"
-fi
+# Idem para los proxies residenciales del scraping. IG_PROXY es el primario;
+# IG_PROXY_2..5 son el fallback por caída del proveedor (ver src/lib/ig-proxies.ts).
+for s in IG_PROXY IG_PROXY_2 IG_PROXY_3 IG_PROXY_4 IG_PROXY_5; do
+  if gcloud secrets describe "$s" >/dev/null 2>&1; then
+    SECRETS_TO_BIND="$SECRETS_TO_BIND $s"
+  fi
+done
 for s in $SECRETS_TO_BIND; do
   gcloud secrets add-iam-policy-binding "$s" \
     --member="serviceAccount:${RUNTIME_EMAIL}" --role=roles/secretmanager.secretAccessor >/dev/null
