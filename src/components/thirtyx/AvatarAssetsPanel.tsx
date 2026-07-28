@@ -124,7 +124,7 @@ export function AvatarAssetsPanel({ syncSlug }: { syncSlug?: string }) {
 
   return (
     <section className="mt-10">
-      <SectionLabel index="04" aside={avatar?.name}>
+      <SectionLabel index="05" aside={avatar?.name}>
         Assets de marca
       </SectionLabel>
 

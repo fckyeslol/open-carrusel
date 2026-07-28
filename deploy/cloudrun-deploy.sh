@@ -67,6 +67,19 @@ for i in 2 3 4 5; do
 done
 
 ENV_VARS="HOSTED_MODE=1,DOMAIN=${APP_DOMAIN},CLAUDE_CLI_PATH=/usr/local/bin/claude,CLAUDE_CONFIG_BASE=/tmp/claude-config,AVATAR_ASSETS_DIR=/app/public/uploads/avatar-assets"
+
+# Zona horaria del contenedor. Cloud Run arranca en UTC, y eso rompe lo único que
+# depende de la hora LOCAL: la ventana nocturna del lote CSV (BATCH_NIGHT_HOUR, default
+# 20). En UTC, "las 20:00" caen 15:00 en Colombia — justo en medio de la jornada, que es
+# exactamente lo que el lote existe para evitar. Los timestamps guardados no cambian:
+# se escriben con toISOString(), que es absoluto.
+ENV_VARS="${ENV_VARS},TZ=${APP_TZ:-America/Bogota}"
+
+# Hora de arranque del lote nocturno (0-23, hora local ya fijada por TZ). Opcional:
+# la app usa 20:00 si no viene.
+if [ -n "${BATCH_NIGHT_HOUR:-}" ]; then
+  ENV_VARS="${ENV_VARS},BATCH_NIGHT_HOUR=${BATCH_NIGHT_HOUR}"
+fi
 # Cooldown de cuenta tras límite (opcional; default 300 min en la app).
 if [ -n "${CLAUDE_TOKEN_COOLDOWN_MIN:-}" ]; then
   ENV_VARS="${ENV_VARS},CLAUDE_TOKEN_COOLDOWN_MIN=${CLAUDE_TOKEN_COOLDOWN_MIN}"

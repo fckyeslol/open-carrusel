@@ -11,6 +11,8 @@ import { SectionLabel } from "@/components/thirtyx/SectionLabel";
 import { AssignmentQueue } from "@/components/thirtyx/AssignmentQueue";
 import { AvatarAssetsPanel } from "@/components/thirtyx/AvatarAssetsPanel";
 import { ManualHistory, type ManualEntry } from "@/components/thirtyx/ManualHistory";
+import { BatchUpload } from "@/components/thirtyx/BatchUpload";
+import { BatchList } from "@/components/thirtyx/BatchList";
 import { useIngest, type IngestDone } from "@/hooks/useIngest";
 import { isInstagramUrl } from "@/lib/instagram-url";
 import { cn } from "@/lib/utils";
@@ -54,6 +56,8 @@ export default function ThirtyXPage() {
   const [error, setError] = useState<string | null>(null);
   /** Se incrementa para que el historial manual vuelva a leerse del server. */
   const [historyKey, setHistoryKey] = useState(0);
+  /** Ídem para la lista de lotes, cuando se acaba de programar uno. */
+  const [batchKey, setBatchKey] = useState(0);
 
   // config form
   const [showConfig, setShowConfig] = useState(false);
@@ -412,13 +416,17 @@ export default function ThirtyXPage() {
           )}
         </section>
 
-        {/* ── 02 · Historial de lo que se agregó a mano ──────────────────── */}
+        {/* ── 02 · Lote nocturno por CSV ─────────────────────────────────── */}
+        <BatchUpload onCreated={() => setBatchKey((k) => k + 1)} />
+        <BatchList refreshKey={batchKey} />
+
+        {/* ── 03 · Historial de lo que se agregó a mano ──────────────────── */}
         <ManualHistory refreshKey={historyKey} onReuse={reuseEntry} />
 
-        {/* ── 03 · Asignaciones (push desde Prewave) ─────────────────────── */}
+        {/* ── 04 · Asignaciones (push desde Prewave) ─────────────────────── */}
         <AssignmentQueue />
 
-        {/* ── 04 · Assets de marca por avenger ───────────────────────────── */}
+        {/* ── 05 · Assets de marca por avenger ───────────────────────────── */}
         <AvatarAssetsPanel syncSlug={avatarSlug || undefined} />
 
         <footer className="mt-16 border-t border-border pt-5">

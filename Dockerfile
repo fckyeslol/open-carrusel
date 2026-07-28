@@ -9,8 +9,11 @@ FROM node:20-bookworm-slim
 #  - fuentes: render fiel de láminas (Noto cubre acentos/emoji)
 #  - python3: el agente usa urllib para TODAS las llamadas a la API
 #  - git + ca-certificates + curl: utilitarios básicos del agente
+#  - tzdata: sin esto la imagen slim NO trae /usr/share/zoneinfo y la TZ del deploy
+#    (America/Bogota) cae en silencio a UTC. Eso movería el lote nocturno a las 15:00
+#    hora Colombia — justo en medio de la jornada, que es lo que el lote evita.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl git python3 \
+    ca-certificates curl git python3 tzdata \
     fonts-liberation fonts-noto-core fonts-noto-color-emoji \
     libasound2 libatk-bridge2.0-0 libatk1.0-0 libcairo2 libcups2 libdbus-1-3 \
     libdrm2 libexpat1 libgbm1 libglib2.0-0 libnspr4 libnss3 libpango-1.0-0 \

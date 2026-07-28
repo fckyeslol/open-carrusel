@@ -37,6 +37,30 @@ AI-powered Instagram carousel builder. Next.js 16 + React 19 + TypeScript + Tail
   `/avatar-assets/<slug>/<kind>/<file>` by `src/app/avatar-assets/[slug]/[...file]/route.ts`
 - `scripts/repalette-carousels.mjs` — Re-paints already-stored carousels when a brand hex is
   corrected in an ADN (reads `visual_identity._paleta_hex_previos`). Dry-run by default
+- `src/lib/csv-batch.ts` — Parser for the nightly batch CSV (`URL, Avenger, Diseñadora,
+  Higgsfield`). Never throws: every row comes back either usable or skipped-with-a-reason
+- `src/lib/batch-intake.ts` — CSV → resolved rows → `Assignment`s. Owns the skip policy:
+  no avatar match ⇒ row dropped (nothing to generate with); no designer match ⇒ row still
+  generated, owned by whoever uploaded the file
+- `src/lib/batch-scheduler.ts` — One-minute tick that dispatches batches whose window
+  arrived. Deliberately not a long `setTimeout`: that wouldn't survive a redeploy, and a
+  batch silently lost overnight is the worst failure here
+
+## Nightly CSV Batch
+
+Designers upload a CSV from `/30x` instead of driving the agent by hand all day. Rows become
+regular assignments with `origin: "csv"`, so they reuse the whole existing pipeline —
+lane serialization, checkpoints, preemption, retry, the board — with three differences:
+
+- **No Prewave.** CSV jobs have a local synthetic `jobId`, so claim/writeback are skipped
+  (`isPrewaveJob` in `thirtyx-runner.ts`). They finish at `done`, not `pending_review`
+- **Higgsfield per row.** The Si/No column becomes `Assignment.higgsfield`, which overrides
+  the global config when generating (`false` wins; `true` can't conjure missing credentials)
+- **Never blocks.** One bad URL fails its own job and the batch keeps going; the batch closes
+  when its last row settles, however it settled
+
+Window is `BATCH_NIGHT_HOUR` (default 20:00, server-local). The server must be up at that
+hour. `scheduledFor` is stored, so a restart doesn't lose the batch.
 
 ## Avatar Identity
 
@@ -77,6 +101,10 @@ All at localhost:3000:
 - `POST /api/image-fx` — Bake a raster effect into an /uploads/ image (currently `pixelate`; returns a new PNG). Every other editor effect is CSS/SVG so preview and export match — this one exists because SVG filters have no downsampling primitive
 - `GET /api/fonts` — Google Fonts list
 - `GET /avatar-assets/{slug}/{kind}/{file}` — Serve per-avatar brand assets from `30x/avatars/`
+- `POST /api/thirtyx/batches` — Upload the nightly CSV. `?preview=1` parses and resolves
+  without writing anything (what the UI shows before you confirm); `?run=now` skips the wait
+- `GET /api/thirtyx/batches` — List batches with derived progress
+- `GET/POST/DELETE /api/thirtyx/batches/[id]` — Detail / run now / cancel (cancel only before it starts)
 
 ## Conventions
 

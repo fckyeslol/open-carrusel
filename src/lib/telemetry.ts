@@ -32,7 +32,8 @@ export type EventoTipo =
   | "render.ok"
   | "render.fallo"
   | "generacion.pasada"
-  | "generacion.checkpoint";
+  | "generacion.checkpoint"
+  | "lote.despachado";
 
 interface Contadores {
   encolados: number;
@@ -206,6 +207,16 @@ export function generacionCheckpoint(
   preempciones: number
 ): void {
   evento("generacion.checkpoint", { jobId, carouselId, pasadas, stalls, preempciones });
+}
+
+/**
+ * Se despachó un lote nocturno al carril.
+ *
+ * Es el evento más importante del lote: pasa de madrugada, sin nadie mirando, y es lo
+ * único que después permite responder "¿arrancó el lote del martes?" sin adivinar.
+ */
+export function loteDespachado(loteId: string, filas: number): void {
+  evento("lote.despachado", { loteId, filas });
 }
 
 export interface ResumenTelemetria {
