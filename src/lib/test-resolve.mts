@@ -35,6 +35,7 @@ const { registerHooks } = nodeModule as unknown as {
 };
 
 const SRC_DIR = path.resolve(import.meta.dirname, "..");
+const SRC_URL = pathToFileURL(SRC_DIR).href;
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -42,7 +43,17 @@ registerHooks({
       const target = path.join(SRC_DIR, `${specifier.slice(2)}.ts`);
       return nextResolve(pathToFileURL(target).href, context);
     }
-    if (specifier.startsWith(".") && !path.extname(specifier)) {
+
+    // ⚠️ Agregar `.ts` SOLO cuando quien importa es código nuestro.
+    //
+    // Sin esta condición el hook se aplica también a las dependencias, y cualquier paquete
+    // con requires internos sin extensión revienta: `pg` hace `require('./client')` y el
+    // test moría con "Cannot find module './client.ts'". El síntoma engaña, porque parece
+    // un problema del test y en realidad es el hook pisando node_modules.
+    const padre = (context as { parentURL?: string } | undefined)?.parentURL;
+    const esNuestro = padre?.startsWith(SRC_URL) && !padre.includes("/node_modules/");
+
+    if (esNuestro && specifier.startsWith(".") && !path.extname(specifier)) {
       return nextResolve(`${specifier}.ts`, context);
     }
     return nextResolve(specifier, context);

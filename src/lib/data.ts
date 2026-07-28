@@ -1,7 +1,51 @@
+/**
+ * Store de datos, con DOS backends y un despachante.
+ *
+ *   - **PostgreSQL** cuando hay base configurada (`DATABASE_URL` o
+ *     `CLOUD_SQL_CONNECTION_NAME`). Es el modo hosteado. Su atomicidad vale ENTRE
+ *     instancias, que es lo que permite levantar el `min=max=1` de Cloud Run y tener
+ *     redundancia de verdad.
+ *   - **Filesystem** cuando no la hay. Es el modo local de las diseñadoras, que corren la
+ *     app con `git clone` + `npm run abrir` en Windows, sin Docker ni Postgres. Ese camino
+ *     NO se puede romper, así que el código de archivos se conserva entero acá abajo.
+ *
+ * Los dos exponen exactamente la misma API, así que los 10 módulos que la consumen (brand,
+ * templates, style-presets, users, palettes, backgrounds, prewave, staged-actions,
+ * higgsfield, manual-entries) no saben cuál está activo ni les importa.
+ *
+ * El costo honesto de esta decisión es mantener dos implementaciones. La alternativa era
+ * exigirle un Postgres a cada diseñadora, que rompía el modelo de distribución.
+ */
 import { readFile, writeFile, rename, mkdir } from "fs/promises";
 import { setTimeout as delay } from "timers/promises";
 import path from "path";
 import { Mutex } from "async-mutex";
+import { DataFileNotFoundError, SKIP_WRITE } from "./data-shared";
+
+export { DataFileNotFoundError, SKIP_WRITE };
+
+/**
+ * ¿Hay Postgres configurado? Se lee del env acá en vez de importar `dbConfigurada()` de
+ * `db.ts` a propósito: importarlo arrastraría `pg` al grafo de módulos SIEMPRE, incluso en
+ * modo local donde no se usa. Es la misma comprobación, sin la dependencia.
+ */
+function hayPostgres(): boolean {
+  return Boolean(process.env.DATABASE_URL || process.env.CLOUD_SQL_CONNECTION_NAME);
+}
+
+/**
+ * Carga el backend de Postgres SOLO si hace falta.
+ *
+ * El import es dinámico por dos razones. La primera es rendimiento honesto: en la máquina
+ * de una diseñadora, `pg` nunca se carga. La segunda la descubrí rompiendo los tests
+ * existentes — un import estático mete a `pg` en el grafo de CUALQUIER módulo que toque el
+ * store, y `pg` hace `require('./client')` sin extensión, lo que revienta bajo el hook de
+ * resolución de los tests. Node cachea el módulo, así que el costo por llamada es nulo
+ * después de la primera.
+ */
+async function pg() {
+  return import("./data-pg");
+}
 
 const DATA_DIR = path.resolve(process.cwd(), "data");
 
@@ -51,20 +95,6 @@ function getMutex(filename: string): Mutex {
 }
 
 /**
- * El archivo de datos NO existe (nunca se creó). Es el único caso en el que un
- * escritor puede arrancar desde el default sin riesgo de perder datos. Se
- * distingue con su propio tipo para que `updateData` no confunda "no existe" con
- * "no se pudo leer" (corrupto o glitch transitorio) — confundirlos es lo que
- * vaciaba el store al persistir el fallback encima de un archivo vivo.
- */
-export class DataFileNotFoundError extends Error {
-  constructor(filename: string) {
-    super(`Data file not found: ${filename}`);
-    this.name = "DataFileNotFoundError";
-  }
-}
-
-/**
  * Escritura atómica: escribe en un temporal ÚNICO y luego renombra sobre el destino.
  *
  * El temporal lleva pid + contador para que dos escritores concurrentes (aunque
@@ -104,6 +134,11 @@ async function readFileWithRetry(filePath: string): Promise<string> {
 }
 
 export async function readData<T>(filename: string): Promise<T> {
+  if (hayPostgres()) return (await pg()).readDataPg<T>(filename);
+  return readDataFs<T>(filename);
+}
+
+async function readDataFs<T>(filename: string): Promise<T> {
   const filePath = path.join(DATA_DIR, filename);
   let raw: string;
   try {
@@ -125,6 +160,7 @@ export async function readData<T>(filename: string): Promise<T> {
 }
 
 export async function writeData<T>(filename: string, data: T): Promise<void> {
+  if (hayPostgres()) return (await pg()).writeDataPg<T>(filename, data);
   const mutex = getMutex(filename);
   await mutex.runExclusive(async () => {
     await atomicWrite(path.join(DATA_DIR, filename), data);
@@ -138,20 +174,13 @@ export async function writeData<T>(filename: string, data: T): Promise<void> {
  * errores para no persistir un default encima de datos vivos.
  */
 export async function readDataSafe<T>(filename: string, fallback: T): Promise<T> {
+  if (hayPostgres()) return (await pg()).readDataSafePg<T>(filename, fallback);
   try {
-    return await readData<T>(filename);
+    return await readDataFs<T>(filename);
   } catch {
     return fallback;
   }
 }
-
-/**
- * Sentinela para `mutate`: devolverlo CANCELA la escritura y deja el archivo tal
- * cual. Sirve para las mutaciones que descubren, ya con el lock tomado, que no hay
- * nada que cambiar (id inexistente, límite alcanzado). Sin esto habría que
- * reescribir el archivo entero para responder un 404.
- */
-export const SKIP_WRITE = Symbol("skip-write");
 
 /**
  * Lee, transforma y escribe dentro del mismo lock.
@@ -171,11 +200,12 @@ export async function updateData<T>(
   fallback: T,
   mutate: (current: T) => T | typeof SKIP_WRITE
 ): Promise<T> {
+  if (hayPostgres()) return (await pg()).updateDataPg<T>(filename, fallback, mutate);
   const mutex = getMutex(filename);
   return mutex.runExclusive(async () => {
     let current: T;
     try {
-      current = await readData<T>(filename);
+      current = await readDataFs<T>(filename);
     } catch (err) {
       if (err instanceof DataFileNotFoundError) {
         current = fallback; // archivo nuevo: arrancar desde el default es seguro
