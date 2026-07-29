@@ -16,8 +16,8 @@
  * eso, el HMR de dev dejaría un timer nuevo por recarga y el lote se despacharía varias
  * veces.
  */
-import { listDueBatches, markRunning, type Batch } from "./batches";
-import { listAssignmentsForBatch } from "./assignments";
+import { listBatches, listDueBatches, markRunning, type Batch } from "./batches";
+import { listAssignmentsForBatch, setStatus } from "./assignments";
 import { loteDespachado } from "./telemetry";
 
 /** Cada cuánto se pregunta si hay lotes vencidos. */
@@ -86,6 +86,59 @@ export async function dispatchBatch(batch: Batch): Promise<number> {
   return rows.length;
 }
 
+/**
+ * Cuántas veces se reintenta SOLA una fila del lote antes de dejarla quieta.
+ *
+ * Existe el tope porque un referente roto (post borrado, privado) falla siempre: sin
+ * límite, el lote giraría toda la noche quemando presupuesto en la misma URL.
+ */
+const MAX_AUTO_RETRIES = 3;
+
+/** Cuánto se espera antes de reintentar, para no reintentar sobre un fallo recién escrito. */
+const RETRY_COOLDOWN_MS = 3 * 60_000;
+
+/**
+ * Reintenta SOLAS las filas fallidas de los lotes en curso.
+ *
+ * El lote corre de madrugada sin nadie mirando: si una fila se cae por algo transitorio
+ * (el server se reinició y se perdió la sesión de Claude, el proxy de Instagram parpadeó,
+ * una cuenta llegó a su límite), esperar a que alguien apriete "Reintentar" a la mañana
+ * desperdicia toda la noche.
+ *
+ * ⚠️ NO borra el checkpoint, a diferencia del botón del tablero. Es la diferencia entre
+ * retomar y regenerar: una fila que ya tiene su carrusel completo y solo falló al
+ * renderizar vuelve directo al render, sin gastar otra vez los ~40 min de Claude.
+ */
+export async function retryFailedBatchRows(atMs: number = Date.now()): Promise<number> {
+  const activos = (await listBatches()).filter((b) => b.status === "running");
+  if (activos.length === 0) return 0;
+
+  const { getRunner } = await import("./thirtyx-runner");
+  const runner = getRunner();
+  let reintentadas = 0;
+
+  for (const batch of activos) {
+    for (const fila of await listAssignmentsForBatch(batch.id)) {
+      if (fila.status !== "failed") continue;
+      if (fila.attempts >= MAX_AUTO_RETRIES) continue;
+      if (atMs - Date.parse(fila.updatedAt) < RETRY_COOLDOWN_MS) continue;
+
+      try {
+        await setStatus(fila.jobId, "received", { error: null });
+        runner.enqueue(fila.jobId, { force: true });
+        reintentadas++;
+        console.warn(
+          `[lote] reintento automático de ${fila.jobId} (intento ${fila.attempts + 1}/${MAX_AUTO_RETRIES})`
+        );
+      } catch (err) {
+        // Una fila que no se puede re-encolar no puede frenar a las demás.
+        console.error(`[lote] no se pudo reintentar ${fila.jobId}:`, err);
+      }
+    }
+  }
+  return reintentadas;
+}
+
 /** Revisa si hay lotes vencidos y los despacha. Seguro de llamar en cualquier momento. */
 export async function runDueBatches(atMs: number = Date.now()): Promise<number> {
   const due = await listDueBatches(atMs);
@@ -120,6 +173,11 @@ export function startBatchScheduler(): void {
   const tick = () => {
     void runDueBatches().catch((err) => {
       console.error("[lote] error en el ciclo del scheduler:", err);
+    });
+    // Auto-reparación: las filas que se cayeron por algo transitorio vuelven a la fila
+    // solas. Va en su propio catch para que un fallo acá no impida despachar lotes nuevos.
+    void retryFailedBatchRows().catch((err) => {
+      console.error("[lote] error reintentando filas fallidas:", err);
     });
   };
 

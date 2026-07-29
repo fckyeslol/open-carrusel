@@ -81,6 +81,12 @@ const MAX_GENERATION_PASSES = 8;
 const MAX_STALLS = 3;
 
 /**
+ * Cómo reporta el CLI que la sesión de `--resume` ya no está. Pasa en cada redeploy: el
+ * historial de conversaciones vive en el disco efímero del contenedor.
+ */
+const SESSION_GONE_RE = /No conversation found with session ID/i;
+
+/**
  * Corre la generación hasta que el carrusel tenga las `referenceCount` láminas.
  *
  * El agente headless a veces genera una lámina (o unas pocas) y CIERRA su turno
@@ -230,6 +236,33 @@ async function generateAllSlides(
     if (gen.preempted) {
       await checkpoint();
       return outcome(true);
+    }
+
+    /**
+     * La sesión de Claude que guardamos ya no existe.
+     *
+     * `--resume` se apoya en el historial que el CLI guarda en disco (CLAUDE_CONFIG_DIR,
+     * que en Cloud Run vive en /tmp). Un redeploy o un reinicio de instancia lo borra, así
+     * que TODO checkpoint con `claudeSessionId` anterior al reinicio muere con
+     * "No conversation found with session ID" — y el job terminaba `failed` por "no
+     * produjo láminas", tirando un carrusel a medio escribir que era continuable.
+     *
+     * El contexto caro (las imágenes leídas con visión) sí se pierde, eso no hay cómo
+     * recuperarlo. Pero las láminas YA ESCRITAS están en el store, y el mensaje de
+     * continuación le dice al agente cuántas hay: arrancar sesión nueva retoma desde ahí
+     * en vez de empezar de cero.
+     *
+     * No consume una pasada (`passesDone--` antes del `continue`): el turno no llegó a
+     * correr. Y no puede quedar en bucle porque la condición exige que HUBIERA sesión.
+     */
+    if (sessionId && SESSION_GONE_RE.test(gen.stderr)) {
+      console.warn(
+        `[runner] la sesión de Claude del job ${ctx.jobId} ya no existe (reinicio del server); se sigue con una sesión nueva`
+      );
+      sessionId = undefined;
+      await checkpoint();
+      passesDone--;
+      continue;
     }
 
     // Todas las cuentas de Claude al límite: reintentar NO ayuda (están rate-
