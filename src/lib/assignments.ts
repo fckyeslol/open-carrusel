@@ -260,6 +260,54 @@ export async function createCsvAssignment(input: NewCsvAssignment): Promise<Assi
   return created;
 }
 
+/**
+ * Crea TODAS las filas del lote en UNA sola escritura.
+ *
+ * No es una optimización cosmética: en el server hosteado este store vive en un bucket
+ * montado por FUSE, y GCS limita las mutaciones a ~1 por segundo POR OBJETO. Llamar a
+ * `createCsvAssignment` en un for de 30 filas reescribía el archivo entero 30 veces
+ * seguidas y disparaba una tormenta de 429 (`rateLimitExceeded`) que además arrastraba a
+ * otros writers del mismo bucket. FUSE reintenta y no se pierde nada, pero la subida
+ * queda lenta y a un reintento de distancia de perder una fila.
+ *
+ * Una escritura para todo el lote: el costo es O(1) en mutaciones, no O(filas).
+ */
+export async function createCsvAssignments(
+  inputs: readonly NewCsvAssignment[]
+): Promise<Assignment[]> {
+  if (inputs.length === 0) return [];
+  const ts = now();
+  const nuevas: Assignment[] = inputs.map((input) => ({
+    jobId: input.jobId,
+    briefId: null,
+    avatarId: null,
+    deliveryId: null,
+    event: "csv",
+    avatarSlug: input.avatarSlug,
+    avatarName: input.avatarName,
+    referenceUrl: input.referenceUrl,
+    designerId: input.designerId,
+    status: "queued",
+    origin: "csv",
+    batchId: input.batchId,
+    higgsfield: input.higgsfield,
+    carouselId: null,
+    resultUrl: null,
+    error: null,
+    attempts: 0,
+    receivedAt: ts,
+    updatedAt: ts,
+  }));
+
+  await updateData<Store>(FILE, EMPTY, (store) => {
+    const conocidos = new Set(store.assignments.map((a) => a.jobId));
+    const faltantes = nuevas.filter((a) => !conocidos.has(a.jobId));
+    if (faltantes.length === 0) return store; // idempotente
+    return { assignments: [...store.assignments, ...faltantes] };
+  });
+  return nuevas;
+}
+
 /** Todas las asignaciones de un lote CSV, en el orden en que entraron. */
 export async function listAssignmentsForBatch(batchId: string): Promise<Assignment[]> {
   const store = await readDataSafe<Store>(FILE, EMPTY);

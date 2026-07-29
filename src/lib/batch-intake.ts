@@ -26,7 +26,7 @@ import {
 } from "./csv-batch";
 import { listAvatarPresets } from "./style-presets";
 import { listUsers } from "./users";
-import { createCsvAssignment } from "./assignments";
+import { createCsvAssignments } from "./assignments";
 import { createBatch, type Batch, type BatchSkip } from "./batches";
 import { nextNightWindow } from "./batch-scheduler";
 import { generateId } from "./utils";
@@ -173,8 +173,10 @@ export async function intakeCsv(text: string, opts: IntakeOptions): Promise<Inta
     skipped: preview.skipped,
   });
 
-  for (const row of preview.rows) {
-    await createCsvAssignment({
+  // UNA escritura para todo el lote, no una por fila: el store hosteado vive en un
+  // bucket GCS que limita las mutaciones por objeto (ver createCsvAssignments).
+  await createCsvAssignments(
+    preview.rows.map((row) => ({
       jobId: `csv-${batch.id.slice(0, 8)}-${generateId().slice(0, 8)}`,
       batchId: batch.id,
       avatarSlug: row.avatarSlug,
@@ -190,8 +192,8 @@ export async function intakeCsv(text: string, opts: IntakeOptions): Promise<Inta
       // vista previa para que puedan corregir el typo.
       designerId: row.designerId ?? opts.uploadedBy,
       higgsfield: row.higgsfield,
-    });
-  }
+    }))
+  );
 
   return { batch, preview };
 }
