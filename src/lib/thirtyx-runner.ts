@@ -503,6 +503,34 @@ async function processAssignment(jobId: string, ctl: JobControl): Promise<void> 
       return;
     }
 
+    /**
+     * Nos abortaron a NOSOTROS en una etapa que no habla el idioma del carril.
+     *
+     * `generateAllSlides` devuelve `preempted` y lo tratamos arriba, pero el RENDER no:
+     * `render.ts` corta con un `Error("Render cancelado")` común y silvestre. Ese error
+     * caía al fondo de este catch y marcaba el job como `failed` — tirando a la basura un
+     * carrusel YA GENERADO (lo caro) por haber cedido el turno en lo barato. Con el lote
+     * CSV compitiendo contra el chat esto dejó de ser teórico: pasa cada vez que alguien
+     * escribe en el editor mientras el lote renderiza.
+     *
+     * Se re-lanza tal cual: el carril ya sabe si fue preempción o cancelación
+     * (`start()` en job-queue.ts lo traduce), y el checkpoint deja el carrusel listo
+     * para que la próxima pasada retome en el render en vez de regenerar.
+     */
+    if (ctl.signal.aborted) {
+      // Una sola lectura: en hosteado este store es un objeto en GCS y cada round-trip
+      // cuesta (y compite con el resto de writers del bucket).
+      const actual = await getAssignment(jobId);
+      if (actual?.carouselId) {
+        await saveCheckpoint(jobId, {
+          carouselId: actual.carouselId,
+          preemptions: (actual.generation?.preemptions ?? 0) + 1,
+        });
+      }
+      await setStatus(jobId, "preempted");
+      throw e;
+    }
+
     // Un fallo de la etapa "preset" (avatar sin ADN local o no listo) NO es un fallo
     // real de generación: es la MISMA condición que atrapa el preflight, solo que
     // apareció tarde por una carrera transitoria — import-avatars reescribió
