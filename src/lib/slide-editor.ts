@@ -48,7 +48,7 @@ export const EDITOR_FONTS = [
  */
 export const EDITOR_RUNTIME = String.raw`
 (function(){
-  var sels=[], drag=null, rz=null, rot=null, grz=null, band=null;
+  var sels=[], drag=null, rz=null, rot=null, grz=null, band=null, pan=null;
   var squelch=false, clip=[], hist=[], HMAX=60;
   var W=document.body.clientWidth||1080, H=document.body.clientHeight||1350;
   var baseTf=new WeakMap(), delta=new WeakMap();
@@ -62,6 +62,9 @@ export const EDITOR_RUNTIME = String.raw`
     +'.oc-rotline{position:absolute;left:0;top:0;width:2px;background:#ff3b7f;opacity:.85;z-index:2}'
     +'.oc-deg{position:absolute;left:0;top:0;background:#ff3b7f;color:#fff;font:600 13px/1.35 -apple-system,system-ui,sans-serif;padding:2px 9px;border-radius:6px;white-space:nowrap;pointer-events:none;z-index:2147483002;display:none;box-shadow:0 2px 8px rgba(0,0,0,.35)}'
     +'.oc-rotating,.oc-rotating *{cursor:grabbing !important}'
+    // Reencuadrar dentro de un marco: el cursor de "agarrar" avisa que lo que se
+    // mueve es la foto adentro del recorte, no el elemento.
+    +'.oc-panning,.oc-panning *{cursor:grabbing !important}'
     +'.oc-box{position:absolute;outline:2px solid #4f7cff;outline-offset:1px}'
     // Caja envolvente de una multi-selección (punteada, para distinguirla de la
     // caja sólida de cada miembro) y banda de selección por arrastre.
@@ -485,6 +488,20 @@ export const EDITOR_RUNTIME = String.raw`
         ? ((el.style.height==='auto'||!parseFloat(el.style.height)) && !el.style.objectFit
             ? 'auto' : (cs.objectFit||'fill'))
         : '',
+      // Foto metida en un marco que la recorta: el panel ofrece "Sacar del marco".
+      // 'panning' es más estrecho — solo cuando además LLENA el marco, que es
+      // cuando el arrastre reencuadra en vez de mover. Una foto chica suelta
+      // dentro de una tarjeta está enmarcada pero se sigue arrastrando normal.
+      framed: el.tagName==='IMG' ? !!clipFrame(el) : false,
+      panning: el.tagName==='IMG' ? fillsFrame(el, clipFrame(el)) : false,
+      panX: el.tagName==='IMG' ? Math.round(panPos(el)[0]) : 50,
+      panY: el.tagName==='IMG' ? Math.round(panPos(el)[1]) : 50,
+      // ¿Sobra imagen para reencuadrar, eje por eje? Una foto con la misma
+      // proporción que su marco calza justo y no tiene nada que correr: sin esto
+      // el deslizador quedaba mudo y el arrastre parecía trabado.
+      panFree: el.tagName==='IMG'
+        ? (function(){ var rg=panRange(el); return [Math.abs(rg[0])>1, Math.abs(rg[1])>1]; })()
+        : [false,false],
       text: isText ? readText(el) : '',
       range: !!rh,
       // El texto tiene tramos con formato propio: el panel lo avisa, porque editar
@@ -805,6 +822,18 @@ export const EDITOR_RUNTIME = String.raw`
     if(sels.some(isLocked)) return;   // capa bloqueada: no se mueve
     if(sels[0].getAttribute('contenteditable')==='true') return;
     savedRange=null;   // agarrar el elemento entero = adiós al tramo marcado
+    // Foto que llena un marco: arrastrarla corre el ENCUADRE dentro del marco. Si
+    // moviera el elemento se iría del recorte y quedaría cortada, que es lo que
+    // nadie quiere. Para sacarla de verdad está "Sacar del marco" en el panel.
+    var fr0=sels.length===1 ? clipFrame(sels[0]) : null;
+    if(fr0&&fillsFrame(sels[0],fr0)){
+      snap();
+      pan={el:sels[0], sx:x, sy:y, p0:panPos(sels[0]), rg:panRange(sels[0])};
+      showHandles(false);
+      document.body.classList.add('oc-panning');
+      e.preventDefault();
+      return;
+    }
     snap();
     sels.forEach(makeMovable);
     // rects cacheados: durante el arrastre NO se vuelve a medir (cero reflows)
@@ -827,6 +856,115 @@ export const EDITOR_RUNTIME = String.raw`
     showHandles(false);
     e.preventDefault();
   }, true);
+  // ── marcos: una foto metida en un contenedor que recorta ─────────────────────
+  // Los formatos del ADN encuadran las fotos dentro de marcos (el medallón redondo
+  // del cierre, la tarjeta de una cita): un contenedor con overflow oculto y la
+  // imagen a width/height:100% + object-fit. Arrastrar esa imagen la sacaba del
+  // marco y quedaba cortada. Adentro de un marco el arrastre mueve el ENCUADRE.
+
+  /**
+   * Marco que recorta a un elemento: el ancestro más cercano que corta lo que se
+   * sale y que NO es el lienzo entero. La lámina también lleva overflow:hidden,
+   * pero recortar contra el borde del lienzo es lo correcto, no un marco del que
+   * haya que salir.
+   */
+  function clipFrame(el){
+    var cw=document.documentElement.clientWidth, ch=document.documentElement.clientHeight;
+    var p=el.parentElement;
+    while(p&&p!==document.body&&p!==document.documentElement){
+      var cs=getComputedStyle(p);
+      if(cs.overflow!=='visible'||(cs.clipPath&&cs.clipPath!=='none')){
+        var r=p.getBoundingClientRect();
+        return (r.width<cw-2||r.height<ch-2) ? p : null;
+      }
+      p=p.parentElement;
+    }
+    return null;
+  }
+  /**
+   * ¿La imagen LLENA su marco? Solo ahí "moverla" quiere decir reencuadrarla. Una
+   * foto chica suelta dentro de una tarjeta se sigue moviendo como cualquier cosa.
+   */
+  function fillsFrame(el, fr){
+    if(el.tagName!=='IMG'||!fr) return false;
+    var fit=getComputedStyle(el).objectFit;
+    if(fit!=='cover'&&fit!=='contain') return false;
+    // Se compara contra la caja de CONTENIDO del marco, que es la que la foto
+    // llena: clientWidth ya descuenta el borde y el relleno se saca aparte. Contra
+    // el rect exterior, un borde de 6px alcanzaba para que no diera y la foto se
+    // iba del recorte igual que antes.
+    var fcs=getComputedStyle(fr);
+    var iw=fr.clientWidth-(parseFloat(fcs.paddingLeft)||0)-(parseFloat(fcs.paddingRight)||0);
+    var ih=fr.clientHeight-(parseFloat(fcs.paddingTop)||0)-(parseFloat(fcs.paddingBottom)||0);
+    var ir=el.getBoundingClientRect();
+    return ir.width>=iw-2 && ir.height>=ih-2;
+  }
+  /**
+   * Recorrido del encuadre por eje, con signo: (caja - imagen escalada). Con
+   * 'cover' sobra imagen y da negativo (subir el % la corre hacia la izquierda);
+   * con 'contain' sobra caja y da positivo. Ese número es el que convierte los px
+   * del mouse en el % de object-position, y si es 0 el eje no tiene juego.
+   */
+  function panRange(el){
+    var r=el.getBoundingClientRect(), nw=el.naturalWidth, nh=el.naturalHeight;
+    if(!nw||!nh||!r.width||!r.height) return [0,0];
+    var fit=getComputedStyle(el).objectFit;
+    var s=fit==='contain' ? Math.min(r.width/nw, r.height/nh) : Math.max(r.width/nw, r.height/nh);
+    return [r.width-nw*s, r.height-nh*s];
+  }
+  /** Encuadre actual en % por eje. El computado llega en % o en px según cómo se declaró. */
+  function panPos(el){
+    var rg=panRange(el);
+    var parts=(getComputedStyle(el).objectPosition||'50% 50%').trim().split(/\s+/);
+    return [panPct(parts[0], rg[0]), panPct(parts[1]==null?parts[0]:parts[1], rg[1])];
+  }
+  function panPct(v, range){
+    if(v==null||v==='') return 50;
+    if(v==='left'||v==='top') return 0;
+    if(v==='right'||v==='bottom') return 100;
+    if(v==='center') return 50;
+    if(v.indexOf('%')>=0) return parseFloat(v)||0;
+    // px: es el desplazamiento del borde de la imagen dentro de la caja, y el
+    // recorrido completo vale 100% — sin recorrido no hay % que valga, va al medio.
+    var px=parseFloat(v); if(isNaN(px)) return 50;
+    return range ? px/range*100 : 50;
+  }
+  function clampPct(v){ return Math.max(0, Math.min(100, Math.round(v*10)/10)); }
+  function setPan(el, px, py){
+    el.style.objectPosition=clampPct(px)+'% '+clampPct(py)+'%';
+  }
+  function doPan(x,y){
+    var rg=pan.rg;
+    setPan(pan.el,
+      rg[0] ? pan.p0[0]+(x-pan.sx)*100/rg[0] : pan.p0[0],
+      rg[1] ? pan.p0[1]+(y-pan.sy)*100/rg[1] : pan.p0[1]);
+  }
+  /**
+   * Saca la imagen del marco conservando lo que se ve: queda en el mismo lugar y
+   * tamaño, hereda el redondeo del marco (si no tenía uno propio) y pasa a
+   * posición libre, así ya no la recorta nadie. Se inserta justo después del
+   * marco para no saltar al frente de todo.
+   */
+  function unframe(el){
+    var fr=clipFrame(el); if(!fr) return;
+    var r=layoutRect(el), fcs=getComputedStyle(fr);
+    if(!parseFloat(getComputedStyle(el).borderTopLeftRadius) && parseFloat(fcs.borderTopLeftRadius))
+      el.style.borderRadius=fcs.borderRadius;
+    if(fr.parentNode) fr.parentNode.insertBefore(el, fr.nextSibling);
+    el.style.position='absolute';
+    el.style.width=Math.round(r.width)+'px';
+    el.style.height=Math.round(r.height)+'px';
+    el.style.margin='0';
+    // 'none', no '': vaciarlo deja volver un transform declarado en un <style>.
+    el.style.transform='none';
+    // left/top se miden contra el ancestro posicionado NUEVO, que ya no es el marco.
+    var op=el.offsetParent||document.body, opr=op.getBoundingClientRect();
+    el.style.left=Math.round(r.left-opr.left)+'px';
+    el.style.top=Math.round(r.top-opr.top)+'px';
+    mode.delete(el); baseTf.set(el,''); baseOff.delete(el); delta.set(el,[0,0]);
+    el.setAttribute('data-oc-abs','1');
+  }
+
   // Los elementos inline (p.ej. un <span> de texto) IGNORAN transform. Cambiarles
   // el display los hace saltar. Para esos usamos position:relative + left/top, que
   // sí funciona en inline y tampoco altera el flujo del documento.
@@ -873,6 +1011,7 @@ export const EDITOR_RUNTIME = String.raw`
     if(!pend) return;
     var x=pend.x, y=pend.y, noSnap=pend.alt; pend=null;
     if(band){ moveBand(x,y); return; }
+    if(pan){ doPan(x,y); return; }
     if(rot){ doRotate(x,y); return; }
     if(grz){ doGroupResize(x); return; }
     if(rz){ doResize(x,y,noSnap); return; }
@@ -902,7 +1041,7 @@ export const EDITOR_RUNTIME = String.raw`
     drawGuides(gs);
   }
   window.addEventListener('mousemove', function(e){
-    if(!drag&&!rz&&!rot&&!grz&&!band) return;
+    if(!drag&&!rz&&!rot&&!grz&&!band&&!pan) return;
     pend={x:e.clientX,y:e.clientY,alt:e.altKey};
     if(!raf) raf=requestAnimationFrame(flush);
   });
@@ -914,6 +1053,7 @@ export const EDITOR_RUNTIME = String.raw`
     // (targets distintos), el flag no puede comerse el siguiente clic real.
     // La banda no modifica la lámina: no serializa, solo cambia la selección.
     if(band){ if(endBand()) squelchNext(); return; }
+    if(pan){ pan=null; squelchNext(); document.body.classList.remove('oc-panning'); showHandles(true); paint(); report(); serialize(); return; }
     if(rot){ rot=null; squelchNext(); document.body.classList.remove('oc-rotating'); degBadge.style.display='none'; paint(); report(); serialize(); return; }
     if(grz){ grz=null; squelchNext(); paint(); report(); serialize(); return; }
     if(rz){ rz=null; squelchNext(); clearGuides(); paint(); report(); serialize(); return; }
@@ -1989,6 +2129,13 @@ export const EDITOR_RUNTIME = String.raw`
         el.style.objectFit=v;
       }
     }
+    // Encuadre de la foto dentro de su caja: el mismo % que mueve el arrastre
+    // dentro de un marco, acá desde los deslizadores del panel.
+    else if(p==='pan'){
+      if(el.tagName!=='IMG') return;
+      var pp=panPos(el);
+      setPan(el, v&&v.x!=null?v.x:pp[0], v&&v.y!=null?v.y:pp[1]);
+    }
     else if(p==='letterSpacing'){ el.style.letterSpacing=v+'px'; }
     // line-height negativo es inválido en CSS y el navegador lo ignoraría en
     // silencio: se aplica con piso en 0 (= líneas totalmente colapsadas).
@@ -2195,6 +2342,8 @@ export const EDITOR_RUNTIME = String.raw`
       else if(p==='y'){ moveTo(el, null, v); }
       else if(p==='w'){ promoteAbsolute(el); el.style.width=Math.max(1,v)+'px'; if(el.tagName==='IMG') el.style.height='auto'; }
       else if(p==='h'){ promoteAbsolute(el); el.style.height=Math.max(1,v)+'px'; }
+      // Sacar la foto de su marco (reubica en el DOM: es estructural, no estilo).
+      else if(p==='unframe'){ unframe(el); }
       else if(p==='front'){ restack(el,true); }
       else if(p==='back'){ restack(el,false); }
       else if(p==='forward'){ restackStep(el,1); }

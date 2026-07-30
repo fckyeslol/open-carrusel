@@ -22,7 +22,11 @@ AI-powered Instagram carousel builder. Next.js 16 + React 19 + TypeScript + Tail
   loop: the agent renders, reads the PNG, fixes, and re-checks before moving on
 - `src/lib/slide-editor.ts` — `EDITOR_RUNTIME`: the ~2000-line editor injected into the
   preview iframe (selection, drag with smart guides, groups, layers, text ranges, effects,
-  box spacing).
+  box spacing, photo frames).
+  A photo that fills a clipping container (the ADN formats frame them: the round medallion,
+  the quote card) pans its `object-position` on drag instead of sliding out of the crop and
+  getting cut. `clipFrame()` deliberately ignores the slide root — clipping against the
+  canvas edge is correct, not a frame to escape. `unframe` is the escape hatch.
   It lives inside a `String.raw` template, so **TypeScript does not check it** — a stray
   backtick silently breaks the build and a logic error only shows up by hand. Verify with
   `npm run check:editor`, which loads the real runtime in Chromium and drives the

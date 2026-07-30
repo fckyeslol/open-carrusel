@@ -46,6 +46,7 @@ import {
   RefreshCw,
   Eraser,
   Pencil,
+  Crop,
 } from "lucide-react";
 
 const FONTS = EDITOR_FONTS;
@@ -77,6 +78,15 @@ interface Selection {
   imgHist?: string[]; // versiones anteriores del src (original + regeneraciones)
   /** Encaje de la imagen en su caja: auto | cover | contain | fill */
   fit?: string;
+  /** La foto vive dentro de un marco que la recorta (no el borde del lienzo). */
+  framed?: boolean;
+  /** Además LLENA ese marco: arrastrarla reencuadra en vez de moverla. */
+  panning?: boolean;
+  /** Encuadre dentro de la caja (object-position), 0-100 por eje. */
+  panX?: number;
+  panY?: number;
+  /** ¿Sobra imagen para reencuadrar en cada eje? [horizontal, vertical]. */
+  panFree?: [boolean, boolean];
   /** Efectos de filtro activos (kind → intensidad o {i,a,b}). */
   fx?: Record<string, number | { i?: number; a?: string; b?: string; slug?: string }>;
   /** Capas de superficie activas (kind → 1). */
@@ -768,6 +778,71 @@ export function VisualEditor({
                       ))}
                     </div>
                   </div>
+                  {/* Encuadre: qué parte de la foto se ve dentro de su caja. Con la
+                      foto metida en un marco, arrastrarla en el lienzo hace esto
+                      mismo — antes se iba del recorte y quedaba cortada. */}
+                  {(sel.fit === "cover" || sel.fit === "contain") && (
+                    <div className="space-y-1.5">
+                      <span className={labelCls}>Encuadre</span>
+                      {sel.panning &&
+                        (sel.panFree?.[0] || sel.panFree?.[1] ? (
+                          <p className="rounded-md bg-accent/10 px-2 py-1.5 text-[10px] font-medium leading-snug text-accent">
+                            Esta foto llena un <b>marco</b>. Arrastrarla en el lienzo mueve el
+                            encuadre, no la foto: así no se corta.
+                          </p>
+                        ) : (
+                          <p className="rounded-md bg-muted px-2 py-1.5 text-[10px] leading-snug text-muted-foreground">
+                            Esta foto calza justo en su marco: se ve entera y no hay nada que
+                            reencuadrar, por eso arrastrarla no la mueve. Para soltarla del
+                            recorte usá <b>Sacar del marco</b>.
+                          </p>
+                        ))}
+                      {(
+                        [
+                          ["panX", "Horizontal", "x", 0],
+                          ["panY", "Vertical", "y", 1],
+                        ] as const
+                      ).map(([key, label, axis, i]) => {
+                        // Sin juego en el eje, el deslizador no puede hacer nada: se
+                        // apaga en vez de moverse sin que cambie la foto.
+                        const free = sel.panFree?.[i] ?? true;
+                        return (
+                          <label key={key} className={cn("block", !free && "opacity-40")}>
+                            <span className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                              {label}{" "}
+                              <span className="tabular-nums">
+                                {free ? `${sel[key] ?? 50}%` : "sin juego"}
+                              </span>
+                            </span>
+                            <input
+                              type="range"
+                              min={0}
+                              max={100}
+                              disabled={!free}
+                              value={sel[key] ?? 50}
+                              onChange={(e) => {
+                                const v = Number(e.target.value);
+                                setSel({ ...sel, [key]: v });
+                                applyProp("pan", { [axis]: v });
+                              }}
+                              className="mt-1 w-full accent-accent"
+                            />
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {sel.framed && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-full"
+                      title="La saca del recorte conservando lugar, tamaño y redondeo. Desde ahí se mueve libre por la lámina."
+                      onClick={() => applyProp("unframe", true)}
+                    >
+                      <Crop className="h-4 w-4" /> Sacar del marco
+                    </Button>
+                  )}
                   <Button
                     size="sm"
                     variant="outline"
