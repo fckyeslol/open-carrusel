@@ -940,6 +940,146 @@ async function main() {
         "rgba(0, 0, 0, 0)"
     );
 
+    // ── Fotos dentro de marcos ────────────────────────────────────────────────
+    // El medallón del formato de cierre: contenedor redondo con overflow:hidden y
+    // la foto a width/height:100% + object-fit:cover. #libre es la misma foto pero
+    // suelta sobre la lámina: el borde del lienzo NO debe contar como marco.
+    // PIX es de 2x1, así que en una caja cuadrada con 'cover' sobra ancho (el eje X
+    // tiene juego) y el alto calza justo (el eje Y no se mueve).
+    const SLIDE_FRAME = `
+<div id="root" style="position:relative;width:${W}px;height:${H}px;background:#f6f5f0;overflow:hidden">
+  <div id="medallon" style="position:absolute;left:417px;top:150px;width:246px;height:246px;border-radius:50%;overflow:hidden;border:6px solid #FFD400">
+    <img id="foto" src="${PIX}" style="width:100%;height:100%;object-fit:cover;object-position:50% 50%">
+  </div>
+  <img id="libre" src="${PIX}" style="position:absolute;left:100px;top:800px;width:200px;height:120px;object-fit:cover">
+  <div id="tarjeta" style="position:absolute;left:100px;top:1000px;width:400px;height:260px;overflow:hidden;background:#fff">
+    <img id="chica" src="${PIX}" style="position:absolute;left:20px;top:20px;width:120px;height:80px;object-fit:cover">
+  </div>
+</div>`;
+    const reportFor = (p) =>
+      p.evaluate(
+        () =>
+          new Promise((resolve) => {
+            const onMsg = (e) => {
+              if (e.data && e.data.oc === "sel" && !e.data.none) {
+                window.removeEventListener("message", onMsg);
+                resolve(e.data);
+              }
+            };
+            window.addEventListener("message", onMsg);
+            window.postMessage({ oc: "apply", prop: "opacity", value: 100 }, "*");
+          })
+      );
+
+    console.log("\nFotos dentro de un marco");
+    await pageFor(SLIDE_FRAME);
+    const fotoAntes = await rectOf(page, "foto");
+    await page.mouse.click(fotoAntes.left + 40, fotoAntes.top + 40);
+    await new Promise((r) => setTimeout(r, 60));
+    const framed = await reportFor(page);
+    check("detecta que la foto está dentro de un marco", framed.framed === true);
+    check("y que la llena, así que el arrastre reencuadra", framed.panning === true);
+    check("y reporta su encuadre actual", framed.panX === 50 && framed.panY === 50, `${framed.panX}/${framed.panY}`);
+    // PIX es 2x1 en una caja cuadrada: sobra ancho, el alto calza justo.
+    check(
+      "reporta en qué eje hay juego para reencuadrar",
+      framed.panFree[0] === true && framed.panFree[1] === false,
+      `panFree=${framed.panFree}`
+    );
+
+    // Arrastrarla NO la saca del marco (que es lo que la cortaba): reencuadra.
+    await drag(page, fotoAntes.left + 40, fotoAntes.top + 40, fotoAntes.left + 140, fotoAntes.top + 40);
+    const fotoDespues = await rectOf(page, "foto");
+    check(
+      "arrastrarla no mueve el elemento: se queda en el marco",
+      Math.abs(fotoDespues.left - fotoAntes.left) < 1 && Math.abs(fotoDespues.top - fotoAntes.top) < 1,
+      `left ${fotoAntes.left} → ${fotoDespues.left}`
+    );
+    const op1 = await page.evaluate(() => document.querySelector("#foto").style.objectPosition);
+    check("y en cambio corre el encuadre", /^\d/.test(op1) && op1 !== "50% 50%", `objectPosition=${op1}`);
+    check("el eje sin juego se queda quieto", / 50%$/.test(op1), `objectPosition=${op1}`);
+
+    // Por más que se arrastre, el encuadre no se sale del rango válido.
+    const f2 = await rectOf(page, "foto");
+    await drag(page, f2.left + 40, f2.top + 40, f2.left + 2000, f2.top + 40);
+    const op2 = await page.evaluate(() => document.querySelector("#foto").style.objectPosition);
+    check("el encuadre se queda entre 0 y 100%", op2.startsWith("0%") || op2.startsWith("100%"), `objectPosition=${op2}`);
+
+    // El borde del lienzo no es un marco: una foto suelta se sigue moviendo.
+    await pageFor(SLIDE_FRAME);
+    const libreAntes = await rectOf(page, "libre");
+    await page.mouse.click(libreAntes.left + 20, libreAntes.top + 20);
+    await new Promise((r) => setTimeout(r, 60));
+    const libreRep = await reportFor(page);
+    check("el borde del lienzo no cuenta como marco", libreRep.framed === false);
+    await drag(page, libreAntes.left + 20, libreAntes.top + 20, libreAntes.left + 140, libreAntes.top + 20, {
+      altDuring: true,
+    });
+    const libreDespues = await rectOf(page, "libre");
+    check(
+      "una foto suelta se sigue moviendo normal",
+      Math.abs(libreDespues.left - libreAntes.left - 120) < 2,
+      `left ${libreAntes.left} → ${libreDespues.left}`
+    );
+
+    // Una foto CHICA dentro de una tarjeta que recorta: está enmarcada (tiene
+    // "Sacar del marco"), pero no la llena, así que arrastrarla la mueve de verdad.
+    await pageFor(SLIDE_FRAME);
+    const chicaAntes = await rectOf(page, "chica");
+    await page.mouse.click(chicaAntes.left + 20, chicaAntes.top + 20);
+    await new Promise((r) => setTimeout(r, 60));
+    const chicaRep = await reportFor(page);
+    check("una foto chica en una tarjeta sigue contando como enmarcada", chicaRep.framed === true);
+    check("pero no reencuadra: no llena el marco", chicaRep.panning === false);
+    await drag(page, chicaAntes.left + 20, chicaAntes.top + 20, chicaAntes.left + 120, chicaAntes.top + 20, {
+      altDuring: true,
+    });
+    const chicaDespues = await rectOf(page, "chica");
+    check(
+      "y se mueve de verdad dentro de la tarjeta",
+      Math.abs(chicaDespues.left - chicaAntes.left - 100) < 2,
+      `left ${chicaAntes.left} → ${chicaDespues.left}`
+    );
+
+    console.log("\nSacar una foto del marco");
+    await pageFor(SLIDE_FRAME);
+    const antesUf = await rectOf(page, "foto");
+    await page.mouse.click(antesUf.left + 40, antesUf.top + 40);
+    await new Promise((r) => setTimeout(r, 60));
+    await page.evaluate(() => window.postMessage({ oc: "apply", prop: "unframe", value: true }, "*"));
+    await new Promise((r) => setTimeout(r, 150));
+    const despUf = await rectOf(page, "foto");
+    check(
+      "no salta de lugar ni de tamaño",
+      Math.abs(despUf.left - antesUf.left) < 1.5 &&
+        Math.abs(despUf.top - antesUf.top) < 1.5 &&
+        Math.abs(despUf.width - antesUf.width) < 1.5,
+      `${antesUf.left},${antesUf.top} ${antesUf.width}px → ${despUf.left},${despUf.top} ${despUf.width}px`
+    );
+    check(
+      "sale del marco en el DOM",
+      (await page.evaluate(() => document.querySelector("#foto").parentElement.id)) === "root"
+    );
+    check(
+      "y hereda el redondeo del marco",
+      (await page.evaluate(
+        () => getComputedStyle(document.querySelector("#foto")).borderTopLeftRadius
+      )) !== "0px"
+    );
+    const ufRep = await reportFor(page);
+    check("ya no la reporta enmarcada", ufRep.framed === false);
+    // Y desde ahí se mueve como cualquier otra foto.
+    const sueltaAntes = await rectOf(page, "foto");
+    await drag(page, sueltaAntes.left + 40, sueltaAntes.top + 40, sueltaAntes.left + 140, sueltaAntes.top + 40, {
+      altDuring: true,
+    });
+    const sueltaDespues = await rectOf(page, "foto");
+    check(
+      "y ya se mueve libre por la lámina",
+      Math.abs(sueltaDespues.left - sueltaAntes.left - 100) < 2,
+      `left ${sueltaAntes.left} → ${sueltaDespues.left}`
+    );
+
     console.log("\nMárgenes (relleno interno y margen externo)");
     await pageFor(SLIDE_TEXT);
     const padsOf = (id) =>
