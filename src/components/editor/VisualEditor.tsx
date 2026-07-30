@@ -10,6 +10,7 @@ import { BackgroundPicker } from "./BackgroundPicker";
 import { ColorInput } from "./ColorInput";
 import { LayerPanel, type LayerItem } from "./LayerPanel";
 import { EffectsPanel } from "./EffectsPanel";
+import { SpacingPanel, type BoxName, type BoxSide } from "./SpacingPanel";
 import type { PaletteColor } from "@/lib/adn-palette";
 import { SafeZoneOverlay } from "./SafeZoneOverlay";
 import { SHAPE_GALLERY, SHADOW_PRESETS, GRADIENT_PRESETS } from "./shape-gallery";
@@ -110,9 +111,27 @@ interface Selection {
   y?: number;
   w?: number;
   h?: number;
+  /** Relleno interno de la caja, por lado (px). */
+  padT?: number;
+  padR?: number;
+  padB?: number;
+  padL?: number;
+  /** Margen externo de la caja, por lado (px). */
+  marT?: number;
+  marR?: number;
+  marB?: number;
+  marL?: number;
+  /** Está posicionado libre (absolute/fixed): ahí el margen externo solo lo corre. */
+  abs?: boolean;
   count?: number;
   grouped?: boolean;
 }
+
+/** Claves de `Selection` que guardan un lado de las cajas de margen. */
+type SpacingKey = "padT" | "padR" | "padB" | "padL" | "marT" | "marR" | "marB" | "marL";
+
+const SIDE_KEY = { top: "T", right: "R", bottom: "B", left: "L" } as const;
+const ALL_SIDES = ["top", "right", "bottom", "left"] as const;
 
 /** Entrada del manifest de texturas horneadas (public/textures/manifest.json). */
 interface TextureItem {
@@ -234,6 +253,21 @@ export function VisualEditor({
   const applyProp = useCallback(
     (prop: string, value: unknown) => send({ oc: "apply", prop, value }),
     [send]
+  );
+
+  // Márgenes de la caja (relleno interno / margen externo). El reflejo local es
+  // optimista: el runtime contesta con un 'sel' nuevo, pero un frame después, y
+  // sin esto el campo rebota al valor viejo mientras se tipea.
+  const applySpacing = useCallback(
+    (box: BoxName, side: BoxSide, value: number) => {
+      const prefix = box === "padding" ? "pad" : "mar";
+      const sides = side === "all" ? ALL_SIDES : ([side] as const);
+      const patch: Partial<Record<SpacingKey, number>> = {};
+      for (const s of sides) patch[`${prefix}${SIDE_KEY[s]}` as SpacingKey] = value;
+      setSel((prev) => ({ ...prev, ...patch }));
+      applyProp(box, { side, px: value });
+    },
+    [applyProp]
   );
 
   // Catálogo de texturas horneadas: se lee del manifest público (barato, JSON chico).
@@ -1423,6 +1457,28 @@ export function VisualEditor({
                   </label>
                 </Section>
               )}
+
+              {/* Márgenes de la caja. Va aparte de "Posición y tamaño" a propósito:
+                  también sirve con varios elementos seleccionados (se aplica a todos),
+                  mientras que X/Y/W/H solo tienen sentido de a uno. */}
+              <Section title="Márgenes">
+                <SpacingPanel
+                  padding={{
+                    top: sel.padT ?? 0,
+                    right: sel.padR ?? 0,
+                    bottom: sel.padB ?? 0,
+                    left: sel.padL ?? 0,
+                  }}
+                  margin={{
+                    top: sel.marT ?? 0,
+                    right: sel.marR ?? 0,
+                    bottom: sel.marB ?? 0,
+                    left: sel.marL ?? 0,
+                  }}
+                  absolute={sel.abs}
+                  onChange={applySpacing}
+                />
+              </Section>
 
               <Section title="Alinear y distribuir">
                 <p className="text-[10px] text-muted-foreground">

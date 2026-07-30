@@ -940,6 +940,87 @@ async function main() {
         "rgba(0, 0, 0, 0)"
     );
 
+    console.log("\nMárgenes (relleno interno y margen externo)");
+    await pageFor(SLIDE_TEXT);
+    const padsOf = (id) =>
+      page.evaluate((sel) => {
+        const s = getComputedStyle(document.querySelector(sel));
+        return [s.paddingTop, s.paddingRight, s.paddingBottom, s.paddingLeft].join(",");
+      }, `#${id}`);
+    await page.mouse.click(120, 225); // #mix
+    await new Promise((r) => setTimeout(r, 60));
+    const padReport = await page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          const onMsg = (e) => {
+            if (e.data && e.data.oc === "sel" && !e.data.none) {
+              window.removeEventListener("message", onMsg);
+              resolve(e.data);
+            }
+          };
+          window.addEventListener("message", onMsg);
+          window.postMessage({ oc: "apply", prop: "padding", value: { side: "all", px: 40 } }, "*");
+        })
+    );
+    check("el relleno se aplica a los cuatro lados", (await padsOf("mix")) === "40px,40px,40px,40px");
+    check(
+      "y el panel lo recibe de vuelta",
+      padReport.padT === 40 && padReport.padL === 40,
+      `padT=${padReport.padT} padL=${padReport.padL}`
+    );
+    check("reporta que el elemento está posicionado libre", padReport.abs === true);
+
+    // Un lado suelto no puede pisar los otros tres: por eso se escriben los
+    // longhand (paddingLeft) y no el shorthand.
+    await page.evaluate(() =>
+      window.postMessage({ oc: "apply", prop: "padding", value: { side: "left", px: 8 } }, "*")
+    );
+    await new Promise((r) => setTimeout(r, 120));
+    check("tocar un lado no borra los otros tres", (await padsOf("mix")) === "40px,40px,40px,8px");
+
+    // El relleno negativo no existe en CSS: se recorta a 0 en vez de quedar inválido.
+    await page.evaluate(() =>
+      window.postMessage({ oc: "apply", prop: "padding", value: { side: "top", px: -20 } }, "*")
+    );
+    await new Promise((r) => setTimeout(r, 120));
+    check(
+      "el relleno negativo se recorta a 0",
+      (await page.evaluate(() => getComputedStyle(document.querySelector("#mix")).paddingTop)) ===
+        "0px"
+    );
+
+    // Margen externo sobre un elemento EN FLUJO: es el caso donde sirve de verdad
+    // (en uno posicionado libre haría lo mismo que X/Y).
+    await pageFor(SLIDE_TEXT);
+    const dentroAntes = await rectOf(page, "dentro");
+    await page.mouse.click(dentroAntes.left + 20, dentroAntes.top + 20);
+    await new Promise((r) => setTimeout(r, 60));
+    await page.evaluate(() =>
+      window.postMessage({ oc: "apply", prop: "margin", value: { side: "top", px: 30 } }, "*")
+    );
+    await new Promise((r) => setTimeout(r, 120));
+    const dentroDespues = await rectOf(page, "dentro");
+    check(
+      "el margen externo corre un elemento en flujo",
+      Math.abs(dentroDespues.top - dentroAntes.top - 30) < 1.5,
+      `top ${dentroAntes.top} → ${dentroDespues.top}`
+    );
+    // El margen tiene que sobrevivir a la serialización, o se pierde al guardar.
+    const conMargen = await page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          const onMsg = (e) => {
+            if (e.data && e.data.oc === "html") {
+              window.removeEventListener("message", onMsg);
+              resolve(e.data.html);
+            }
+          };
+          window.addEventListener("message", onMsg);
+          window.postMessage({ oc: "serialize" }, "*");
+        })
+    );
+    check("el margen queda guardado en el HTML", /margin-top:\s*30px/.test(conMargen));
+
     console.log("\nEntrar a editar texto");
     await pageFor(SLIDE_TEXT);
     await page.mouse.click(120, 225);

@@ -21,7 +21,8 @@ AI-powered Instagram carousel builder. Next.js 16 + React 19 + TypeScript + Tail
 - `scripts/slide-check.mjs` — Renders a slide to PNG and lists its defects. Closes the generation
   loop: the agent renders, reads the PNG, fixes, and re-checks before moving on
 - `src/lib/slide-editor.ts` — `EDITOR_RUNTIME`: the ~2000-line editor injected into the
-  preview iframe (selection, drag with smart guides, groups, layers, text ranges, effects).
+  preview iframe (selection, drag with smart guides, groups, layers, text ranges, effects,
+  box spacing).
   It lives inside a `String.raw` template, so **TypeScript does not check it** — a stray
   backtick silently breaks the build and a logic error only shows up by hand. Verify with
   `npm run check:editor`, which loads the real runtime in Chromium and drives the
