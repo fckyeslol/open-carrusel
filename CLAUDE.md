@@ -45,6 +45,26 @@ AI-powered Instagram carousel builder. Next.js 16 + React 19 + TypeScript + Tail
 - `src/lib/batch-scheduler.ts` — One-minute tick that dispatches batches whose window
   arrived. Deliberately not a long `setTimeout`: that wouldn't survive a redeploy, and a
   batch silently lost overnight is the worst failure here
+- `src/lib/reviews.ts` — Per-designer review counter. One mark per (designer, job, day),
+  so the number is auditable instead of a raw click tally
+- `src/lib/admin.ts` — `THIRTYX_ADMIN_USERS`: who may see team-wide data (`/revisiones`).
+  Defaults to `isabella@30x.com`
+
+## Review Counter
+
+Designers press **"Revisado"** on a `pending_review` card to log that they reviewed that
+carousel. It only feeds the counter: no status change, no Prewave call, the card stays put.
+Approving also counts — nobody delivers a carousel without looking at it, so a counter that
+depended on the button alone would undercount whoever approves straight away.
+
+- **Idempotent per (designer, job, day).** Pressing twice the same day does not add;
+  reviewing the same job tomorrow does, because that is new work. Approving after pressing
+  the button still counts once
+- **The day is the server's local day** (`America/Bogota` in the deploy — that's what the
+  Dockerfile's tzdata is for), same as the nightly batch window. With UTC, everything
+  reviewed after 19:00 Bogotá would land on the next day
+- Each designer sees her own tally on `/tablero`; `/revisiones` shows the whole team and is
+  gated by `admin.ts`. Marks are pruned after 120 days
 
 ## Nightly CSV Batch
 
@@ -105,6 +125,9 @@ All at localhost:3000:
   without writing anything (what the UI shows before you confirm); `?run=now` skips the wait
 - `GET /api/thirtyx/batches` — List batches with derived progress
 - `GET/POST/DELETE /api/thirtyx/batches/[id]` — Detail / run now / cancel (cancel only before it starts)
+- `POST /api/thirtyx/assignments/[jobId]/reviewed` — Count this carousel as reviewed today.
+  Idempotent; changes nothing else about the assignment
+- `GET /api/thirtyx/reviews?days=7|14|30` — Team review dashboard. Admin-only (`admin.ts`)
 
 ## Conventions
 
