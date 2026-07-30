@@ -524,6 +524,19 @@ export const EDITOR_RUNTIME = String.raw`
       // mostrando 0 el campo parecía estar en el mínimo y "no dejaba" bajar el
       // interlineado, cuando el valor real era ~1.2.
       lineHeight: cs.lineHeight==='normal'?1.2:Math.round(((parseFloat(cs.lineHeight)||0)/(parseFloat(cs.fontSize)||1))*100)/100,
+      // Márgenes de la caja. El interno (relleno) es el aire entre el contenido y
+      // el borde propio; el externo, la separación con lo de al lado.
+      padT:Math.round(parseFloat(cs.paddingTop)||0),
+      padR:Math.round(parseFloat(cs.paddingRight)||0),
+      padB:Math.round(parseFloat(cs.paddingBottom)||0),
+      padL:Math.round(parseFloat(cs.paddingLeft)||0),
+      marT:Math.round(parseFloat(cs.marginTop)||0),
+      marR:Math.round(parseFloat(cs.marginRight)||0),
+      marB:Math.round(parseFloat(cs.marginBottom)||0),
+      marL:Math.round(parseFloat(cs.marginLeft)||0),
+      // Posicionado libre: ahí el margen externo solo corre el elemento, que es lo
+      // que ya hacen X/Y. El panel lo aclara en vez de dejar dos controles peleando.
+      abs: cs.position==='absolute'||cs.position==='fixed',
       x:Math.round(er.left), y:Math.round(er.top), w:Math.round(er.width), h:Math.round(er.height),
       canUndo: hist.length>0});
   }
@@ -1914,6 +1927,9 @@ export const EDITOR_RUNTIME = String.raw`
     par.normalize();
   }
 
+  // Lados de una caja CSS: nombre que manda el panel → sufijo del longhand.
+  var BOX_SIDES=[['top','Top'],['right','Right'],['bottom','Bottom'],['left','Left']];
+
   // Estilos "puros" que sirven igual sobre el elemento completo o sobre un <span>
   // de tramo (selección parcial). Los props estructurales (text, splitBg, x/y/w/h,
   // capas, remove) siguen viviendo en apply().
@@ -1947,6 +1963,21 @@ export const EDITOR_RUNTIME = String.raw`
     else if(p==='opacity'){ el.style.opacity=(v/100); }
     else if(p==='rotate'){ prepSvgRotate(el); el.style.rotate=((parseFloat(v)||0)%360+360)%360+'deg'; }
     else if(p==='radius'){ el.style.borderRadius=v+'px'; }
+    // ── márgenes de la caja: relleno interno y margen externo ────────────────────
+    // v = {side:'top'|'right'|'bottom'|'left'|'all', px:number}. Se escriben los
+    // longhand (paddingTop…) y no el shorthand, para poder tocar un lado sin
+    // pisar los otros tres — y porque promoteAbsolute deja un 'margin:0' inline
+    // que el shorthand volvería a barrer entero.
+    else if(p==='padding'||p==='margin'){
+      // Un <svg> raíz no tiene caja de relleno útil (el contenido lo gobierna el
+      // viewBox), y moverlo por margen ya es trabajo de X/Y.
+      if(isSvgRoot(el)) return;
+      var bxs=BOX_SIDES, bsd=(v&&v.side)||'all', bpx=Math.round(parseFloat(v&&v.px)||0);
+      if(p==='padding') bpx=Math.max(0,bpx);   // el relleno negativo no existe en CSS
+      for(var bi=0;bi<bxs.length;bi++){
+        if(bsd==='all'||bsd===bxs[bi][0]) el.style[p+bxs[bi][1]]=bpx+'px';
+      }
+    }
     // ── encaje de una imagen dentro de su caja ──────────────────────────────────
     // 'auto' vuelve al alto natural (la caja sigue a la proporción de la foto);
     // cover/contain/fill necesitan un alto explícito para tener sentido, así que se
