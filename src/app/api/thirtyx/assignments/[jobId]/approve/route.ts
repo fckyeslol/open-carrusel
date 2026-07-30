@@ -4,6 +4,7 @@ import { getSessionUser } from "@/lib/auth";
 import { getPrewaveToken } from "@/lib/users";
 import { isHostedMode } from "@/lib/hosted";
 import { getCarousel } from "@/lib/carousels";
+import { markReviewed } from "@/lib/reviews";
 import { exportAllSlides } from "@/lib/export-slides";
 import { uploadCarousel, submitEdited, resolveCarouselChecklist, PrewaveError } from "@/lib/prewave";
 
@@ -80,5 +81,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
 
   await setStatus(jobId, "delivered");
+
+  // Aprobar es revisar: nadie entrega un carrusel sin haberlo mirado. Si el contador
+  // dependiera solo del botón "Revisado", el dashboard subestimaría a quien aprueba
+  // directo. Es idempotente, así que haber apretado el botón antes no lo cuenta dos veces.
+  //
+  // Best-effort: la entrega YA cerró en Prewave. Fallar acá devolvería un error sobre una
+  // operación que salió bien e invitaría a reintentarla.
+  try {
+    await markReviewed(user.id, jobId);
+  } catch {
+    /* el contador es métrica, no puede tumbar una entrega ya hecha */
+  }
+
   return NextResponse.json({ ok: true });
 }

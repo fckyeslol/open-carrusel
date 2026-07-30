@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Trash2 } from "lucide-react";
+import { Check, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AssignmentThumb } from "@/components/thirtyx/AssignmentThumb";
 import { BoardHeader } from "@/components/thirtyx/BoardHeader";
@@ -72,7 +72,18 @@ export function ReviewBoard() {
   const [displayName, setDisplayName] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
+  /** jobIds que ya conté como revisados HOY. Es lo que pinta el botón ya marcado. */
+  const [reviewedToday, setReviewedToday] = useState<string[]>([]);
   const busyRef = useRef<Set<string>>(new Set());
+  /**
+   * Marcar "Revisado" usa su PROPIO candado, no `busyRef`.
+   *
+   * Con el candado compartido, apretar "Revisado" y enseguida "Aprobar y entregar" hacía
+   * que el segundo click se descartara en silencio mientras el primero estaba en vuelo.
+   * Las dos operaciones son independientes y marcar es idempotente, así que no hay razón
+   * para que una bloquee a la otra.
+   */
+  const markingRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -100,7 +111,7 @@ export function ReviewBoard() {
     try {
       const res = await fetch("/api/thirtyx/mine");
       // El 429 de Cloud Run ("no available instance") no es JSON: parseá con red.
-      let data: { error?: string; assignments?: Assignment[] } = {};
+      let data: { error?: string; assignments?: Assignment[]; reviewedToday?: string[] } = {};
       try {
         data = await res.json();
       } catch {
@@ -117,6 +128,7 @@ export function ReviewBoard() {
       }
       setError(null);
       setAssignments(data.assignments || []);
+      setReviewedToday(data.reviewedToday || []);
       return true;
     } catch {
       setError("Error de red al cargar");
@@ -222,6 +234,33 @@ export function ReviewBoard() {
     [loadMine]
   );
 
+  // "Revisado": suma al contador del día y NADA más. No cambia el estado del pedido, no
+  // toca Prewave y la card se queda donde está — sirve para el que se mira, se corrige y
+  // todavía no está para entregar, que es la mayor parte del trabajo de una jornada.
+  //
+  // Se pinta optimista porque el server es idempotente: si el POST falla, revertir deja
+  // el botón exactamente como estaba antes del click.
+  const markReviewed = useCallback(async (jobId: string) => {
+    if (markingRef.current.has(jobId)) return;
+    markingRef.current.add(jobId);
+    setReviewedToday((prev) => (prev.includes(jobId) ? prev : [...prev, jobId]));
+    try {
+      const res = await fetch(`/api/thirtyx/assignments/${jobId}/reviewed`, { method: "POST" });
+      const d: { error?: string; reviewedToday?: string[] } = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setReviewedToday((prev) => prev.filter((id) => id !== jobId));
+        setError(d.error || "No se pudo marcar como revisado");
+        return;
+      }
+      if (d.reviewedToday) setReviewedToday(d.reviewedToday);
+    } catch {
+      setReviewedToday((prev) => prev.filter((id) => id !== jobId));
+      setError("Error de red al marcar como revisado");
+    } finally {
+      markingRef.current.delete(jobId);
+    }
+  }, []);
+
   const retry = useCallback(
     async (jobId: string) => {
       if (busyRef.current.has(jobId)) return;
@@ -284,6 +323,7 @@ export function ReviewBoard() {
   );
 
   const queueById = new Map(queue.map((q) => [q.id, q]));
+  const reviewedSet = new Set(reviewedToday);
 
   const porRevisar = assignments.filter((a) => a.status === "pending_review");
   const generando = assignments.filter((a) => GENERATING.includes(a.status));
@@ -308,6 +348,12 @@ export function ReviewBoard() {
             <span><strong className="text-foreground">{porRevisar.length}</strong> por revisar</span>
             <span><strong className="text-foreground">{generando.length}</strong> generando</span>
             <span><strong className="text-foreground">{entregado.length}</strong> entregados</span>
+            {/* El contador del día se separa del resto: los otros tres describen el estado
+                del tablero AHORA, este es trabajo acumulado y se reinicia a medianoche. */}
+            <span className="flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/5 px-2.5 py-1 text-emerald-700">
+              <Check className="h-3.5 w-3.5" />
+              <strong>{reviewedToday.length}</strong> revisados hoy
+            </span>
           </div>
         </div>
 
@@ -349,7 +395,7 @@ export function ReviewBoard() {
                 </div>
                 {/* La fila de acciones va siempre: "Eliminar" tiene que estar incluso si
                     el pedido quedó sin carrusel (nada que abrir ni aprobar). */}
-                <div className="mt-3 flex items-center gap-2">
+                <div className="mt-3 flex flex-wrap items-center gap-2">
                   {a.carouselId && (
                     <Link
                       href={`/carousel/${a.carouselId}`}
@@ -358,6 +404,10 @@ export function ReviewBoard() {
                       Abrir para revisar →
                     </Link>
                   )}
+                  <ReviewedToggle
+                    marked={reviewedSet.has(a.jobId)}
+                    onMark={() => markReviewed(a.jobId)}
+                  />
                   <button
                     onClick={() => discard(a.jobId)}
                     title="Sacar del tablero y guardarlo en la Biblioteca"
@@ -468,6 +518,35 @@ export function ReviewBoard() {
         </div>
       </div>
     </main>
+  );
+}
+
+/**
+ * El botón "Revisado". Marca en un solo sentido: una vez contado, queda contado — el
+ * contador mide trabajo hecho, y poder desmarcarlo lo volvería un número editable.
+ * Deshabilitado (y no oculto) cuando ya está marcado, para que la card siga mostrando
+ * que ese pedido ya se contó hoy.
+ */
+function ReviewedToggle({ marked, onMark }: { marked: boolean; onMark: () => void }) {
+  return (
+    <button
+      onClick={onMark}
+      disabled={marked}
+      title={
+        marked
+          ? "Ya lo contaste hoy. Vuelve a contar mañana si lo revisás de nuevo."
+          : "Sumar este carrusel a tu contador de revisiones del día"
+      }
+      className={cn(
+        "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium transition-colors",
+        marked
+          ? "cursor-default border-emerald-500/40 bg-emerald-500/10 text-emerald-700"
+          : "border-border text-muted-foreground hover:border-emerald-500/40 hover:bg-emerald-500/5 hover:text-emerald-700"
+      )}
+    >
+      <Check className="h-3.5 w-3.5" />
+      Revisado
+    </button>
   );
 }
 

@@ -6,7 +6,13 @@ import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 /** Claves de sección, para marcar la activa. */
-export type Section = "tablero" | "biblioteca" | "manual" | "cuenta" | "carruseles";
+export type Section =
+  | "tablero"
+  | "biblioteca"
+  | "manual"
+  | "cuenta"
+  | "carruseles"
+  | "revisiones";
 
 interface NavLink {
   href: string;
@@ -34,6 +40,12 @@ const LOCAL_LINKS: readonly NavLink[] = [
   { href: "/30x", label: "Generar 30x", key: "manual" },
 ];
 
+/**
+ * Solo para las usuarias de THIRTYX_ADMIN_USERS: es la única sección que muestra datos de
+ * TODO el equipo. Va antes de "Mi cuenta" para no partir el bloque de trabajo diario.
+ */
+const ADMIN_LINK: NavLink = { href: "/revisiones", label: "Revisiones", key: "revisiones" };
+
 interface BoardHeaderProps {
   /** Sección actual: se marca como activa. */
   active: Section;
@@ -49,11 +61,15 @@ interface BoardHeaderProps {
 export function BoardHeader({ active }: BoardHeaderProps) {
   const router = useRouter();
   const [hosted, setHosted] = useState<boolean | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     fetch("/api/auth/me")
       .then((r) => r.json())
-      .then((b) => setHosted(b?.hosted !== false))
+      .then((b) => {
+        setHosted(b?.hosted !== false);
+        setIsAdmin(Boolean(b?.isAdmin));
+      })
       // Sin respuesta asumimos hosteado: es donde vive esta barra.
       .catch(() => setHosted(true));
   }, []);
@@ -63,7 +79,11 @@ export function BoardHeader({ active }: BoardHeaderProps) {
     router.replace("/login");
   };
 
-  const links = hosted === null ? [] : hosted ? HOSTED_LINKS : LOCAL_LINKS;
+  const base = hosted === null ? [] : hosted ? HOSTED_LINKS : LOCAL_LINKS;
+  const links =
+    hosted && isAdmin
+      ? [...base.slice(0, -1), ADMIN_LINK, ...base.slice(-1)] // antes de "Mi cuenta"
+      : base;
 
   return (
     <header className="sticky top-0 z-10 flex shrink-0 items-center justify-between border-b border-border bg-background/90 px-6 py-3 backdrop-blur">
