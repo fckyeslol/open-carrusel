@@ -1307,6 +1307,199 @@ async function main() {
       })) === true
     );
 
+    // ── Un texto es UN objeto (modelo de Canva) ───────────────────────────────
+    // El editor trataba cada tramo de formato como un objeto aparte: al clicar la
+    // palabra en negrita se agarraba el <strong>, no la frase, así que cambiarle el
+    // tamaño al texto se lo cambiaba a media frase y el párrafo entero era
+    // imposible de tomar desde ahí. Y un renglón que comparte caja con el logo 30x
+    // en SVG (la regla del proyecto: la marca nunca se tipea) no contaba como texto:
+    // no se podía editar NUNCA y el panel ni mostraba la sección "Texto". Las
+    // diseñadoras lo describían como "ciertos textos se agrupan dentro de una caja".
+    const SLIDE_CANVA = `
+<div id="root" style="position:relative;width:${W}px;height:${H}px;background:#f6f5f0">
+  <!-- párrafo con una palabra resaltada: un solo objeto -->
+  <div id="parr" style="position:absolute;left:80px;top:160px;width:800px;font-size:56px;font-family:Inter;color:#111">El margen pasó de <b id="neg" style="background:#ffe08a">30%</b> a 70%</div>
+  <!-- título flex: el navegador "blockifica" al hijo, y aun así es énfasis -->
+  <div id="flex" style="position:absolute;left:80px;top:360px;width:800px;display:flex;align-items:center;gap:14px;font-size:56px;font-family:Inter;color:#111">El lenguaje de los <i id="ital" style="font-style:italic;color:#f68f6e">fractales</i></div>
+  <!-- renglón del logo: SVG atómico + palabras en la misma caja -->
+  <div id="lock" style="position:absolute;left:80px;top:520px;font-size:32px;font-family:Inter;color:#111"><svg id="marca" viewBox="0 0 100 40" style="height:.8em;width:2em;vertical-align:baseline"><rect width="100" height="40" fill="#111"></rect></svg> · Executive Education</div>
+  <!-- texto adentro de una tarjeta: el doble clic tiene que entrar -->
+  <div id="tarj" style="position:absolute;left:80px;top:640px;width:520px;padding:40px;background:#ffffff">
+    <div id="hijo" style="font-size:40px;font-family:Inter;color:#111">Texto en la tarjeta</div>
+  </div>
+  <!-- objeto decorativo pintado ADENTRO de un texto: sigue siendo suyo -->
+  <div id="conbarra" style="position:absolute;left:80px;top:900px;width:600px;padding-top:40px;font-size:44px;font-family:Inter;color:#111"><span id="barrita" style="position:absolute;left:0;top:0;width:120px;height:10px;background:#ff3b7f"></span>Con barrita arriba</div>
+</div>`;
+
+    /** Qué elemento quedó seleccionado, por id (usa la caja del overlay). */
+    const selectedId = () =>
+      page.evaluate(() => {
+        const box = document.querySelector(".oc-box");
+        if (!box) return null;
+        const b = box.getBoundingClientRect();
+        const hit = [...document.querySelectorAll("#root *, #root")].filter((el) => {
+          if (el.closest("[data-oc-ui]")) return false;
+          const r = el.getBoundingClientRect();
+          return (
+            Math.abs(r.left - b.left) < 1.5 &&
+            Math.abs(r.top - b.top) < 1.5 &&
+            Math.abs(r.width - b.width) < 1.5 &&
+            Math.abs(r.height - b.height) < 1.5
+          );
+        });
+        // El más externo de los que calzan: es el que pinta la caja.
+        return (hit.find((el) => !hit.some((o) => o !== el && o.contains(el))) || {}).id ?? "(sin id)";
+      });
+
+    /** Centro de las letras de un elemento (no de su caja: puede tener aire). */
+    const glyphPoint = (sel) =>
+      page.evaluate((s) => {
+        const el = document.querySelector(s);
+        const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+        let n;
+        while ((n = w.nextNode())) {
+          if (!n.nodeValue.trim()) continue;
+          const rg = document.createRange();
+          rg.selectNodeContents(n);
+          const r = [...rg.getClientRects()].find((q) => q.width > 3 && q.height > 3);
+          if (r) return [Math.round(r.left + Math.min(r.width / 2, 12)), Math.round(r.top + r.height / 2)];
+        }
+        return null;
+      }, sel);
+
+    console.log("\nUn texto es un objeto, no un montón de tramos");
+    await pageFor(SLIDE_CANVA);
+    let pt = await glyphPoint("#neg");
+    await page.mouse.click(pt[0], pt[1]);
+    await new Promise((r) => setTimeout(r, 80));
+    check("clicar la palabra en negrita selecciona el párrafo", (await selectedId()) === "parr");
+
+    pt = await glyphPoint("#ital");
+    await page.mouse.click(pt[0], pt[1]);
+    await new Promise((r) => setTimeout(r, 80));
+    check(
+      "y dentro de un título flex también (el display no manda)",
+      (await selectedId()) === "flex"
+    );
+
+    // Alt+clic sigue siendo la vía para agarrar el tramo suelto, igual que agarra
+    // un miembro suelto de un grupo.
+    pt = await glyphPoint("#neg");
+    await page.keyboard.down("Alt");
+    await page.mouse.click(pt[0], pt[1]);
+    await page.keyboard.up("Alt");
+    await new Promise((r) => setTimeout(r, 80));
+    check("Alt+clic sí toma el tramo suelto", (await selectedId()) === "neg");
+
+    // El panel decide con isText si muestra la sección "Texto": sin eso, no hay ni
+    // campo de texto ni botón de editar.
+    const selMsg = async (x, y) => {
+      const p = page.evaluate(
+        () =>
+          new Promise((res) => {
+            const onMsg = (e) => {
+              if (e.data && e.data.oc === "sel") {
+                window.removeEventListener("message", onMsg);
+                res(e.data);
+              }
+            };
+            window.addEventListener("message", onMsg);
+          })
+      );
+      await page.mouse.click(x, y);
+      return p;
+    };
+    await pageFor(SLIDE_CANVA);
+    pt = await glyphPoint("#lock");
+    let msg = await selMsg(pt[0], pt[1]);
+    check("el renglón que comparte caja con el logo cuenta como texto", msg.isText === true);
+    check("y el panel recibe su contenido", /Executive Education/.test(msg.text || ""), msg.text);
+
+    // Doble clic sobre él entra a editar (antes no hacía nada) y el logo aguanta.
+    await page.mouse.click(pt[0], pt[1], { clickCount: 2 });
+    await new Promise((r) => setTimeout(r, 140));
+    check(
+      "el doble clic entra a editarlo",
+      (await page.evaluate(() => document.querySelector('[contenteditable="true"]')?.id)) === "lock"
+    );
+    check(
+      "y el logo queda fuera del caret (no se desarma al escribir)",
+      (await page.evaluate(() => document.querySelector("#marca").getAttribute("contenteditable"))) ===
+        "false"
+    );
+    await page.keyboard.type("XY");
+    await new Promise((r) => setTimeout(r, 140));
+    check(
+      "escribir en el renglón no se lleva el logo",
+      (await page.evaluate(() => !!document.querySelector("#marca")))
+    );
+
+    // Reescribir el renglón desde el campo del panel tampoco puede borrarlo.
+    await pageFor(SLIDE_CANVA);
+    pt = await glyphPoint("#lock");
+    await page.mouse.click(pt[0], pt[1]);
+    await new Promise((r) => setTimeout(r, 60));
+    await page.evaluate(() =>
+      window.postMessage({ oc: "apply", prop: "text", value: " · Executive MBA" }, "*")
+    );
+    await new Promise((r) => setTimeout(r, 140));
+    const trasTexto = await page.evaluate(() => ({
+      logo: !!document.querySelector("#marca"),
+      texto: document.querySelector("#lock").textContent.trim(),
+    }));
+    check("reescribir el texto desde el panel conserva el logo", trasTexto.logo);
+    check("y aplica el texto nuevo", /Executive MBA/.test(trasTexto.texto), trasTexto.texto);
+
+    console.log("\nEntrar al grupo con el doble clic (como Canva)");
+    await pageFor(SLIDE_CANVA);
+    // Clic en el relleno de la tarjeta: se selecciona la tarjeta (es una caja).
+    const tarjR = await rectOf(page, "tarj");
+    await page.mouse.click(Math.round(tarjR.left + 12), Math.round(tarjR.top + 12));
+    await new Promise((r) => setTimeout(r, 80));
+    check("clicar el borde de la tarjeta selecciona la tarjeta", (await selectedId()) === "tarj");
+    // Doble clic sobre el texto de adentro: entra a editar ESE texto.
+    pt = await glyphPoint("#hijo");
+    await page.mouse.click(pt[0], pt[1], { clickCount: 2 });
+    await new Promise((r) => setTimeout(r, 140));
+    check(
+      "el doble clic sobre el texto de adentro entra a editarlo",
+      (await page.evaluate(() => document.querySelector('[contenteditable="true"]')?.id)) === "hijo"
+    );
+    check("y el seleccionado pasa a ser ese texto", (await selectedId()) === "hijo");
+
+    console.log("\nUn decorativo dentro de un texto sigue siendo suyo");
+    await pageFor(SLIDE_CANVA);
+    const barR = await rectOf(page, "barrita");
+    await page.mouse.click(Math.round(barR.left + barR.width / 2), Math.round(barR.top + barR.height / 2));
+    await new Promise((r) => setTimeout(r, 80));
+    check("clicar la barrita la selecciona a ella", (await selectedId()) === "barrita");
+    pt = await glyphPoint("#conbarra");
+    await page.mouse.click(pt[0], pt[1]);
+    await new Promise((r) => setTimeout(r, 80));
+    check("y clicar las letras selecciona el texto", (await selectedId()) === "conbarra");
+
+    console.log("\nLa banda de selección agarra el párrafo, no el tramo");
+    await pageFor(SLIDE_CANVA);
+    const parrR = await rectOf(page, "parr");
+    await drag(
+      page,
+      Math.round(parrR.left - 20),
+      Math.round(parrR.top - 20),
+      Math.round(parrR.right + 20),
+      Math.round(parrR.bottom + 20)
+    );
+    await new Promise((r) => setTimeout(r, 80));
+    const trasBanda = await page.evaluate(() => {
+      const b = document.querySelector("#neg").getBoundingClientRect();
+      // Ninguna caja del overlay puede calzar con el tramo en negrita.
+      return [...document.querySelectorAll(".oc-box")].some((box) => {
+        const r = box.getBoundingClientRect();
+        return Math.abs(r.left - b.left) < 1.5 && Math.abs(r.width - b.width) < 1.5;
+      });
+    });
+    check("la banda no se queda con la palabra en negrita", trasBanda === false);
+    check("y sí selecciona algo", (await selCount(page)) > 0);
+
     // ── Fase 6: sombras ───────────────────────────────────────────────────────
     const SLIDE_SHADOW = `
 <style>
