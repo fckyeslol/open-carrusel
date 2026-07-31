@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Check, Trash2 } from "lucide-react";
+import { Check, FolderOpen, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AssignmentThumb } from "@/components/thirtyx/AssignmentThumb";
 import { BoardHeader } from "@/components/thirtyx/BoardHeader";
 import { GeneratingCard } from "@/components/thirtyx/GeneratingCard";
+import { refHost, shortAvatar } from "@/lib/library-folders";
 import { cn } from "@/lib/utils";
 
 interface Assignment {
@@ -58,13 +59,15 @@ interface QueueItem {
  */
 const PRIORITY_URGENT = 10;
 
-function shortAvatar(name: string | null, slug: string): string {
-  return (name || slug || "Sin avatar").replace(/^30X\s*[—–-]\s*/i, "").trim();
-}
-
-function refHost(url: string): string {
-  return (url || "").replace(/^https?:\/\/(www\.)?/, "").slice(0, 40);
-}
+/**
+ * Cuántos entregados se muestran en el tablero.
+ *
+ * "Entregados" solo crece: es la única columna que nunca se vacía sola, así que a las pocas
+ * semanas era una fila infinita empujando "Generando" y "Con problemas" fuera de la
+ * pantalla. El tablero es el trabajo de HOY; el historial completo vive en la Biblioteca,
+ * y el botón de la columna lleva ahí.
+ */
+const ENTREGADOS_VISIBLES = 3;
 
 export function ReviewBoard() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -476,8 +479,31 @@ export function ReviewBoard() {
             )}
 
             {entregado.length > 0 && (
-              <Column title="Entregados" count={entregado.length}>
-                {entregado.map((a) => (
+              <Column
+                title="Entregados"
+                count={entregado.length}
+                action={
+                  <Link
+                    href="/biblioteca"
+                    title="Ver todos tus entregados, en carpetas por avenger"
+                    className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:border-accent-strong/40 hover:bg-accent/5 hover:text-accent-strong"
+                  >
+                    <FolderOpen className="h-3 w-3" />
+                    Biblioteca
+                  </Link>
+                }
+                footer={
+                  entregado.length > ENTREGADOS_VISIBLES ? (
+                    <Link
+                      href="/biblioteca"
+                      className="block px-3 py-2 text-[11px] font-medium text-muted-foreground underline-offset-2 hover:text-accent-strong hover:underline"
+                    >
+                      + {entregado.length - ENTREGADOS_VISIBLES} más en la Biblioteca →
+                    </Link>
+                  ) : null
+                }
+              >
+                {entregado.slice(0, ENTREGADOS_VISIBLES).map((a) => (
                   <li key={a.jobId} className="flex items-center gap-3 rounded-lg border border-emerald-500/25 bg-background p-3">
                     <AssignmentThumb carouselId={a.carouselId} isActive={false} />
                     <div className="min-w-0 flex-1">
@@ -555,28 +581,38 @@ function Column({
   count,
   accent,
   empty,
+  action,
+  footer,
   children,
 }: {
   title: string;
   count: number;
   accent?: boolean;
   empty?: string;
+  /** Acción de la columna, al lado del contador (p. ej. "Biblioteca"). */
+  action?: React.ReactNode;
+  /** Pie de la columna: lo que queda afuera de la lista recortada. */
+  footer?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const isEmpty = Array.isArray(children) && children.length === 0;
   return (
     <section className={cn("rounded-2xl p-1", accent ? "bg-amber-500/5" : "bg-transparent")}>
-      <div className="mb-2 flex items-center justify-between px-3 pt-2">
+      <div className="mb-2 flex items-center justify-between gap-2 px-3 pt-2">
         <h2 className="text-sm font-semibold tracking-tight">{title}</h2>
-        <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-          {count}
-        </span>
+        <div className="flex items-center gap-2">
+          {action}
+          <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+            {count}
+          </span>
+        </div>
       </div>
       {isEmpty && empty ? (
         <p className="px-3 pb-3 text-sm text-muted-foreground">{empty}</p>
       ) : (
         <ul className="space-y-3 px-1 pb-1">{children}</ul>
       )}
+      {footer}
     </section>
   );
 }

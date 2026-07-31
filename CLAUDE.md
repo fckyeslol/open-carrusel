@@ -54,6 +54,11 @@ AI-powered Instagram carousel builder. Next.js 16 + React 19 + TypeScript + Tail
   so the number is auditable instead of a raw click tally
 - `src/lib/admin.ts` — `THIRTYX_ADMIN_USERS`: who may see team-wide data (`/revisiones`).
   Defaults to `isabella@30x.com`
+- `src/lib/library-folders.ts` — Groups `/biblioteca` into one folder per avenger. Pure, so
+  the grouping is tested on its own. The board only shows the 3 most recent `Entregados`
+  (`ENTREGADOS_VISIBLES` in `ReviewBoard.tsx`) and links the rest here: that column never
+  empties by itself, so uncapped it pushed the rest of the board off screen. The open folder
+  travels in `?avenger=`, read server-side in `src/app/biblioteca/page.tsx`
 
 ## Review Counter
 

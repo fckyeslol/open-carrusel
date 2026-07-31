@@ -1,54 +1,34 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
-import { RotateCcw } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { AssignmentThumb } from "@/components/thirtyx/AssignmentThumb";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, FolderOpen } from "lucide-react";
 import { BoardHeader } from "@/components/thirtyx/BoardHeader";
-
-interface Assignment {
-  jobId: string;
-  avatarSlug: string;
-  avatarName: string | null;
-  referenceUrl: string;
-  status: string;
-  carouselId: string | null;
-  archivedAt?: string;
-  updatedAt: string;
-}
-
-function shortAvatar(name: string | null, slug: string): string {
-  return (name || slug || "Sin avatar").replace(/^30X\s*[—–-]\s*/i, "").trim();
-}
-
-function refHost(url: string): string {
-  return (url || "").replace(/^https?:\/\/(www\.)?/, "").slice(0, 40);
-}
-
-/** "27 jul, 14:32" — corto, porque la fecha acá es solo para ordenarse mentalmente. */
-function shortDate(iso: string | undefined): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString("es-CO", {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
+import { LibraryFolderGrid } from "@/components/thirtyx/LibraryFolderGrid";
+import { LibraryRow } from "@/components/thirtyx/LibraryRow";
+import {
+  buildAvengerFolders,
+  folderTotal,
+  plural,
+  type AvengerFolder,
+  type LibraryItem,
+} from "@/lib/library-folders";
 
 /**
- * Biblioteca: el historial de la diseñadora. Lo que eliminó del tablero (y puede
- * restaurar) y lo que ya entregó a Prewave.
+ * Biblioteca: el historial de la diseñadora, en carpetas por avenger.
  *
  * Lee el mismo GET /api/thirtyx/mine que el tablero y filtra por estado — la Biblioteca
  * no es otra base de datos, es otra vista de la misma. Sin poll: es historial, no cambia
  * solo mientras se mira.
+ *
+ * La carpeta abierta vive en la URL (`?avenger=slug`, que llega como prop desde el server)
+ * y no en un useState, para que el botón "atrás" del navegador vuelva a la reja de carpetas
+ * en vez de salir de la Biblioteca, y para que una carpeta se pueda mandar por link.
  */
-export function Library() {
-  const [assignments, setAssignments] = useState<Assignment[]>([]);
+export function Library({ openKey }: { openKey: string | null }) {
+  const router = useRouter();
+
+  const [assignments, setAssignments] = useState<LibraryItem[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const busyRef = useRef<Set<string>>(new Set());
@@ -56,7 +36,7 @@ export function Library() {
   const load = useCallback(async () => {
     try {
       const res = await fetch("/api/thirtyx/mine");
-      let data: { error?: string; assignments?: Assignment[] } = {};
+      let data: { error?: string; assignments?: LibraryItem[] } = {};
       try {
         data = await res.json();
       } catch {
@@ -98,115 +78,112 @@ export function Library() {
     [load]
   );
 
-  const eliminados = assignments.filter((a) => a.status === "archived");
-  const entregados = assignments.filter((a) => a.status === "delivered" || a.status === "done");
+  const folders = useMemo(() => buildAvengerFolders(assignments), [assignments]);
+  const open = openKey ? folders.find((f) => f.key === openKey) : undefined;
+
+  const totalEntregados = folders.reduce((n, f) => n + f.entregados.length, 0);
+  const totalEliminados = folders.reduce((n, f) => n + f.eliminados.length, 0);
 
   return (
     <main className="min-h-screen bg-muted/20">
       <BoardHeader active="biblioteca" />
 
       <div className="mx-auto max-w-4xl px-6 py-8">
-        <div className="mb-6">
-          <h1 className="text-2xl font-semibold tracking-tight">Biblioteca</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            El historial de tus pedidos: los que eliminaste del tablero y los que ya entregaste.
-          </p>
-        </div>
-
         {error && (
           <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
             {error}
           </div>
         )}
 
-        <Section
-          title="Eliminados"
-          count={eliminados.length}
-          empty={
-            loaded
-              ? "Todavía no eliminaste ningún pedido. Los que elimines del tablero aparecen acá."
-              : "Cargando…"
-          }
-        >
-          {eliminados.map((a) => (
-            <li
-              key={a.jobId}
-              className="flex items-center gap-3 rounded-xl border border-border bg-background p-4"
-            >
-              <AssignmentThumb carouselId={a.carouselId} isActive={false} />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold">
-                  {shortAvatar(a.avatarName, a.avatarSlug)}
-                </p>
-                <a
-                  href={a.referenceUrl || "#"}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block truncate font-mono text-[11px] text-muted-foreground underline-offset-2 hover:text-accent-strong hover:underline"
-                >
-                  {refHost(a.referenceUrl)}
-                </a>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">
-                  Eliminado el {shortDate(a.archivedAt || a.updatedAt)}
-                </p>
-              </div>
-              {a.carouselId && (
-                <Link
-                  href={`/carousel/${a.carouselId}`}
-                  className="text-xs font-medium text-accent-strong underline-offset-2 hover:underline"
-                >
-                  Abrir →
-                </Link>
-              )}
-              <Button size="sm" variant="outline" onClick={() => restore(a.jobId)}>
-                <RotateCcw className="h-3.5 w-3.5" />
-                Restaurar
-              </Button>
-            </li>
-          ))}
-        </Section>
-
-        <Section
-          title="Entregados"
-          count={entregados.length}
-          empty={loaded ? "Todavía no entregaste ningún carrusel." : "Cargando…"}
-        >
-          {entregados.map((a) => (
-            <li
-              key={a.jobId}
-              className="flex items-center gap-3 rounded-xl border border-emerald-500/25 bg-background p-4"
-            >
-              <AssignmentThumb carouselId={a.carouselId} isActive={false} />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold">
-                  {shortAvatar(a.avatarName, a.avatarSlug)}
-                </p>
-                <a
-                  href={a.referenceUrl || "#"}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block truncate font-mono text-[11px] text-muted-foreground underline-offset-2 hover:text-accent-strong hover:underline"
-                >
-                  {refHost(a.referenceUrl)}
-                </a>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">
-                  {shortDate(a.updatedAt)}
-                </p>
-              </div>
-              {a.carouselId && (
-                <Link
-                  href={`/carousel/${a.carouselId}`}
-                  className="text-xs font-medium text-accent-strong underline-offset-2 hover:underline"
-                >
-                  Ver →
-                </Link>
-              )}
-              <span className="text-[11px] font-medium text-emerald-600">✓ Entregado</span>
-            </li>
-          ))}
-        </Section>
+        {/* Una carpeta pedida por URL puede ya no existir (link viejo, o el último pedido
+            de ese avenger volvió al tablero): se avisa en vez de mostrar la vista vacía. */}
+        {openKey && !open ? (
+          <FolderMissing loaded={loaded} onBack={() => router.push("/biblioteca")} />
+        ) : open ? (
+          <FolderView folder={open} onBack={() => router.push("/biblioteca")} onRestore={restore} />
+        ) : (
+          <LibraryFolderGrid
+            folders={folders}
+            loaded={loaded}
+            totalEntregados={totalEntregados}
+            totalEliminados={totalEliminados}
+            onOpen={(key) => router.push(`/biblioteca?avenger=${encodeURIComponent(key)}`)}
+          />
+        )}
       </div>
     </main>
+  );
+}
+
+/** Adentro de una carpeta: lo entregado primero, lo eliminado después. */
+function FolderView({
+  folder,
+  onBack,
+  onRestore,
+}: {
+  folder: AvengerFolder;
+  onBack: () => void;
+  onRestore: (jobId: string) => void;
+}) {
+  return (
+    <>
+      <button
+        onClick={onBack}
+        className="mb-4 inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ArrowLeft className="h-3.5 w-3.5" />
+        Biblioteca
+      </button>
+
+      <div className="mb-6 flex items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="flex items-center gap-2 truncate text-2xl font-semibold tracking-tight">
+            <FolderOpen className="h-5 w-5 shrink-0 text-accent-strong" />
+            {folder.name}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {plural(folderTotal(folder), "pieza", "piezas")} de este avenger.
+          </p>
+        </div>
+      </div>
+
+      <Section
+        title="Entregados"
+        count={folder.entregados.length}
+        empty="Todavía no entregaste ningún carrusel de este avenger."
+      >
+        {folder.entregados.map((a) => (
+          <LibraryRow key={a.jobId} item={a} kind="entregado" />
+        ))}
+      </Section>
+
+      <Section
+        title="Eliminados"
+        count={folder.eliminados.length}
+        empty="No eliminaste ningún pedido de este avenger."
+      >
+        {folder.eliminados.map((a) => (
+          <LibraryRow key={a.jobId} item={a} kind="eliminado" onRestore={() => onRestore(a.jobId)} />
+        ))}
+      </Section>
+    </>
+  );
+}
+
+function FolderMissing({ loaded, onBack }: { loaded: boolean; onBack: () => void }) {
+  return (
+    <>
+      <button
+        onClick={onBack}
+        className="mb-4 inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ArrowLeft className="h-3.5 w-3.5" />
+        Biblioteca
+      </button>
+      <p className="rounded-xl border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
+        {loaded ? "Esa carpeta ya no tiene nada guardado." : "Cargando…"}
+      </p>
+    </>
   );
 }
 
