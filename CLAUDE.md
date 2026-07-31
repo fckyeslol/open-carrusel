@@ -27,6 +27,17 @@ AI-powered Instagram carousel builder. Next.js 16 + React 19 + TypeScript + Tail
   the quote card) pans its `object-position` on drag instead of sliding out of the crop and
   getting cut. `clipFrame()` deliberately ignores the slide root — clipping against the
   canvas edge is correct, not a frame to escape. `unframe` is the escape hatch.
+  **A text is one object, like in Canva.** `textHost()` folds inline runs (`<b>`, `<span>`,
+  the editor's own `data-oc-rs`) into their paragraph, so clicking a highlighted word selects
+  the whole sentence — emphasis is character formatting, applied by marking a range in inline
+  edit mode, not a separate element (`Alt`+click still grabs the run). `isTextEl()` counts a
+  line that shares its box with an *atomic* child — one with no words of its own, like the
+  mandatory 30x logo SVG or a hand-drawn underline — as editable text, and `editText()` marks
+  those children `contenteditable="false"` so the caret can't take the logo apart.
+  `candidateAt()` still hands a painted child inside a text (that logo, a bar) its own clicks,
+  but only off the glyphs — a highlight passing behind the words must not steal the sentence.
+  `textAt()` is the double-click drill-down: it reaches a text the click resolved to a
+  container, so a double click never does nothing.
   It lives inside a `String.raw` template, so **TypeScript does not check it** — a stray
   backtick silently breaks the build and a logic error only shows up by hand. Verify with
   `npm run check:editor`, which loads the real runtime in Chromium and drives the

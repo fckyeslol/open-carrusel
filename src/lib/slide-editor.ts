@@ -122,12 +122,95 @@ export const EDITOR_RUNTIME = String.raw`
   // (que no sea imagen) con contenido y cuyos hijos sean SOLO inline de formato.
   var INLINE_TAGS={BR:1,SPAN:1,STRONG:1,EM:1,B:1,I:1,A:1,U:1,S:1,SMALL:1,SUB:1,
                    SUP:1,MARK:1,FONT:1,WBR:1,ABBR:1,CODE:1,DEL:1,INS:1};
+  /**
+   * Hijo ATÓMICO: no aporta palabras y viaja EN LÍNEA con el texto — el logo 30x
+   * en SVG dentro del renglón ("[30x] · Executive Education"), un ícono.
+   *
+   * Tratarlo como "contenedor" era el bug más grande del editor: la regla del
+   * proyecto es que la marca 30x va siempre en SVG, así que el renglón del logo
+   * quedaba con un hijo no-inline según la lista de arriba, isTextEl daba false, y
+   * ese texto no se podía editar NUNCA (el panel ni siquiera mostraba la sección
+   * "Texto"). Se veía como una caja con el texto adentro: exactamente lo que
+   * reportaban las diseñadoras.
+   *
+   * La condición es estrecha a propósito: un hijo CON palabras propias sí quiere
+   * decir que esto es un contenedor de varios textos, y ahí no hay que editar el
+   * bloque entero sino cada texto por su lado.
+   */
+  // No se mira el display: un subrayado dibujado a mano va como <svg class="ul">
+  // en display:block DEBAJO del renglón, y aun así el renglón sigue siendo un
+  // texto que hay que poder editar. Lo único que descalifica al hijo es traer
+  // palabras propias: eso sí quiere decir que acá viven varios textos.
+  function isAtomicKid(el){ return (el.textContent||'').trim().length===0; }
+  function atomicKids(el){
+    var out=[], kids=el.children;
+    for(var i=0;i<kids.length;i++){
+      if(!INLINE_TAGS[kids[i].tagName] && isAtomicKid(kids[i])) out.push(kids[i]);
+    }
+    return out;
+  }
   function isTextEl(el){
     if(!el||el.tagName==='IMG') return false;
     if((el.textContent||'').trim().length===0) return false;
     var kids=el.children;
-    for(var i=0;i<kids.length;i++){ if(!INLINE_TAGS[kids[i].tagName]) return false; }
+    for(var i=0;i<kids.length;i++){
+      // La lista de tags va primero: es una comparación suelta y este bucle corre
+      // sobre TODOS los elementos de la lámina (banda de selección, Ctrl+A).
+      // getComputedStyle solo se paga en la excepción.
+      if(INLINE_TAGS[kids[i].tagName]) continue;
+      if(isAtomicKid(kids[i])) continue;
+      return false;
+    }
     return true;
+  }
+  /**
+   * ¿Es un TRAMO de formato dentro de un texto, y no un objeto con caja propia?
+   *
+   * Una palabra en negrita vive en un <b>/<span> adentro del párrafo. En Canva eso
+   * es formato de caracteres: no existe "seleccionar la palabra en negrita" como
+   * objeto. Acá sí existía, y era el otro bug grande — al clicar sobre la palabra
+   * resaltada se agarraba el tramo, no el párrafo, así que cambiarle el tamaño al
+   * texto se lo cambiaba a media frase, y el párrafo entero era imposible de tomar
+   * desde ahí.
+   *
+   * Un <span> con caja propia (posicionado, o con display de bloque) SÍ es un
+   * objeto: los formatos del ADN los usan como etiquetas sueltas.
+   */
+  function isRun(el){
+    if(!el||!el.getAttribute) return false;
+    if(el.getAttribute('data-oc-rs')) return true;   // el span de tramo que crea el editor
+    if(!INLINE_TAGS[el.tagName]) return false;
+    if(el.getAttribute('data-oc-shape')||el.getAttribute('data-oc-g')) return false;
+    var cs=getComputedStyle(el);
+    // Posicionado a mano: es un objeto colocado, no un tramo del renglón.
+    if(cs.position==='absolute'||cs.position==='fixed'||cs.position==='sticky') return false;
+    // Con medidas propias tampoco es un tramo: alguien le dio caja.
+    if(el.style.width||el.style.height) return false;
+    // Que PINTE algo (el chip naranja detrás de tres palabras, un resaltado) no lo
+    // convierte en objeto: sigue viviendo en el renglón, así que moverlo o
+    // redimensionarlo solo desarma la frase. Su color y su fondo se cambian
+    // marcando esas palabras en la edición en línea — el panel reutiliza ese mismo
+    // span para aplicar el cambio. Para agarrarlo suelto de todos modos: Alt+clic.
+    // El display NO se mira: dentro de un contenedor flex/grid el navegador
+    // "blockifica" a los hijos, así que una palabra en itálica dentro de un título
+    // flex computa display:block y por eso seguía separándose del párrafo aunque
+    // sea puro énfasis. Era el resto del bug de "seleccionar solo un tramo".
+    return true;
+  }
+  /**
+   * El TEXTO al que pertenece un tramo: sube de <b>/<span> hasta el párrafo real.
+   * No cruza un contenedor demasiado grande (ver tooBig), o clicar una palabra
+   * terminaría seleccionando el bloque de fondo de la lámina entera.
+   */
+  function textHost(el){
+    var cur=el;
+    while(cur&&cur.parentElement&&isRun(cur)){
+      var p=cur.parentElement;
+      if(p===document.body||p===document.documentElement||p===rootEl()) break;
+      if(tooBig(p)||!isTextEl(p)) break;
+      cur=p;
+    }
+    return cur;
   }
   function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
   var FMT_SEL='span,strong,em,b,i,u,s,mark,font,a,code,small,sub,sup,del,ins,abbr';
@@ -193,6 +276,37 @@ export const EDITOR_RUNTIME = String.raw`
     catch(e){ return []; }
   }
 
+  /**
+   * ¿Es un objeto por derecho propio (y no relleno de layout)? Se usa para decidir
+   * si un hijo metido dentro de un texto gana el clic contra su párrafo.
+   */
+  function ownObject(el){
+    if(!el||!el.tagName) return false;
+    if(el.tagName==='IMG'||isSvgRoot(el)) return true;
+    if(el.getAttribute&&el.getAttribute('data-oc-shape')) return true;
+    return paintsSomething(el);
+  }
+  /**
+   * ¿El punto cayó sobre las LETRAS de este texto, y no en el aire de su caja?
+   *
+   * Decide los empates entre un texto y un objeto pintado que vive adentro. Un
+   * resaltado (o un subrayado) cruza por detrás de las palabras, así que su caja
+   * contiene el punto igual que el renglón: sin mirar los glifos, el resaltado se
+   * quedaba con el clic y el título entero dejaba de ser seleccionable.
+   */
+  function onGlyph(el,x,y){
+    var w=document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null), n;
+    while((n=w.nextNode())){
+      if(!n.nodeValue||!n.nodeValue.trim()) continue;
+      var rg=document.createRange(); rg.selectNodeContents(n);
+      var rs=rg.getClientRects();
+      for(var i=0;i<rs.length;i++){
+        var r=rs[i];
+        if(x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom) return true;
+      }
+    }
+    return false;
+  }
   // ── selección inteligente: prefiere texto/imagen; si no hay, toma el decorativo ──
   // Los elementos "tooBig" (contenedores de fondo) se saltan… pero una IMG grande
   // (foto a lámina completa) debe poder seleccionarse como último recurso: si no,
@@ -224,7 +338,19 @@ export const EDITOR_RUNTIME = String.raw`
       if(tooBig(el)){ if((el.tagName==='IMG'||svgHit)&&!bigImg) bigImg=el; continue; }
       // Las formas de la librería son ciudadanas de primera: gana la de más arriba
       // (elementsFromPoint viene ordenado top→bottom), igual que texto e imagen.
-      if(isTextEl(el) || el.tagName==='IMG' || (el.getAttribute&&el.getAttribute('data-oc-shape'))) return el;
+      // Un texto se devuelve por su PÁRRAFO: clicar la palabra en negrita
+      // selecciona la frase, no el tramo (textHost). Alt salta esa regla y toma el
+      // tramo suelto, igual que toma un miembro suelto de un grupo.
+      if(isTextEl(el)){
+        var host = sub ? el : textHost(el);
+        // …salvo que el punto haya caído sobre un objeto propio metido DENTRO del
+        // texto y FUERA de las letras: el logo 30x en SVG del renglón, el subrayado
+        // a mano, una barrita. Devolver el texto ahí los volvía imposibles de tomar
+        // (ni mover, ni recolorear, ni borrar), porque su padre se los comía.
+        if(first && host.contains(first) && ownObject(first) && !onGlyph(host,x,y)) return first;
+        return host;
+      }
+      if(el.tagName==='IMG' || (el.getAttribute&&el.getAttribute('data-oc-shape'))) return el;
       if(!first) first=el;
     }
     return first||bigImg;
@@ -675,7 +801,15 @@ export const EDITOR_RUNTIME = String.raw`
       // todo lo que se podía descartar con tag, atributo y geometría.
       if(!(isTextEl(el)||t==='IMG'||(el.getAttribute&&el.getAttribute('data-oc-shape'))||isSvgRoot(el))
          && !paintsSomething(el)) continue;
-      out.push(el);
+      // Un tramo de formato entra como su párrafo: la banda y Ctrl+A tienen que
+      // agarrar el texto completo. Sin esto el filtro de "el más interno" se
+      // quedaba con la palabra en negrita y DESCARTABA la frase que la contiene.
+      if(isTextEl(el)){
+        var host=textHost(el);
+        if(host!==el && (isLocked(host)||isHidden(host))) continue;
+        el=host;
+      }
+      if(out.indexOf(el)<0) out.push(el);
     }
     return out.filter(function(el){
       return !out.some(function(o){ return o!==el && el.contains(o); });
@@ -1238,6 +1372,11 @@ export const EDITOR_RUNTIME = String.raw`
     snap();
     editing=t;
     t.setAttribute('contenteditable','true');
+    // El logo (u otro hijo atómico) queda NO editable: dentro de un contenteditable
+    // el caret entra igual en el <svg> y un Backspace lo desarma por dentro. Así se
+    // comporta como una pieza: se para al lado, no adentro. Sale del HTML guardado
+    // solo, porque serializeNoSnap ya limpia todo contenteditable.
+    atomicKids(t).forEach(function(k){ k.setAttribute('contenteditable','false'); });
     t.focus();
     placeCaret(t,x,y);
     document.body.classList.add('oc-editing');
@@ -1292,14 +1431,44 @@ export const EDITOR_RUNTIME = String.raw`
     // Un undo (o un pegado) puede haber reemplazado el nodo: no hay nada que cerrar.
     if(!document.contains(t)){ paint(); report(); return; }
     t.setAttribute('contenteditable','false');
+    atomicKids(t).forEach(function(k){ k.removeAttribute('contenteditable'); });
     paint(); report(); serialize();
+  }
+  /**
+   * El texto editable bajo un punto, aunque el clic haya caído en un contenedor.
+   *
+   * Es el "entrar al grupo" de Canva: ahí el doble clic sobre un grupo baja un
+   * nivel y toma el hijo que está debajo del cursor. Sin esto, el doble clic sobre
+   * un texto metido en una tarjeta no hacía NADA — la diseñadora veía una caja y
+   * ninguna forma de entrar. Se saltea tooBig a propósito: un texto que ocupa casi
+   * toda la lámina no se puede tomar con el clic (sería agarrar el fondo), pero
+   * editarlo con doble clic es justo lo que se quiere.
+   */
+  function textAt(x,y){
+    var c=candidateAt(x,y);
+    if(c&&isTextEl(c)) return textHost(c);
+    var list=document.elementsFromPoint(x,y)||[];
+    for(var i=0;i<list.length;i++){
+      var el=list[i];
+      if(el===document.body||el===document.documentElement||el===rootEl()) continue;
+      if(el.closest&&el.closest('[data-oc-ui]')) continue;
+      if(isLocked(el)||(el.closest&&el.closest('[data-oc-lock]'))) continue;
+      if(el.ownerSVGElement) continue;   // texto curvo dentro de un svg: no es editable en línea
+      if(isTextEl(el)) return textHost(el);
+    }
+    return c;   // no hay texto abajo del cursor: el doble clic no inventa nada
   }
   document.addEventListener('dblclick', function(e){
     // Adentro del texto que ya se edita: el doble clic es del navegador (marca la
     // palabra). Sin esta salida, entrar de nuevo colapsaba el caret al punto del
     // clic y marcar palabras para darles formato no funcionaba nunca.
     if(editing && e.target && editing.contains(e.target)) return;
-    editText(candidateAt(e.clientX,e.clientY), e.clientX, e.clientY);
+    var t=textAt(e.clientX,e.clientY);
+    // El clic previo pudo haber dejado seleccionado el contenedor: al entrar a
+    // editar, el seleccionado pasa a ser el texto. Si no, el overlay dibuja la caja
+    // de uno mientras se escribe en el otro y el panel muestra otra tipografía.
+    if(t&&isTextEl(t)&&sels.indexOf(t)<0) select(t);
+    editText(t, e.clientX, e.clientY);
   }, true);
 
   // ── teclado: undo, copy/paste, duplicar, borrar, nudge ───────────────────────
@@ -2086,7 +2255,13 @@ export const EDITOR_RUNTIME = String.raw`
     return out;
   }
   function setTextFlat(el,next){
+    // Los hijos atómicos (el logo 30x en SVG, un ícono) no son texto y no pueden
+    // desaparecer al reescribir el renglón desde el campo del panel: se guardan
+    // antes de rehacer el contenido y vuelven al frente, que es donde viven en los
+    // lockups del ADN ("[30x] · Executive Education").
+    var keep=atomicKids(el);
     el.innerHTML=String(next).split('\n').map(esc).join('<br>');
+    for(var i=keep.length-1;i>=0;i--) el.insertBefore(keep[i], el.firstChild);
   }
   function setText(el,next){
     next=String(next);

@@ -936,7 +936,8 @@ export function VisualEditor({
                     <p className="text-[10px] text-muted-foreground leading-snug">
                       Para darle otro peso o color a <b>una parte</b> del texto: entrá a
                       editarlo, marcá esas palabras y cambiá la tipografía. Se pueden
-                      mezclar varios estilos en el mismo bloque.
+                      mezclar varios estilos en el mismo bloque. Un clic siempre toma el
+                      texto completo; para agarrar solo el tramo resaltado, <b>Alt+clic</b>.
                     </p>
                   )}
                   <div className="flex gap-1">
