@@ -1,6 +1,6 @@
 import { readFile } from "fs/promises";
 import path from "path";
-import { wrapSlideHtml, extractFontFamilies } from "./slide-html";
+import { wrapSlideHtml, extractFontFamilies, usesItalic } from "./slide-html";
 import { getInlinedFontCSS } from "./fonts";
 import { renderPng, type RenderOptions } from "./render";
 import type { Slide, AspectRatio } from "@/types/carousel";
@@ -81,7 +81,9 @@ export async function prepareRenderableHtml(
   aspectRatio: AspectRatio
 ): Promise<string> {
   const fontFamilies = extractFontFamilies(slideHtml);
-  const inlinedFontCss = await getInlinedFontCSS(fontFamilies);
+  // `usesItalic` se evalúa sobre el HTML CRUDO, antes de inlinear las imágenes: los data:
+  // URI en base64 son megas de texto donde la palabra "italic" podría aparecer por azar.
+  const inlinedFontCss = await getInlinedFontCSS(fontFamilies, usesItalic(slideHtml));
   const inlinedHtml = await inlineImages(slideHtml);
   return wrapSlideHtml(inlinedHtml, aspectRatio, {
     inlineFontCss: inlinedFontCss,

@@ -1,7 +1,7 @@
 import { inlineImages } from "./export-slides";
 import { getInlinedFontCSS } from "./fonts";
 import { renderPdf, type RenderOptions } from "./render";
-import { extractFontFamilies } from "./slide-html";
+import { extractFontFamilies, usesItalic } from "./slide-html";
 import type { Slide, AspectRatio } from "@/types/carousel";
 import { DIMENSIONS } from "@/types/carousel";
 
@@ -19,13 +19,19 @@ import { DIMENSIONS } from "@/types/carousel";
  * (mismo criterio que el export PNG), sin depender de ninguna URL externa.
  */
 
-/** Recolecta e inlinea, una sola vez, el CSS de todas las fuentes usadas. */
+/**
+ * Recolecta e inlinea, una sola vez, el CSS de todas las fuentes usadas.
+ *
+ * Alcanza con que UNA lámina use itálica para traer sus caras: el CSS es compartido por
+ * todo el documento, así que decidirlo lámina por lámina no serviría de nada.
+ */
 async function collectInlineFontCss(slides: Slide[]): Promise<string> {
   const families = new Set<string>();
   for (const slide of slides) {
     for (const family of extractFontFamilies(slide.html)) families.add(family);
   }
-  return getInlinedFontCSS(Array.from(families));
+  const italic = slides.some((slide) => usesItalic(slide.html));
+  return getInlinedFontCSS(Array.from(families), italic);
 }
 
 type DocMode = "pdf" | "view";
@@ -123,7 +129,10 @@ export async function exportSvg(
   aspectRatio: AspectRatio
 ): Promise<string> {
   const { width, height } = DIMENSIONS[aspectRatio];
-  const inlineFontCss = await getInlinedFontCSS(extractFontFamilies(slide.html));
+  const inlineFontCss = await getInlinedFontCSS(
+    extractFontFamilies(slide.html),
+    usesItalic(slide.html)
+  );
   const inlined = await inlineImages(slide.html);
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">

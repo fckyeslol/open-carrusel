@@ -1,16 +1,23 @@
 import type { AspectRatio } from "@/types/carousel";
 import { DIMENSIONS } from "@/types/carousel";
-import { extractFontFamilies, FONT_WEIGHTS } from "./slide-html";
+import { extractFontFamilies, googleFontAxes } from "./slide-html";
 
 /**
  * Fragmento `ital,wght@…` con TODOS los grosores (romanas + itálicas) para el
  * editor. La lista explícita es tolerante: Google sirve solo lo que cada fuente
  * tiene, así que el selector de grosor manual (100–900) rinde sin importar la
  * familia. Compartido entre el runtime del iframe y `wrapEditableSlide`.
+ *
+ * Acá `italic` es SIEMPRE true, a diferencia del preview y del export, que lo deciden por
+ * lámina: en el editor el usuario puede poner en itálica cualquier elemento en cualquier
+ * momento, así que la cara tiene que estar cargada antes de que la pida. El costo de traer
+ * de más no importa: es un `<link>` al CDN, no base64 dentro del HTML.
+ *
+ * Se construye con la misma `googleFontAxes` que usan preview y export para que exista UNA
+ * sola definición de los ejes. Cuando estaban duplicadas, agregar `ital` acá y olvidarlo
+ * allá fue justamente el bug: el editor mostraba la itálica real y el PNG la falseaba.
  */
-export const GF_ITAL_WGHT = `ital,wght@${FONT_WEIGHTS.map((w) => `0,${w}`).join(
-  ";"
-)};${FONT_WEIGHTS.map((w) => `1,${w}`).join(";")}`;
+export const GF_ITAL_WGHT = googleFontAxes(true);
 
 /** Fuentes disponibles en el editor: las 8 de los avengers + extras usuales. */
 export const EDITOR_FONTS = [

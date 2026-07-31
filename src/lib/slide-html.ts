@@ -13,9 +13,45 @@ import { DIMENSIONS } from "@/types/carousel";
  */
 export const FONT_WEIGHTS = [100, 200, 300, 400, 500, 600, 700, 800, 900] as const;
 
-/** Fragmento `family=<nombre>:wght@…` (solo romanas) para el endpoint css2. */
-export function googleFontFamilyParam(family: string): string {
-  return `family=${encodeURIComponent(family)}:wght@${FONT_WEIGHTS.join(";")}`;
+/**
+ * Los ejes que le pedimos a Google Fonts para una familia.
+ *
+ * `italic` es CONDICIONAL, y las dos ramas existen por razones concretas:
+ *
+ * - Sin el eje `ital` NO viaja ninguna cara en itálica, y entonces Chrome la FALSEA:
+ *   inclina la recta por transformación. Eso ensancha los glifos y cambia el avance, así
+ *   que el PNG dejaba de coincidir con lo que muestra el editor —que sí pedía `ital`—. Era
+ *   el bug: una lámina con `font-style: italic` exportaba con la letra ensanchada.
+ * - Pedirlo SIEMPRE duplica el CSS inlineado (Inter: 2.5MB → 5.2MB de base64), y ese HTML
+ *   viaja por HTTP al servicio de render una vez por lámina. Caro para las láminas —la
+ *   mayoría— que no tienen una sola itálica.
+ *
+ * La forma de lista con `;` es tolerante en los DOS ejes: una familia sin itálica (Anton,
+ * Bebas Neue, Bricolage Grotesque) responde 200 y sirve solo las rectas. Por eso es seguro
+ * pedir `ital` para cualquier familia.
+ */
+export function googleFontAxes(italic: boolean): string {
+  if (!italic) return `wght@${FONT_WEIGHTS.join(";")}`;
+  const upright = FONT_WEIGHTS.map((w) => `0,${w}`).join(";");
+  const cursive = FONT_WEIGHTS.map((w) => `1,${w}`).join(";");
+  return `ital,wght@${upright};${cursive}`;
+}
+
+/** Fragmento `family=<nombre>:<ejes>` para el endpoint css2. */
+export function googleFontFamilyParam(family: string, italic = false): string {
+  return `family=${encodeURIComponent(family)}:${googleFontAxes(italic)}`;
+}
+
+/**
+ * ¿Esta lámina necesita las caras en itálica?
+ *
+ * Deliberadamente AMPLIO: un falso positivo solo cuesta CSS de más, mientras que un falso
+ * negativo devuelve el bug (itálica falseada, letra ensanchada). Por eso alcanza con que la
+ * palabra aparezca en cualquier parte del HTML —cubre `font-style: italic`, la forma corta
+ * `font: italic 700 40px X` y una clase declarada en un `<style>`— además de `<em>`/`<i>`.
+ */
+export function usesItalic(html: string): boolean {
+  return /italic|oblique/i.test(html) || /<(?:em|i)[\s>/]/i.test(html);
 }
 
 /**
@@ -27,6 +63,14 @@ export function extractFontFamilies(html: string): string[] {
   // Los comentarios no declaran fuentes reales; sacarlos evita que un
   // `<!-- font-family: … -->` descriptivo entre como fuente a cargar.
   const sinComentarios = html.replace(/<!--[\s\S]*?-->/g, "");
+  // Las comillas del atributo style vienen ESCAPADAS cuando la lámina la serializó el
+  // editor: el DOM guarda `style="font-family:&quot;Bricolage Grotesque&quot;,sans-serif"`.
+  // Sin desescaparlas, el `;` de `&quot;` cortaba el token y la familia extraída era el
+  // literal `&quot` — la real nunca se pedía y esa lámina exportaba con fuente de sistema.
+  // Mismo criterio que `inlineImages` en export-slides.ts, que ya desescapa las de url().
+  const sinEntidades = sinComentarios
+    .replace(/&quot;/gi, '"')
+    .replace(/&(?:apos|#0?39);/gi, "'");
   // Captura el stack de font-family: tramos entre comillas simples o caracteres
   // sueltos, hasta `;`, `}`, `<`, salto de línea, o la comilla doble que cierra
   // el atributo style="...".
@@ -45,7 +89,7 @@ export function extractFontFamilies(html: string): string[] {
   const item = `(?:'[^']*'|"[^"]*"|[^\\s,;}"'<]+)`;
   const regex = new RegExp(`font-family:\\s*(${item}(?:\\s*,\\s*${item})*)`, "g");
   let match;
-  while ((match = regex.exec(sinComentarios)) !== null) {
+  while ((match = regex.exec(sinEntidades)) !== null) {
     const raw = match[1].trim();
     // Split on commas and take non-generic font names
     const generics = new Set([
@@ -86,8 +130,11 @@ export function wrapSlideHtml(
     // For export: use inlined base64 @font-face CSS
     fontBlock = `<style>${options.inlineFontCss}</style>`;
   } else if (fontFamilies.length > 0) {
-    // For preview: use Google Fonts CDN link (rango completo de grosores)
-    const params = fontFamilies.map(googleFontFamilyParam).join("&");
+    // For preview: use Google Fonts CDN link (rango completo de grosores). El eje `ital`
+    // se decide con la MISMA función que usa el export, así el preview no puede quedar con
+    // itálica real mientras el PNG la falsea.
+    const italic = usesItalic(slideHtml);
+    const params = fontFamilies.map((f) => googleFontFamilyParam(f, italic)).join("&");
     fontBlock = `<link href="https://fonts.googleapis.com/css2?${params}&display=swap" rel="stylesheet">`;
   }
 
