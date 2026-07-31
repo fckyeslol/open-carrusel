@@ -14,7 +14,7 @@
     "_handle_TODO": "Falta el handle de IG de Cora — cargarlo cuando lo confirme el equipo de marca.",
     "tagline": "",
     "cta_default": "Síguenos y guarda",
-    "voice": "neutro (PENDIENTE de cargar en Prewave — ver voice_dna)"
+    "voice": "caleño (PENDIENTE de cargar en Prewave — ver voice_dna)"
   },
   "voice_dna": {
     "_fuente_voz": "Sección Avatares de Prewave (tabla avatars) es la FUENTE DE VERDAD del tono; el manual ADN solo aporta la identidad VISUAL.",
@@ -29,7 +29,8 @@
       "NO usar la marca/voz de otro mentor",
       "NO usar la tipografía ni la paleta de otro avatar",
       "NO heredar la paleta ni la voz de Daniel ni de Andrés Bilbao por compartir apellido"
-    ]
+    ],
+    "acento": "caleño"
   },
   "visual_identity": {
     "_fuente": "Especificación de estilos y tipografías del equipo de marca 30x (2026-07-26). Es el único avatar del manual '8 marcas · 1 ADN' que faltaba en el repo.",
