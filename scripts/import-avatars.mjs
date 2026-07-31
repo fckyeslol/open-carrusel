@@ -258,8 +258,20 @@ function buildDesignRules(adn, assets) {
   if (paleta) lines.push(paleta);
   if (Array.isArray(vi.fondos) && vi.fondos.length) lines.push(`Tratamientos de fondo disponibles: ${vi.fondos.join(", ")}.`);
   // ── Voz (fuente: sección Avatares de Prewave, volcada al adn.json) ───────────
-  if (voice.acento && voice.acento !== "neutro")
-    lines.push(`Acento / dialecto: ${voice.acento} (regla dura: mantenerlo en toda la copy).`);
+  // El acento se declara SIEMPRE, también cuando es neutro. Callarlo NO produce
+  // una voz neutra: sin instrucción el modelo copia el dialecto de lo que tiene
+  // alrededor, y como los avatares de acento marcado del sistema son caleños,
+  // todos los demás terminaban saliendo caleños. El neutro tiene que ser una
+  // orden explícita, no la ausencia de una.
+  const acento = String(voice.acento || "").trim();
+  lines.push(
+    acento && acento !== "neutro"
+      ? `Acento / dialecto: ${acento} (regla dura: mantenerlo en toda la copy).`
+      : "Acento / dialecto: español latinoamericano neutro (regla dura). Nada de " +
+        "regionalismos ni marcas dialectales — ni caleñas, ni paisas, ni bogotanas, " +
+        "ni rioplatenses. Que otro avatar del sistema tenga acento marcado no lo " +
+        "contagia a este."
+  );
   if (Array.isArray(voice.tono) && voice.tono.length) lines.push(`Rasgos de tono: ${voice.tono.join(", ")}.`);
   if (voice.tono_descripcion) lines.push(`Tono de voz: ${voice.tono_descripcion}`);
   if (voice.estilo_comunicacion) lines.push(`Estilo de comunicación: ${voice.estilo_comunicacion}`);

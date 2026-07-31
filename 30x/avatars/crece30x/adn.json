@@ -75,7 +75,9 @@
     "tipografia": {
       "familia": "Inter",
       "licencia": "https://fonts.google.com/specimen/Inter",
-      "nota": "Sans neo-grotesca de Rasmus Andersson, x-height alta y gran legibilidad en pantalla. Titulares en Bold/SemiBold a tamaños grandes (~30% de la pieza); soportes en Medium; cuerpos en Regular."
+      "nota": "Sans neo-grotesca de Rasmus Andersson, x-height alta y gran legibilidad en pantalla. Titulares en Bold/SemiBold a tamaños grandes (~30% de la pieza); soportes en Medium; cuerpos en Regular. Playfair Display cubre el ~20% restante (titulares editoriales y palabras destacadas, tambien en italic).",
+      "familia_cuerpo": "Playfair Display",
+      "licencia_cuerpo": "https://fonts.google.com/specimen/Playfair+Display"
     },
     "paleta": [
       {
@@ -94,8 +96,8 @@
         "rol": "complementario cálido / superficies"
       },
       {
-        "hex": "#F1F1F1",
-        "nombre": "Gris Net",
+        "hex": "#F6F5F0",
+        "nombre": "Hueso 30x",
         "rol": "base / fondo claro"
       }
     ],
@@ -108,7 +110,10 @@
     ],
     "universo_grafico": "Figuras geométricas simples pero dinámicas (elipse, círculo, rectángulo redondeado) con gradientes lima que simbolizan crecimiento exponencial, conexiones y energía colectiva de la red 30x. Se aplican SANGRADAS en todos los formatos, como fondos/contenedores que aportan profundidad sin tapar el mensaje. Disponen también de un modo 'trazo/outline' para fondos oscuros.",
     "gradiente": true,
-    "frase_manifiesto": "No hay límites cuando la selva está viva."
+    "frase_manifiesto": "No hay límites cuando la selva está viva.",
+    "_paleta_hex_previos": {
+      "#F1F1F1": "#F6F5F0"
+    }
   },
   "status": "ready",
   "_status_nota": "ready: identidad visual completa (Inter + paleta oficial). Marca madre 30x; el logo va por la regla global del system prompt."
