@@ -1173,6 +1173,127 @@ async function main() {
         () => document.querySelector('[contenteditable="true"]')?.id
       )) === "mix"
     );
+    // ── Escribir de verdad en el lienzo ──────────────────────────────────────
+    // El bug: los handles de redimensionar viven ENCIMA del texto y tienen
+    // pointer-events:auto. Hacer clic al final de la palabra para corregirla caía
+    // en el handle 'e' → resize → al texto le quedaba un width fijo ("se convirtió
+    // en una caja") y la edición moría. Sumado a eso, el caret arrancaba siempre al
+    // principio del texto, así que lo tecleado entraba delante de todo.
+    console.log("\nEscribir en el lienzo (doble clic)");
+    await pageFor(SLIDE_TEXT);
+    const mixR = await rectOf(page, "mix");
+    // Doble clic al FINAL del texto (última palabra), no en el medio.
+    const finX = Math.round(mixR.left + 320);
+    const finY = Math.round(mixR.top + mixR.height / 2);
+    await page.mouse.click(finX, finY);
+    await new Promise((r) => setTimeout(r, 60));
+    await page.mouse.click(finX, finY, { clickCount: 2 });
+    await new Promise((r) => setTimeout(r, 120));
+    const enEdicion = await page.evaluate(() => ({
+      editable: document.querySelector('[contenteditable="true"]')?.id ?? null,
+      // Con algo en edición el overlay NO puede mostrar handles: se comen el clic.
+      handlesVisibles: [...document.querySelectorAll(".oc-h")].filter(
+        (h) => h.style.display !== "none"
+      ).length,
+      modo: document.body.classList.contains("oc-editing"),
+    }));
+    check("el doble clic entra a editar", enEdicion.editable === "mix", enEdicion.editable);
+    check("y esconde los handles (si no, se comen el clic del caret)",
+      enEdicion.handlesVisibles === 0, `visibles=${enEdicion.handlesVisibles}`);
+    check("y marca el modo edición en el body", enEdicion.modo);
+
+    await page.keyboard.type("ZZ");
+    await new Promise((r) => setTimeout(r, 120));
+    const tecleado = await page.evaluate(() => document.querySelector("#mix").textContent);
+    check("lo tecleado NO cae al principio del texto", !tecleado.startsWith("ZZ"), `"${tecleado}"`);
+    check("cae donde se hizo el doble clic", /ZZ/.test(tecleado) && !tecleado.startsWith("ZZ"),
+      `"${tecleado}"`);
+
+    // Arrastrar sobre el borde derecho del texto MIENTRAS se edita: antes esto era
+    // un resize y le horneaba un width al elemento.
+    const anchoAntes = await page.evaluate(() => document.querySelector("#mix").style.width);
+    await drag(page, Math.round(mixR.right), finY, Math.round(mixR.right) - 60, finY);
+    const trasArrastre = await page.evaluate(() => ({
+      width: document.querySelector("#mix").style.width,
+      texto: document.querySelector("#mix").textContent,
+    }));
+    check("arrastrar sobre el texto en edición no le fija un ancho",
+      trasArrastre.width === anchoAntes, `${anchoAntes || "(sin width)"} → ${trasArrastre.width}`);
+    check("y no se pierde lo tecleado", /ZZ/.test(trasArrastre.texto), `"${trasArrastre.texto}"`);
+
+    // Una acción del panel (serializa) no puede expulsar de la edición: el flujo que
+    // el panel recomienda es entrar a editar, marcar un tramo y darle formato.
+    await pageFor(SLIDE_TEXT);
+    await page.mouse.click(120, 225);
+    await new Promise((r) => setTimeout(r, 60));
+    await page.evaluate(() => window.postMessage({ oc: "editText" }, "*"));
+    await new Promise((r) => setTimeout(r, 80));
+    await page.evaluate(() =>
+      window.postMessage({ oc: "apply", prop: "color", value: "#123456" }, "*")
+    );
+    await new Promise((r) => setTimeout(r, 120));
+    check(
+      "una acción del panel no expulsa de la edición",
+      (await page.evaluate(() => document.querySelector('[contenteditable="true"]')?.id)) === "mix"
+    );
+    // Pero el HTML guardado nunca lleva contenteditable, ni editando.
+    const serEditando = await page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          const onMsg = (e) => {
+            if (e.data && e.data.oc === "html") {
+              window.removeEventListener("message", onMsg);
+              resolve(e.data.html);
+            }
+          };
+          window.addEventListener("message", onMsg);
+          window.postMessage({ oc: "serialize" }, "*");
+        })
+    );
+    check("el HTML serializado no lleva contenteditable", !/contenteditable/i.test(serEditando));
+
+    // Escape cierra la edición (y guarda) sin tener que clicar afuera.
+    await page.keyboard.press("Escape");
+    await new Promise((r) => setTimeout(r, 120));
+    const trasEscape = await page.evaluate(() => ({
+      editable: document.querySelector('[contenteditable="true"]')?.id ?? null,
+      handles: [...document.querySelectorAll(".oc-h")].filter((h) => h.style.display !== "none").length,
+      modo: document.body.classList.contains("oc-editing"),
+    }));
+    check("Escape sale de la edición", trasEscape.editable === null, trasEscape.editable);
+    check("y devuelve los handles", trasEscape.handles > 0, `visibles=${trasEscape.handles}`);
+    check("y limpia el modo del body", !trasEscape.modo);
+
+    // Clic en zona vacía: el mousedown llama preventDefault (banda de selección), que
+    // cancela el blur nativo. Sin cerrar la edición a mano, el texto quedaba editable
+    // para siempre — con los atajos muertos y sin serializar lo tecleado.
+    await pageFor(SLIDE_TEXT);
+    await page.mouse.click(120, 225);
+    await new Promise((r) => setTimeout(r, 60));
+    await page.evaluate(() => window.postMessage({ oc: "editText" }, "*"));
+    await new Promise((r) => setTimeout(r, 80));
+    await page.keyboard.type("QQ");
+    await new Promise((r) => setTimeout(r, 80));
+    const guardado = await new Promise(async (resolve) => {
+      const p = page.evaluate(
+        () =>
+          new Promise((res) => {
+            const onMsg = (e) => {
+              if (e.data && e.data.oc === "html") {
+                window.removeEventListener("message", onMsg);
+                res(e.data.html);
+              }
+            };
+            window.addEventListener("message", onMsg);
+          })
+      );
+      await page.mouse.click(1000, 1250); // zona vacía del lienzo
+      resolve(await p);
+    });
+    check("clicar afuera cierra la edición",
+      (await page.evaluate(() => document.querySelector('[contenteditable="true"]'))) === null);
+    check("y guarda lo tecleado", /QQ/.test(guardado));
+
     // Y una caja de texto nueva no pinta nada.
     await pageFor(SLIDE_TEXT);
     await page.evaluate(() => window.postMessage({ oc: "addText" }, "*"));

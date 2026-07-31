@@ -56,6 +56,9 @@ export const EDITOR_FONTS = [
 export const EDITOR_RUNTIME = String.raw`
 (function(){
   var sels=[], drag=null, rz=null, rot=null, grz=null, band=null, pan=null;
+  // Texto en edición inline (null = ninguno) + freno del report al panel. Vive acá
+  // arriba porque paint() —muy anterior a editText— pregunta por él.
+  var editing=null, editReport=0;
   var squelch=false, clip=[], hist=[], HMAX=60;
   var W=document.body.clientWidth||1080, H=document.body.clientHeight||1350;
   var baseTf=new WeakMap(), delta=new WeakMap();
@@ -73,6 +76,11 @@ export const EDITOR_RUNTIME = String.raw`
     // mueve es la foto adentro del recorte, no el elemento.
     +'.oc-panning,.oc-panning *{cursor:grabbing !important}'
     +'.oc-box{position:absolute;outline:2px solid #4f7cff;outline-offset:1px}'
+    // Edición inline: la caja pasa a punteada (otro MODO, no "objeto seleccionado")
+    // y el cursor es de texto. El *{cursor:default} de arriba lo tapaba, así que
+    // nada avisaba que el clic ahora escribe en vez de mover.
+    +'.oc-editing .oc-box{outline-style:dashed}'
+    +'.oc-editing [contenteditable="true"],.oc-editing [contenteditable="true"] *{cursor:text}'
     // Caja envolvente de una multi-selección (punteada, para distinguirla de la
     // caja sólida de cada miembro) y banda de selección por arrastre.
     +'.oc-gbox{position:absolute;left:0;top:0;outline:2px dashed #4f7cff;outline-offset:3px}'
@@ -291,6 +299,11 @@ export const EDITOR_RUNTIME = String.raw`
         ui.appendChild(h); handles.push({el:h,c:c[0]});
       });
     }
+    // Texto en edición inline: el overlay se queda SIN handles. Están encima del
+    // texto y se comen el clic del caret (ver editText). paint() se llama desde
+    // media docena de lugares —cada acción del panel, entre ellas— así que la regla
+    // vive acá: si no, la primera acción del panel los devolvía en plena edición.
+    if(editing){ showHandles(false); if(rotLine) rotLine.style.display='none'; }
   }
   /** Caja envolvente de la selección actual, en coordenadas de lienzo. */
   function selBBox(){
@@ -564,8 +577,12 @@ export const EDITOR_RUNTIME = String.raw`
       x:Math.round(er.left), y:Math.round(er.top), w:Math.round(er.width), h:Math.round(er.height),
       canUndo: hist.length>0});
   }
-  function clearSel(){ sels=[]; savedRange=null; paint(); clearGuides(); report(); }
+  function clearSel(){ if(editing) endEdit(); sels=[]; savedRange=null; paint(); clearGuides(); report(); }
   function select(el, additive, solo){
+    // Pasar a otro elemento cierra la edición en curso (y la guarda). Al MISMO no:
+    // el doble clic manda un click justo antes del dblclick, y cerrar ahí abortaba
+    // la edición que ese doble clic venía a abrir.
+    if(editing && editing!==el) endEdit();
     if(!el){ if(!additive) clearSel(); return; }
     var ms = solo ? [el] : members(el);
     if(additive){
@@ -745,7 +762,7 @@ export const EDITOR_RUNTIME = String.raw`
     if(!r.collapsed && inEl) savedRange=r.cloneRange();
     // colapsar el caret DENTRO de la edición = el usuario des-marcó a propósito.
     // (Un colapso por mutación de DOM llega con contenteditable ya apagado y no borra.)
-    else if(r.collapsed && inEl && el.getAttribute('contenteditable')==='true') savedRange=null;
+    else if(r.collapsed && inEl && editing===el) savedRange=null;
     // avisar al panel solo en la transición (marcó / des-marcó), no en cada pixel
     var has=!!savedRange;
     if(has!==hadRange){ hadRange=has; report(); }
@@ -786,13 +803,19 @@ export const EDITOR_RUNTIME = String.raw`
   // ── historial ────────────────────────────────────────────────────────────────
   function snap(){
     ui.remove(); gl.remove();
-    hist.push(document.body.innerHTML.replace(/<script[\s\S]*?<\/script>/gi,''));
+    // Sin sacar contenteditable, un snapshot tomado en plena edición volvía del
+    // undo con el texto editable y nadie al mando: los atajos quedaban mudos.
+    hist.push(document.body.innerHTML.replace(/<script[\s\S]*?<\/script>/gi,'')
+      .replace(/\scontenteditable="[^"]*"/gi,''));
     if(hist.length>HMAX) hist.shift();
     document.body.appendChild(gl); document.body.appendChild(ui);
   }
   function undo(){
     if(!hist.length) return;
     var html=hist.pop();
+    // El nodo que se estaba editando desaparece con el innerHTML: cerrar el modo
+    // antes de reemplazarlo (endEdit lo detecta y no intenta guardar un nodo muerto).
+    if(editing) endEdit();
     document.body.innerHTML=html;
     document.body.appendChild(gl); document.body.appendChild(ui);
     sels=[]; boxes=[]; handles=[]; paint(); report(); serializeNoSnap();
@@ -812,8 +835,14 @@ export const EDITOR_RUNTIME = String.raw`
     // Los handles del overlay tienen su propio mousedown (resize/rotación): este
     // listener no debe armar un arrastre ni una banda encima de ellos.
     if(e.target&&e.target.closest&&e.target.closest('[data-oc-ui]')) return;
-    // Dentro de una edición de texto el mouse es del caret, no del editor.
-    if(e.target&&e.target.closest&&e.target.closest('[contenteditable="true"]')) return;
+    // Dentro de la edición inline el mouse es del caret, no del editor.
+    if(editing && e.target && editing.contains(e.target)) return;
+    // Fuera: se cierra la edición A MANO. El blur nativo no alcanza porque más
+    // abajo este mismo listener llama preventDefault() (banda de selección,
+    // arrastre), y eso cancela el cambio de foco: el texto quedaba en edición para
+    // siempre, con los atajos de teclado muertos (todos preguntan si hay algo en
+    // edición) y sin serializar lo tecleado.
+    if(editing) endEdit();
     // Zona de agarre con mínimo 28px por eje: un elemento flaco (flecha de 6px de
     // alto) era imposible de "pescar" con el rect exacto.
     var hit=sels.length>0&&sels.some(function(el){ var r=el.getBoundingClientRect();
@@ -827,7 +856,7 @@ export const EDITOR_RUNTIME = String.raw`
     // miembro suelto del grupo — no llegaban nunca a ejecutarse.
     if(e.shiftKey||e.ctrlKey||e.metaKey||e.altKey) return;
     if(sels.some(isLocked)) return;   // capa bloqueada: no se mueve
-    if(sels[0].getAttribute('contenteditable')==='true') return;
+    if(editing) return;               // un texto en edición no se arrastra
     savedRange=null;   // agarrar el elemento entero = adiós al tramo marcado
     // Foto que llena un marco: arrastrarla corre el ENCUADRE dentro del marco. Si
     // moviera el elemento se iría del recorte y quedaría cortada, que es lo que
@@ -1189,28 +1218,98 @@ export const EDITOR_RUNTIME = String.raw`
    * en que se puede MARCAR un tramo de texto para darle formato propio: fuera de
    * la edición, arrastrar sobre el texto mueve el elemento. Por eso el panel
    * expone un botón que llama acá, en vez de dejarlo escondido en el doble clic.
+   *
+   * Es un MODO con estado (la variable editing), no un atributo suelto: mientras
+   * dura, el overlay esconde sus handles y el mouse pertenece al caret. Con los
+   * handles vivos era imposible editar de verdad — ver más abajo.
+   *
+   * x/y (opcionales): dónde cayó el doble clic. El caret arranca AHÍ. focus()
+   * sobre un contenteditable colapsa la selección al INICIO del elemento, así que
+   * sin esto cada tecla entraba delante de todo el texto ("XYZTítulo") y corregir
+   * una palabra del final era imposible.
    */
-  function editText(t){
+  function editText(t,x,y){
     if(!t||!isTextEl(t)||isLocked(t)) return;
+    // Ya se está editando ESE texto: el doble clic es del navegador, que marca la
+    // palabra debajo del cursor — justo lo que el panel pide para dar formato a un
+    // tramo. Volver a entrar acá colapsaría el caret y la palabra se des-marcaba.
+    if(editing===t) return;
+    if(editing) endEdit();
     snap();
-    t.setAttribute('contenteditable','true'); t.focus();
-    var end=function(){
-      t.setAttribute('contenteditable','false'); t.removeEventListener('blur',end);
-      paint(); report(); serialize();
-    };
-    t.addEventListener('blur', end);
+    editing=t;
+    t.setAttribute('contenteditable','true');
+    t.focus();
+    placeCaret(t,x,y);
+    document.body.classList.add('oc-editing');
+    // Repintar el overlay YA en modo edición: sin handles. Viven encima del texto
+    // (en un titular grande, sobre sus propias letras) y tienen pointer-events:auto,
+    // así que el clic para corregir el final de la palabra caía en el handle 'e' y
+    // arrancaba un resize: al texto le quedaba un width fijo — "se convirtió en una
+    // caja" — y la edición moría en el acto. La regla vive en paint().
+    paint();
+    t.addEventListener('blur', endEdit);
+    t.addEventListener('input', onEditInput);
     report();
   }
+  /** Deja el caret donde se hizo clic; sin punto (o si falla), al final del texto. */
+  function placeCaret(t,x,y){
+    var r=null;
+    // caretRangeFromPoint es de Chromium (donde corren el editor y el export);
+    // caretPositionFromPoint es el estándar, para Firefox/Safari.
+    if(x!=null){
+      if(document.caretRangeFromPoint) r=document.caretRangeFromPoint(x,y);
+      else if(document.caretPositionFromPoint){
+        var p=document.caretPositionFromPoint(x,y);
+        if(p&&p.offsetNode){ r=document.createRange(); r.setStart(p.offsetNode,p.offset); r.collapse(true); }
+      }
+    }
+    if(!r || !t.contains(r.startContainer)){
+      r=document.createRange(); r.selectNodeContents(t); r.collapse(false);
+    }
+    var s=document.getSelection(); if(!s) return;
+    try{ s.removeAllRanges(); s.addRange(r); }catch(err){}
+  }
+  /**
+   * Lo tecleado tarda en llegar al panel hasta que se cierra la edición, y el campo
+   * de texto del panel es controlado: si la diseñadora escribe en el lienzo y
+   * después toca ese campo, el valor VIEJO volvía y le borraba lo tecleado. Un
+   * report con freno de mano lo mantiene al día sin postear en cada tecla.
+   */
+  function onEditInput(){
+    clearTimeout(editReport);
+    editReport=setTimeout(function(){ if(editing) report(); }, 300);
+  }
+  /** Sale de la edición inline y guarda. Idempotente. */
+  function endEdit(){
+    var t=editing; if(!t) return;
+    editing=null;
+    clearTimeout(editReport);
+    document.body.classList.remove('oc-editing');
+    if(t.removeEventListener){
+      t.removeEventListener('blur', endEdit);
+      t.removeEventListener('input', onEditInput);
+    }
+    // Un undo (o un pegado) puede haber reemplazado el nodo: no hay nada que cerrar.
+    if(!document.contains(t)){ paint(); report(); return; }
+    t.setAttribute('contenteditable','false');
+    paint(); report(); serialize();
+  }
   document.addEventListener('dblclick', function(e){
-    editText(candidateAt(e.clientX,e.clientY));
+    // Adentro del texto que ya se edita: el doble clic es del navegador (marca la
+    // palabra). Sin esta salida, entrar de nuevo colapsaba el caret al punto del
+    // clic y marcar palabras para darles formato no funcionaba nunca.
+    if(editing && e.target && editing.contains(e.target)) return;
+    editText(candidateAt(e.clientX,e.clientY), e.clientX, e.clientY);
   }, true);
 
   // ── teclado: undo, copy/paste, duplicar, borrar, nudge ───────────────────────
   document.addEventListener('keydown', function(e){
-    var ed=document.querySelector('[contenteditable="true"]');
     var mod=e.ctrlKey||e.metaKey;
     if(mod && e.key.toLowerCase()==='z'){ e.preventDefault(); undo(); return; }
-    if(ed) return;   // editando texto: Ctrl+A / Ctrl+C son del caret
+    // Escape cierra la edición y deja el texto seleccionado, sin tener que ir a
+    // clicar afuera (que además des-selecciona).
+    if(editing && e.key==='Escape'){ e.preventDefault(); endEdit(); return; }
+    if(editing) return;   // editando texto: Ctrl+A / Ctrl+C y las flechas son del caret
     // Enter sobre un texto seleccionado entra a editarlo (como en Canva).
     if(e.key==='Enter' && sels.length===1 && isTextEl(sels[0])){
       e.preventDefault(); editText(sels[0]); return;
@@ -1241,7 +1340,7 @@ export const EDITOR_RUNTIME = String.raw`
   //    "copiar imagen" en otra app) se manda al padre para subirla e insertarla.
   //    Sin imagen, cae al portapapeles interno (elementos copiados con Ctrl+C). ──
   document.addEventListener('paste', function(e){
-    if(document.querySelector('[contenteditable="true"]')) return; // edición inline: pegado nativo de texto
+    if(editing) return;   // edición inline: pegado nativo de texto
     var files=(e.clipboardData&&e.clipboardData.files)?[].slice.call(e.clipboardData.files):[];
     var img=null;
     for(var i=0;i<files.length;i++){ if(files[i].type.indexOf('image/')===0){ img=files[i]; break; } }
@@ -2510,8 +2609,12 @@ export const EDITOR_RUNTIME = String.raw`
     // a calzar con su dueño (mover, escalar, rotar, alinear, reemplazar imagen...).
     syncLinked();
     ui.remove(); gl.remove(); st.remove();
-    document.querySelectorAll('[contenteditable]').forEach(function(n){ n.removeAttribute('contenteditable'); });
+    // contenteditable se saca del TEXTO serializado, NO del DOM vivo. Quitarlo del
+    // DOM expulsaba de la edición a quien estuviera escribiendo, y serializa
+    // cualquier acción del panel — incluido cambiarle el color a un tramo marcado,
+    // que es el flujo que el panel mismo recomienda.
     var html=document.body.innerHTML.replace(/<script[\s\S]*?<\/script>/gi,'')
+      .replace(/\scontenteditable="[^"]*"/gi,'')
       .replace(/\sdata-oc-(?:ph|err)="1"/g,'');
     post({oc:'html', html:html});
     document.head.appendChild(st); document.body.appendChild(gl); document.body.appendChild(ui);
