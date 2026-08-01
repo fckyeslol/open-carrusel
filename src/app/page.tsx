@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Plus, Layers, Calendar, SlidersHorizontal, Trash2, Copy } from "lucide-react";
+import { Plus, Layers, Calendar, SlidersHorizontal, Trash2, Copy, Pencil, Search } from "lucide-react";
 import { TopBar } from "@/components/layout/TopBar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -49,8 +49,8 @@ export default function DashboardPage() {
     e.stopPropagation();
     setConfirmState({
       open: true,
-      title: `Delete "${name}"?`,
-      description: "This will permanently delete the carousel and all its slides.",
+      title: `¿Eliminar "${name}"?`,
+      description: "Se borra el carrusel y todas sus láminas. No se puede deshacer.",
       onConfirm: async () => {
         const res = await fetch(`/api/carousels/${id}`, { method: "DELETE" });
         if (res.ok) {
@@ -62,6 +62,43 @@ export default function DashboardPage() {
 
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [activeTab, setActiveTab] = useState<"carousels" | "templates">("carousels");
+
+  /**
+   * Buscador. "En el open carrusel no hay organización de carruseles como el HOME de
+   * Canva (o historial)": con decenas de piezas, una reja sin filtro obliga a abrir
+   * carruseles al azar para encontrar uno — y abrir el equivocado es justo lo que
+   * enreda. Filtra en cliente porque la lista ya está entera en memoria.
+   */
+  const [query, setQuery] = useState("");
+  const visibles = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return carousels;
+    return carousels.filter((c) => c.name.toLowerCase().includes(q));
+  }, [carousels, query]);
+
+  /** Renombrar en la propia tarjeta: el nombre es la única forma de encontrarlo después. */
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+
+  const commitRename = useCallback(
+    async (id: string) => {
+      const nombre = renameValue.trim();
+      setRenaming(null);
+      const actual = carousels.find((c) => c.id === id);
+      if (!nombre || !actual || nombre === actual.name) return;
+      // Optimista: el PUT es un write chico y la tarjeta ya muestra el nombre nuevo.
+      setCarousels((prev) => prev.map((c) => (c.id === id ? { ...c, name: nombre } : c)));
+      const res = await fetch(`/api/carousels/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: nombre }),
+      });
+      if (!res.ok) {
+        setCarousels((prev) => prev.map((c) => (c.id === id ? { ...c, name: actual.name } : c)));
+      }
+    },
+    [renameValue, carousels]
+  );
 
   const handleCreate = useCallback(async (name: string, aspectRatio: string) => {
     const res = await fetch("/api/carousels", {
@@ -87,7 +124,7 @@ export default function DashboardPage() {
         onOpenChange={(open) => setConfirmState((s) => ({ ...s, open }))}
         title={confirmState.title}
         description={confirmState.description}
-        confirmLabel="Delete"
+        confirmLabel="Eliminar"
         variant="destructive"
         onConfirm={confirmState.onConfirm}
       />
@@ -116,16 +153,19 @@ export default function DashboardPage() {
             <div>
               <h1 className="text-2xl font-bold">Open Carrusel</h1>
               <p className="text-sm text-muted-foreground mt-1">
-                Create Instagram carousels with AI
+                Tus carruseles. Los de 30x viven en el tablero y la Biblioteca.
               </p>
             </div>
             <div className="flex items-center gap-2">
+              <Link href="/biblioteca">
+                <Button variant="outline">Biblioteca 30x</Button>
+              </Link>
               <Link href="/30x">
                 <Button variant="outline">Carruseles 30x</Button>
               </Link>
               <Button onClick={() => setShowCreateDialog(true)} variant="accent">
                 <Plus className="h-4 w-4" />
-                New Carousel
+                Nuevo carrusel
               </Button>
             </div>
           </div>
@@ -140,7 +180,7 @@ export default function DashboardPage() {
                   : "border-transparent text-muted-foreground hover:text-foreground"
               }`}
             >
-              My Carousels
+              Mis carruseles
             </button>
             <button
               onClick={() => setActiveTab("templates")}
@@ -150,9 +190,22 @@ export default function DashboardPage() {
                   : "border-transparent text-muted-foreground hover:text-foreground"
               }`}
             >
-              Templates
+              Plantillas
             </button>
           </div>
+
+          {/* Buscador. Solo cuando hay lo suficiente como para perder algo de vista. */}
+          {activeTab === "carousels" && carousels.length > 5 && (
+            <div className="relative mb-5">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={`Buscar entre ${carousels.length} carruseles…`}
+                className="h-10 w-full rounded-lg border border-border bg-surface pl-9 pr-3 text-sm outline-none transition-colors focus:border-accent/60"
+              />
+            </div>
+          )}
 
           {activeTab === "templates" ? (
             <TemplateGallery />
@@ -168,21 +221,22 @@ export default function DashboardPage() {
           ) : carousels.length === 0 ? (
             <div className="text-center py-20">
               <Layers className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <h2 className="text-lg font-semibold mb-2">
-                No carousels yet
-              </h2>
+              <h2 className="text-lg font-semibold mb-2">Todavía no hay carruseles</h2>
               <p className="text-sm text-muted-foreground mb-6 max-w-md mx-auto">
-                Create your first Instagram carousel. Our AI assistant will
-                help you design beautiful slides in seconds.
+                Creá el primero y el asistente te ayuda a armar las láminas.
               </p>
               <Button onClick={() => setShowCreateDialog(true)} variant="accent" size="lg">
                 <Plus className="h-5 w-5" />
-                Create Your First Carousel
+                Crear el primero
               </Button>
             </div>
+          ) : visibles.length === 0 ? (
+            <p className="rounded-xl border border-dashed border-border px-4 py-12 text-center text-sm text-muted-foreground">
+              Ningún carrusel se llama así.
+            </p>
           ) : (
             <div className="oc-stagger grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {carousels.map((carousel) => (
+              {visibles.map((carousel) => (
                 <div
                   key={carousel.id}
                   onClick={() => router.push(`/carousel/${carousel.id}`)}
@@ -200,14 +254,25 @@ export default function DashboardPage() {
                         }
                       }}
                       className="h-7 w-7 rounded-lg flex items-center justify-center bg-white border border-border hover:bg-muted"
-                      aria-label={`Duplicate ${carousel.name}`}
+                      aria-label={`Duplicar ${carousel.name}`}
                     >
                       <Copy className="h-3.5 w-3.5" />
                     </button>
                     <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setRenameValue(carousel.name);
+                        setRenaming(carousel.id);
+                      }}
+                      className="h-7 w-7 rounded-lg flex items-center justify-center bg-white border border-border hover:bg-muted"
+                      aria-label={`Renombrar ${carousel.name}`}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button
                       onClick={(e) => handleDelete(e, carousel.id, carousel.name)}
                       className="h-7 w-7 rounded-lg flex items-center justify-center bg-white border border-border hover:bg-destructive hover:text-white hover:border-destructive"
-                      aria-label={`Delete ${carousel.name}`}
+                      aria-label={`Eliminar ${carousel.name}`}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -224,9 +289,25 @@ export default function DashboardPage() {
                       <Layers className="h-8 w-8 text-muted-foreground/30" />
                     )}
                   </div>
-                  <h3 className="font-semibold text-sm group-hover:text-accent transition-colors truncate">
-                    {carousel.name}
-                  </h3>
+                  {renaming === carousel.id ? (
+                    <input
+                      autoFocus
+                      value={renameValue}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onBlur={() => commitRename(carousel.id)}
+                      onKeyDown={(e) => {
+                        e.stopPropagation();
+                        if (e.key === "Enter") commitRename(carousel.id);
+                        if (e.key === "Escape") setRenaming(null);
+                      }}
+                      className="w-full rounded border border-accent/60 bg-background px-1.5 py-0.5 text-sm font-semibold outline-none"
+                    />
+                  ) : (
+                    <h3 className="font-semibold text-sm group-hover:text-accent transition-colors truncate">
+                      {carousel.name}
+                    </h3>
+                  )}
                   <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
                     <Badge variant="secondary" className="text-[10px]">
                       <SlidersHorizontal className="h-2.5 w-2.5 mr-1" />
