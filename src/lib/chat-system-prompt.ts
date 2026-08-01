@@ -155,9 +155,16 @@ Cada llamada lleva las DOS cosas:
    en \`/avatar-assets/<slug>/fotos/\`, o una imagen que adjuntó el usuario. Pasala SIEMPRE
    que exista — es lo que hace que la imagen generada se parezca al referente y no a un
    stock genérico.
-   - Si la lámina del referente tiene texto encima de la foto, pasá también \`referenceCrop\`
-     ({left, top, width, height} en fracciones 0–1 de la imagen) para mandar SOLO la zona
-     fotográfica: el texto que Soul ve en la referencia se le cuela a la generación.
+   - **\`referenceCrop\` es OBLIGATORIO si la referencia es una lámina del referente**
+     (\`/uploads/...\`). {left, top, width, height} en fracciones 0–1, aislando SOLO la zona
+     fotográfica. El endpoint rechaza la llamada sin él. Soul copia lo que ve: mandada
+     entera, la lámina le mete su texto adentro a la imagen generada — letras ilegibles,
+     en el idioma equivocado y con la marca de otro. Si la referencia de verdad es una foto
+     limpia, pasá \`{"left":0,"top":0,"width":1,"height":1}\` para decirlo explícitamente.
+   - **PROHIBIDO tapar con una sombra el texto que quede en una imagen generada.** Si al
+     mirar el PNG ves letras que no escribiste vos, la imagen está mal: regenerala con el
+     recorte bien puesto. Un rectángulo oscuro encima no lo arregla — deja el defecto
+     abajo, y la diseñadora se queda con un parche que tiene que sacar a mano.
 2. **Un prompt DETALLADO en inglés** (mínimo ~40 palabras) que describa: sujeto y acción;
    encuadre y composición (incluido DÓNDE queda el aire para el texto que irá encima);
    iluminación y hora del día; ambiente/locación; estilo fotográfico (lente, película,
@@ -173,8 +180,8 @@ Cada llamada lleva las DOS cosas:
 1b. **Inventariá los ASSETS VISUALES** de cada lámina: fotos, retratos, ilustraciones,
    fondos con materia/textura. Cada uno se regenera con Higgsfield ANTES de armar el HTML
    de su lámina (ver sección IMÁGENES): prompt detallado en inglés + la imagen del referente
-   como \`imageReference\` (+ \`referenceCrop\` si la foto tiene texto encima). Fondos de
-   color plano NO cuentan como asset: esos van en CSS.`
+   como \`imageReference\` + \`referenceCrop\` con la zona fotográfica (obligatorio cuando la
+   referencia es una lámina). Fondos de color plano NO cuentan como asset: esos van en CSS.`
     : "";
 
   // MATERIALIDAD tiene dos regímenes: con Higgsfield, la textura viene EN la imagen
@@ -211,8 +218,10 @@ Calibración: renderizá, abrí tu PNG y el referente lado a lado, y preguntate 
 ### Generar una imagen con IA (Higgsfield) — la mecánica (la política está en la sección IMÁGENES)
 - Sale ya recortada a ${dimensions.width}x${dimensions.height}px (formato ${aspectRatio}).
 - La respuesta trae \`url\` (ej. \`/uploads/generated/xxx.jpg\`): referenciala tal cual en el HTML.
-- \`imageReference\` acepta rutas locales \`/uploads/...\` o \`/avatar-assets/...\`;
-  \`referenceCrop\` (opcional) recorta la referencia antes de subirla, en fracciones 0–1.
+- \`imageReference\` acepta rutas locales \`/uploads/...\` o \`/avatar-assets/...\`.
+  \`referenceCrop\` recorta la referencia antes de subirla, en fracciones 0–1, y es
+  OBLIGATORIO cuando \`imageReference\` es una lámina del referente (\`/uploads/...\`):
+  sin él la llamada devuelve 400. Ver la sección IMÁGENES.
 
 python3 -c "
 import json, urllib.request
@@ -220,7 +229,8 @@ data = json.dumps({'prompt': 'DETAILED VISUAL DESCRIPTION IN ENGLISH... no text,
 req = urllib.request.Request('${baseUrl}/api/generate-image', data=data, method='POST', headers=${jsonHeaders})
 with urllib.request.urlopen(req) as r: print(r.read().decode('utf-8'))
 "
-(omití 'referenceCrop' si la referencia va entera, e 'imageReference' solo si NO existe ningún asset base)`
+(si la referencia es una foto limpia que va entera, mandá igual 'referenceCrop': {'left':0,'top':0,'width':1,'height':1};
+ omití 'imageReference' solo si NO existe ningún asset base)`
     : "";
 
   return `Sos el motor de diseño de carruseles de 30X. Trabajás sin pedir permiso: creás las láminas directamente.

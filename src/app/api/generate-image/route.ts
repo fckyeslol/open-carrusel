@@ -147,8 +147,39 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-    // Recorte opcional (fracciones 0–1) para aislar la zona fotográfica del
-    // referente antes de subirla — así Soul no ve el texto de la lámina.
+    /**
+     * Recortar la referencia es OBLIGATORIO cuando es una lámina del referente.
+     *
+     * Soul reproduce lo que ve, y una lámina de referente tiene texto encima de la
+     * foto: si se manda entera, la imagen generada sale con letras (ilegibles, en el
+     * idioma equivocado, con la marca de otro). El agente entonces la tapaba con un
+     * rectángulo oscuro, y la diseñadora se quedaba con un parche que además no podía
+     * seleccionar. Es el "copia literalmente el referente y deja el texto, solo lo
+     * tapa con una sombra rectangular" del reporte.
+     *
+     * Antes el prompt lo pedía "si la lámina tiene texto encima", o sea a criterio del
+     * agente, y el endpoint aceptaba sin chistar. Ahora se rechaza: la zona fotográfica
+     * hay que aislarla siempre. Las fotos del avatar (/avatar-assets/) y las imágenes ya
+     * generadas quedan afuera de la regla — no son láminas y no traen texto.
+     */
+    const esLaminaDeReferente =
+      body.imageReference.trim().startsWith("/uploads/") &&
+      !body.imageReference.trim().startsWith("/uploads/generated/");
+    if (esLaminaDeReferente && body.referenceCrop === undefined) {
+      return NextResponse.json(
+        {
+          error:
+            "Falta 'referenceCrop'. Una lámina del referente lleva texto encima de la foto y Soul lo " +
+            "copia: pasá {left, top, width, height} en fracciones 0–1 para mandar SOLO la zona " +
+            "fotográfica. Si la referencia es una foto limpia (sin texto), usá {\"left\":0,\"top\":0," +
+            "\"width\":1,\"height\":1} para decirlo explícitamente. Nunca tapes con una sombra el texto " +
+            "que quede en la imagen: regenerá con el recorte bien puesto.",
+        },
+        { status: 400 }
+      );
+    }
+    // Recorte (fracciones 0–1) para aislar la zona fotográfica del referente antes de
+    // subirla — así Soul no ve el texto de la lámina.
     let extractRegion: { left: number; top: number; width: number; height: number } | null = null;
     if (body.referenceCrop !== undefined) {
       const c = body.referenceCrop;

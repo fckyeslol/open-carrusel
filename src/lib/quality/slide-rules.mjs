@@ -322,6 +322,57 @@ function marcaTipeada(html) {
 }
 
 /**
+ * El parche: una imagen generada con IA + un velo oscuro a lámina completa.
+ *
+ * Soul copia lo que ve. Si se le manda una lámina de referente entera, la imagen sale
+ * con el texto del referente adentro — ilegible y en el idioma equivocado. El arreglo
+ * correcto es regenerar recortando la zona fotográfica (el endpoint ahora lo exige);
+ * el arreglo que el agente elegía era taparlo con un rectángulo oscuro, que ni siquiera
+ * se podía seleccionar para sacarlo. "La generadora de imágenes está pésima porque
+ * copia literalmente el referente y deja el texto de referente y solo lo tapa con una
+ * sombra rectangular."
+ *
+ * Se mira el HTML crudo, así que esto es una SEÑAL, no una prueba: un degradado sobre
+ * una foto es además la forma legítima de que un titular se lea. Por eso es warning y
+ * el mensaje pide mirar el PNG, no afirma que esté mal.
+ */
+function veloSobreImagenGenerada(html) {
+  if (!/\/uploads\/generated\//.test(html)) return [];
+
+  // Un velo a lámina completa: inset:0 (o top/left 0 con 100%) + degradado o negro
+  // translúcido. Se buscan los dos rasgos en el MISMO atributo style.
+  const estilos = [...html.matchAll(/style\s*=\s*"([^"]*)"/gi)].map((m) => m[1]);
+  // Tiene que cubrir de ARRIBA a abajo. El degradado al pie de una foto (bottom:0 +
+  // 220px de alto) es la forma normal de asentar un titular y no tapa la imagen: si
+  // esto lo marcara, el aviso saltaría en casi toda lámina con foto y se volvería
+  // ruido — incluidas las veces que tiene razón.
+  const aSangre = (s) =>
+    /inset\s*:\s*0/.test(s) ||
+    (/(?:^|;|\s)top\s*:\s*0/.test(s) &&
+      /height\s*:\s*(?:100%|1080px|1350px|1920px)/.test(s));
+  const oscurece = (s) =>
+    /linear-gradient\([^)]*rgba?\(\s*0\s*,\s*0\s*,\s*0/i.test(s) ||
+    /background(?:-color)?\s*:\s*rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0?\.\d+/i.test(s);
+
+  const sospechoso = estilos.find((s) => aSangre(s) && oscurece(s));
+  if (!sospechoso) return [];
+
+  return [
+    hallazgo(
+      'slide-velo-sobre-imagen-generada',
+      'Velo a lámina completa sobre una imagen generada',
+      'warning',
+      `Esta lámina usa una imagen de /uploads/generated/ y encima tiene un velo oscuro a ` +
+        `sangre. Si el velo está ahí para que el titular se lea, está bien. Si está tapando ` +
+        `TEXTO que quedó dentro de la imagen generada, no: hay que regenerarla pasando ` +
+        `'referenceCrop' con solo la zona fotográfica del referente. Abrí el PNG y fijate si ` +
+        `debajo del velo se adivinan letras que no escribiste vos.`,
+      sospechoso.slice(0, 160),
+    ),
+  ];
+}
+
+/**
  * Corre todas las reglas 30x sobre el fragmento crudo de la lámina.
  *
  * @param {string} html          HTML a nivel body, tal como se guarda
@@ -344,6 +395,7 @@ export function correrReglas30x(
     ...dimensionesDelLienzo(html, aspectRatio, dimensiones),
     ...margenSeguro(html),
     ...marcaTipeada(html),
+    ...veloSobreImagenGenerada(html),
     ...bloqueDesflecado(html),
     ...fuentesResolubles({ familiasDeclaradas, familiasConocidas }),
   ];
