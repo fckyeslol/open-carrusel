@@ -23,9 +23,12 @@ import sharp from "sharp";
 import {
   CONTRACT_VERSION,
   FONTS_READY_TIMEOUT_MS,
+  IMAGES_READY_TIMEOUT_MS,
   SET_CONTENT_TIMEOUT_PDF_MS,
   SET_CONTENT_TIMEOUT_PNG_MS,
+  decodeImagesInPage,
   fontsReadyPredicate,
+  imagesReadyPredicate,
   stripBackgroundInPage,
 } from "./slide-render-contract.mjs";
 
@@ -77,12 +80,23 @@ async function withPage(fn) {
   }
 }
 
-async function waitForFonts(page) {
+/**
+ * Espera a que la página esté lista para capturar: fuentes resueltas e imágenes cargadas.
+ * Si algo expira se captura igual, pero avisando — un PNG incompleto en silencio es el
+ * fallo que este servicio ya tuvo (ver `imagesReadyPredicate` en el contrato).
+ */
+async function waitForAssets(page) {
   await page
     .waitForFunction(fontsReadyPredicate, { timeout: FONTS_READY_TIMEOUT_MS })
     .catch(() => {
-      /* timeout de fuentes: capturamos con lo que haya cargado */
+      console.warn("[render] las fuentes no resolvieron a tiempo; capturo con el fallback");
     });
+  await page
+    .waitForFunction(imagesReadyPredicate, { timeout: IMAGES_READY_TIMEOUT_MS })
+    .catch(() => {
+      console.warn("[render] alguna imagen quedó en vuelo; la lámina puede salir sin ella");
+    });
+  await page.evaluate(decodeImagesInPage).catch(() => {});
 }
 
 async function renderPng({ html, width, height, scale, transparent }) {
@@ -92,7 +106,7 @@ async function renderPng({ html, width, height, scale, transparent }) {
       waitUntil: "domcontentloaded",
       timeout: SET_CONTENT_TIMEOUT_PNG_MS,
     });
-    await waitForFonts(page);
+    await waitForAssets(page);
 
     if (transparent) await page.evaluate(stripBackgroundInPage);
 
@@ -116,7 +130,7 @@ async function renderPdf({ html, width, height, scale }) {
       waitUntil: "domcontentloaded",
       timeout: SET_CONTENT_TIMEOUT_PDF_MS,
     });
-    await waitForFonts(page);
+    await waitForAssets(page);
 
     const pdf = await page.pdf({
       width: `${width}px`,

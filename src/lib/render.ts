@@ -26,9 +26,12 @@ import { renderFallo, renderOk } from "./telemetry";
 import {
   CONTRACT_VERSION,
   FONTS_READY_TIMEOUT_MS,
+  IMAGES_READY_TIMEOUT_MS,
   SET_CONTENT_TIMEOUT_PDF_MS,
   SET_CONTENT_TIMEOUT_PNG_MS,
+  decodeImagesInPage,
   fontsReadyPredicate,
+  imagesReadyPredicate,
   stripBackgroundInPage,
 } from "./slide-render-contract.mjs";
 
@@ -50,15 +53,25 @@ export interface RenderOptions {
 }
 
 /**
- * Espera a que las @font-face resolvieron. Si expira, seguimos con lo que haya cargado:
- * es mejor una lámina con fuente de fallback que ninguna lámina.
+ * Espera a que la página esté lista para capturar: fuentes resueltas e imágenes cargadas.
+ *
+ * Si algo expira se captura con lo que haya, pero AVISANDO: es mejor una lámina con la
+ * fuente de fallback que ninguna lámina, y el silencio es exactamente lo que dejó pasar
+ * meses de PNGs sin foto. El aviso es la única traza de que la lámina salió incompleta.
  */
-async function waitForFonts(page: Page): Promise<void> {
+async function waitForAssets(page: Page): Promise<void> {
   await page
     .waitForFunction(fontsReadyPredicate, { timeout: FONTS_READY_TIMEOUT_MS })
     .catch(() => {
-      /* timeout de fuentes: capturamos igual */
+      console.warn("[render] las fuentes no resolvieron a tiempo; capturo con el fallback");
     });
+  await page
+    .waitForFunction(imagesReadyPredicate, { timeout: IMAGES_READY_TIMEOUT_MS })
+    .catch(() => {
+      console.warn("[render] alguna imagen quedó en vuelo; la lámina puede salir sin ella");
+    });
+  // Los bytes ya llegaron; esto espera a que esté lista para PINTARSE.
+  await page.evaluate(decodeImagesInPage).catch(() => {});
 }
 
 /**
@@ -276,7 +289,7 @@ export async function renderPng(input: RenderInput, opts: RenderOptions = {}): P
       waitUntil: "domcontentloaded",
       timeout: SET_CONTENT_TIMEOUT_PNG_MS,
     });
-    await waitForFonts(page);
+    await waitForAssets(page);
 
     if (transparent) await page.evaluate(stripBackgroundInPage);
 
@@ -314,7 +327,7 @@ export async function renderPdf(input: RenderInput, opts: RenderOptions = {}): P
       waitUntil: "domcontentloaded",
       timeout: SET_CONTENT_TIMEOUT_PDF_MS,
     });
-    await waitForFonts(page);
+    await waitForAssets(page);
 
     const pdf = await page.pdf({
       width: `${width}px`,

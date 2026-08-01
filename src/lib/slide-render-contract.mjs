@@ -30,7 +30,7 @@
  * Versión del contrato. Subir en cualquier cambio de comportamiento de los scripts
  * de abajo o de la forma del payload.
  */
-export const CONTRACT_VERSION = 2;
+export const CONTRACT_VERSION = 3;
 
 /**
  * Timeout de `setContent` para el PNG por lámina. El HTML ya viene autocontenido
@@ -63,6 +63,46 @@ export function fontsReadyPredicate() {
   return document.fonts.ready.then(() =>
     ![...document.fonts].some((f) => f.status === "loading")
   );
+}
+
+/** Cuánto se espera a que no quede ninguna imagen en vuelo antes de capturar. */
+export const IMAGES_READY_TIMEOUT_MS = 20000;
+
+/**
+ * Predicado para `page.waitForFunction`: ya no queda ninguna `<img>` en vuelo.
+ *
+ * NO existía, y esa era la mitad del bug de las fotos que salían vacías o cortadas. El
+ * razonamiento de por qué no hacía falta era este: el HTML llega autocontenido (imágenes en
+ * data: URI), así que no hay nada que bajar y `domcontentloaded` alcanza. Cierto mientras el
+ * inlineado cubra TODO — y no cubría las URLs absolutas, que son como el editor guarda las
+ * fotos en 258 láminas de producción. Esas quedaban pidiéndose por red mientras la captura
+ * ya se había disparado: `complete=false`, `naturalWidth=0`, PNG de 22KB en vez de 2.3MB.
+ * Reproducible 3 de 3 veces, no una carrera de vez en cuando.
+ *
+ * Espera `complete`, NO `naturalWidth > 0`: `complete` se pone en true tanto si la imagen
+ * cargó como si falló, que es justo la condición de "ya no queda nada en vuelo". Exigir que
+ * además tenga píxeles dejaría una imagen rota (un 404) colgando hasta que expire el
+ * timeout, 20s por lámina, para terminar capturando lo mismo.
+ */
+export function imagesReadyPredicate() {
+  return [...document.querySelectorAll("img")].every((img) => img.complete);
+}
+
+/**
+ * Fuerza el decodificado de las imágenes antes de capturar, para `page.evaluate`.
+ *
+ * `complete` dice que los bytes llegaron; `decode()` resuelve cuando la imagen está lista
+ * para pintarse. Sin esto quedaba la ventana en la que la captura agarra una foto grande a
+ * medio decodificar — que es la que se ve "cortada a la mitad".
+ *
+ * Cada `decode()` va con su catch: en una imagen que falló, `decode()` RECHAZA, y una
+ * promesa rechazada acá abortaría el render de una lámina que igual se puede entregar con
+ * el resto de su contenido.
+ */
+export function decodeImagesInPage() {
+  return Promise.all(
+    [...document.querySelectorAll("img")].map((img) => img.decode().catch(() => {}))
+  ).then(() => undefined);
 }
 
 /**

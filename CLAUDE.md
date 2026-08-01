@@ -32,6 +32,31 @@ AI-powered Instagram carousel builder. Next.js 16 + React 19 + TypeScript + Tail
   Illustrator receive curves instead of text. `"static"` asks Google for per-weight instances
   (the only lever is the User-Agent — there is no API parameter) and the same PDF comes out with
   `Inter-Bold` really embedded. Verify with `npm run check:export`
+- `src/lib/export-slides.ts` — `inlineImages()` embeds every image the slide references as a
+  `data:` URI. This is not an optimization, it is what the whole render seam rests on: rendering
+  happens through `setContent` with **no base URL**, in a process that may be another container.
+  A reference left un-inlined is not "an image that loads later" — it is an image the renderer
+  may not have when it fires the capture, and it fails silently. It used to match only paths
+  starting with `/`, and the editor stores photos as **absolute URLs**
+  (`https://carruseles.30x.com/uploads/…` — 258 slides in production, including work from today).
+  Those exported blank: `complete=false`, `naturalWidth=0`, a 22KB PNG instead of 2.3MB,
+  reproducible 3 out of 3. The editor looked right because there the browser does wait. The host
+  is deliberately **not** validated — what decides is whether the file is under `public/`, so it
+  works the same on the production domain, on localhost and on any future domain. Replacement is
+  scoped to real load contexts (`src=`, `url(`) so a 1MB base64 never lands in the editor's
+  `data-oc-imghist` metadata. Covered by `export-slides.test.mts`
+- `src/lib/slide-render-contract.mjs` — the only code the app and the render service share
+  (`RENDER_SERVICE_URL` set ⇒ Chrome runs in the other container; unset ⇒ in-process, which is
+  how the designers' local mode works). It owns what the renderer waits for before capturing:
+  fonts resolved (`fontsReadyPredicate`) **and** images loaded (`imagesReadyPredicate` +
+  `decodeImagesInPage`). The image wait did not exist, and that was the other half of the blank-photo
+  bug: the reasoning was that the HTML arrives self-contained so `domcontentloaded` suffices — true
+  only while the inlining covers *everything*. Both predicates wait for "nothing in flight", never
+  for success: a face that errored or an image that 404s leaves the wait satisfied, because
+  demanding pixels would hang a broken asset until timeout to capture the same thing anyway. A
+  timeout still captures, but now it `console.warn`s — silence is what let months of photo-less
+  PNGs through. **Editing this file means bumping `CONTRACT_VERSION` and redeploying both parts**;
+  the client compares against `/_health` and warns when they diverge
 - `src/lib/quality/` — Slide quality engine. Vendored impeccable detector (`engine/`, Apache-2.0,
   do not edit) plus the 30x adaptation layer: `slide-profile.mjs` (which rules apply to a slide),
   `design-system.mjs` (avatar ADN → design system, so drift is measured against the avatar's real

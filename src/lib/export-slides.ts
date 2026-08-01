@@ -27,46 +27,89 @@ const MIME_POR_EXT: Record<string, string> = {
 };
 
 /**
- * Inline all image references in slide HTML as data: URIs.
+ * Referencias a imágenes en una lámina: la ruta root-relative (`/uploads/x.png`) y
+ * también la URL ABSOLUTA (`https://carruseles.30x.com/uploads/x.png`).
  *
- * Puppeteer renderiza con setContent y SIN base URL, así que cualquier ruta
- * root-relative (/uploads, /textures, /30x-slides, …) que no se inlinee acá
- * simplemente no carga en el PNG — falla en silencio y la lámina se exporta sin
- * esa imagen. (Fue exactamente el bug de las texturas: /textures/carton.png
- * cargaba en el preview por CDN pero desaparecía en el export.)
+ * Las comillas pueden venir escapadas como entidad: al serializar un
+ * style="background: url('/uploads/x.jpg')" el navegador lo guarda como
+ * url(&quot;/uploads/x.jpg&quot;).
+ */
+const RE_IMG =
+  /(?:src=|url\()\s*(?:["']|&quot;|&#0?39;|&apos;)?((?:https?:\/\/[^"'\s)&]+|\/[^"'\s)&]+)\.(?:png|jpe?g|webp|avif|gif|svg))/gi;
+
+/**
+ * A qué archivo de `public/` apunta una referencia, o `null` si no apunta a ninguno.
  *
- * Por eso se matchea cualquier ruta absoluta con extensión de imagen, no solo
- * /uploads. La extensión acota el match para no agarrar URLs que no son imágenes;
- * los http(s):// no empiezan con "/" y quedan afuera (las fuentes van por otro lado).
+ * Acepta la ruta root-relative y **la URL absoluta a nuestro propio sitio**, que es como
+ * el editor guarda las fotos: 258 láminas en producción dicen
+ * `<img src="https://carruseles.30x.com/uploads/…">`. Ese caso no se contemplaba —el regex
+ * exigía que la ruta empezara con `/`— y era el bug: la foto no se inlineaba, y como la
+ * captura tampoco espera a la red, el PNG salía sin ella o con ella a medio pintar. En el
+ * editor se veía bien, porque ahí el navegador sí espera.
+ *
+ * El host NO se valida a propósito: lo que decide es si el archivo está en `public/`. Así
+ * funciona igual en el dominio de producción, en localhost y en cualquier dominio futuro,
+ * sin configuración que se pueda olvidar de actualizar.
+ */
+function rutaEnPublic(ref: string, publicDir: string): string | null {
+  let pathname = ref;
+  if (/^https?:\/\//i.test(ref)) {
+    try {
+      pathname = new URL(ref).pathname;
+    } catch {
+      return null;
+    }
+  }
+  try {
+    pathname = decodeURIComponent(pathname);
+  } catch {
+    return null; // %-encoding roto: no apunta a nada que podamos leer
+  }
+  const full = path.resolve(publicDir, `.${pathname}`);
+  // Contención: una referencia con ../ no puede leer fuera de public/.
+  return full === publicDir || full.startsWith(publicDir + path.sep) ? full : null;
+}
+
+/**
+ * Inlinea como data: URI todas las imágenes de una lámina que vivan en `public/`.
+ *
+ * Es lo que sostiene TODO el seam de render: se renderiza con `setContent` y SIN base URL,
+ * en un proceso que además puede ser otro contenedor. Una referencia que no se inlinee acá
+ * no es "una imagen que carga más lento": es una imagen que el render puede no tener cuando
+ * dispara la captura. Y falla en silencio, así que la lámina sale sin ella.
+ *
+ * Se cubren las dos formas en las que una lámina nombra sus imágenes (ruta y URL absoluta)
+ * y cualquier carpeta de `public/`, no solo `/uploads` — `/30x` (los logos), `/textures`,
+ * `/30x-slides`. Lo que queda afuera es lo genuinamente externo, y para eso está la espera
+ * de imágenes del render (ver `imagesReadyPredicate` en slide-render-contract.mjs).
  */
 export async function inlineImages(html: string): Promise<string> {
   const publicDir = path.resolve(process.cwd(), "public");
-  // Las comillas pueden venir escapadas como entidad: al serializar un
-  // style="background: url('/uploads/x.jpg')" el navegador lo guarda como
-  // url(&quot;/uploads/x.jpg&quot;).
-  const imgRegex =
-    /(?:src=|url\()\s*(?:["']|&quot;|&#0?39;|&apos;)?(\/[^"'\s)&]+\.(?:png|jpe?g|webp|avif|gif|svg))/gi;
-  const matches = [...html.matchAll(imgRegex)];
+  const refs = new Set([...html.matchAll(RE_IMG)].map((m) => m[1]));
 
-  let result = html;
-  const inlinadas = new Set<string>();
-  for (const match of matches) {
-    const imgPath = match[1];
-    if (inlinadas.has(imgPath)) continue; // una textura se usa en varias láminas
-    inlinadas.add(imgPath);
+  const dataUriPorRef = new Map<string, string>();
+  for (const ref of refs) {
+    const archivo = rutaEnPublic(ref, publicDir);
+    if (!archivo) continue;
     try {
-      const fullPath = path.join(publicDir, imgPath);
-      const buffer = await readFile(fullPath);
-      const mime = MIME_POR_EXT[path.extname(imgPath).toLowerCase()] || "image/png";
-      const base64 = buffer.toString("base64");
-      // replaceAll: el mismo path puede aparecer más de una vez en la lámina.
-      result = result.replaceAll(imgPath, `data:${mime};base64,${base64}`);
+      const buffer = await readFile(archivo);
+      const mime = MIME_POR_EXT[path.extname(archivo).toLowerCase()] || "image/png";
+      dataUriPorRef.set(ref, `data:${mime};base64,${buffer.toString("base64")}`);
     } catch {
-      // Keep original path — Puppeteer can fetch from localhost
+      // No está en disco. Se deja la referencia como vino: si es absoluta el navegador la
+      // baja por red y la espera de imágenes la aguanta; si es relativa no hay forma de
+      // resolverla sin base URL y esa lámina sale sin la imagen.
     }
   }
+  if (dataUriPorRef.size === 0) return html;
 
-  return result;
+  // Se reemplaza SOLO donde la imagen se carga de verdad (`src=`, `url(`), no en todo el
+  // documento como antes: el editor guarda su historial de imágenes en `data-oc-imghist`, y
+  // meterle un base64 de 1MB a un atributo que nadie pinta infla el HTML que cruza el seam.
+  return html.replace(RE_IMG, (todo, ref: string) => {
+    const dataUri = dataUriPorRef.get(ref);
+    return dataUri ? todo.replace(ref, dataUri) : todo;
+  });
 }
 
 /**
