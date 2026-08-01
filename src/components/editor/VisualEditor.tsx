@@ -18,6 +18,9 @@ import {
   Type,
   Shapes,
   Image as ImageIcon,
+  Magnet,
+  Minus,
+  Plus,
   Bold,
   Italic,
   AlignLeft,
@@ -143,6 +146,9 @@ type SpacingKey = "padT" | "padR" | "padB" | "padL" | "marT" | "marR" | "marB" |
 const SIDE_KEY = { top: "T", right: "R", bottom: "B", left: "L" } as const;
 const ALL_SIDES = ["top", "right", "bottom", "left"] as const;
 
+/** Aire alrededor de la lámina en el lienzo, en px de pantalla. */
+const CANVAS_PAD = 32;
+
 /** Entrada del manifest de texturas horneadas (public/textures/manifest.json). */
 interface TextureItem {
   slug: string;
@@ -191,6 +197,29 @@ export function VisualEditor({
   // Último zoom medido, sin re-suscribir el listener de mensajes: el runtime lo
   // necesita para medir la tolerancia del imán en px de pantalla.
   const scaleRef = useRef(1);
+  /**
+   * Zoom de la diseñadora, como MULTIPLICADOR del encaje. null = "ajustar".
+   *
+   * Sin esto la lámina se veía siempre al tamaño que entrara en el panel — a 1350px
+   * de alto, alrededor del 38%. A esa escala 1px de la lámina es 0.38px de pantalla:
+   * "no permite mover milimétricamente en el tablero de edición" del reporte no era
+   * una queja sobre el arrastre, era que no se puede ajustar lo que no se ve.
+   *
+   * Va como multiplicador y no como escala absoluta para que "100%" siga significando
+   * "la lámina entera a la vista" — que es lo que la diseñadora quiere el 90% del
+   * tiempo — y el acercamiento sea explícito.
+   */
+  const [zoom, setZoom] = useState<number | null>(null);
+  /** Escala del encaje (sin zoom), para poder recalcular al cambiar de multiplicador. */
+  const fitRef = useRef(1);
+  /**
+   * Imán de alineación. Se puede apagar: las guías inteligentes son de gran ayuda hasta
+   * que estorban, y hasta ahora la única forma de saltarlas era mantener Alt, que no
+   * estaba escrito en ningún lado.
+   */
+  const [snap, setSnap] = useState(true);
+  /** Igual que scaleRef: el 'ready' de una lámina nueva necesita el valor sin re-suscribir. */
+  const snapRef = useRef(true);
   const fileRef = useRef<HTMLInputElement>(null);
   const replaceRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -239,14 +268,22 @@ export function VisualEditor({
   const [initialHtml] = useState(html);
   const srcDoc = useMemo(() => wrapEditableSlide(initialHtml, aspectRatio), [initialHtml, aspectRatio]);
 
-  // escala para encajar en el contenedor
+  // Escala para encajar en el contenedor, multiplicada por el zoom de la diseñadora.
+  // El runtime necesita la escala FINAL: mide la tolerancia del imán en px de pantalla,
+  // así que al acercarse el imán se afloja solo (7px de pantalla son 18px de lámina al
+  // 38%, pero 7px de lámina al 100%). Ese es el otro motivo por el que el zoom arregla
+  // el posicionamiento fino, además de dejarte ver lo que estás moviendo.
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
     const measure = () => {
       const r = el.getBoundingClientRect();
       if (!r.width || !r.height) return;
-      const s = Math.min(r.width / W, r.height / H);
+      // El padding del lienzo NO cuenta como espacio disponible: sin restarlo, "ajustar"
+      // dejaba la lámina un pelo más grande que su hueco y comida por los bordes.
+      const fit = Math.min((r.width - CANVAS_PAD * 2) / W, (r.height - CANVAS_PAD * 2) / H);
+      fitRef.current = fit;
+      const s = fit * (zoom ?? 1);
       setScale(s);
       scaleRef.current = s;
       iframeRef.current?.contentWindow?.postMessage({ oc: "scale", value: s }, "*");
@@ -255,7 +292,42 @@ export function VisualEditor({
     obs.observe(el);
     measure();
     return () => obs.disconnect();
-  }, [W, H]);
+  }, [W, H, zoom]);
+
+  // El interruptor del imán viaja al runtime, que es quien decide si el arrastre se pega.
+  useEffect(() => {
+    snapRef.current = snap;
+    iframeRef.current?.contentWindow?.postMessage({ oc: "snap", value: snap }, "*");
+  }, [snap]);
+
+  /** Multiplicadores del selector. 1 = la lámina entera a la vista. */
+  const ZOOMS = useMemo(() => [0.5, 1, 1.5, 2, 3, 4], []);
+  const zoomPct = Math.round((zoom ?? 1) * 100);
+  const stepZoom = useCallback(
+    (dir: 1 | -1) => {
+      setZoom((z) => {
+        const cur = z ?? 1;
+        const next = dir > 0 ? ZOOMS.find((v) => v > cur + 0.001) : [...ZOOMS].reverse().find((v) => v < cur - 0.001);
+        return next ?? cur;
+      });
+    },
+    [ZOOMS]
+  );
+
+  // Ctrl/⌘ + rueda sobre el lienzo: el gesto que ya tiene en los dedos de Canva y
+  // Figma. Va con { passive: false } y preventDefault porque si no el navegador hace
+  // su propio zoom de página y la lámina queda igual de chica, con toda la UI grande.
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      stepZoom(e.deltaY < 0 ? 1 : -1);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [stepZoom]);
 
   const send = useCallback((msg: Record<string, unknown>) => {
     iframeRef.current?.contentWindow?.postMessage({ oc: msg.oc, ...msg }, "*");
@@ -379,6 +451,7 @@ export function VisualEditor({
       // así el Ctrl+V / "Pegar" trae lo copiado en la lámina anterior.
       else if (m.oc === "ready") {
         send({ oc: "scale", value: scaleRef.current });
+        send({ oc: "snap", value: snapRef.current });
         if (sharedClip.length) send({ oc: "setClip", html: sharedClip });
       }
     };
@@ -522,44 +595,112 @@ export function VisualEditor({
   return (
     <div className="flex-1 flex min-h-0 bg-[#e9e9ec]">
       {/* Lienzo editable */}
-      <div ref={wrapRef} className="flex-1 relative min-h-0 flex items-center justify-center p-8">
+      {/* Lienzo con scroll: al acercarse, la lámina es más grande que su hueco.
+          El centrado va en un hijo con min-*:100% y no con `items-center` en el
+          contenedor, porque un flex item más grande que su caja se recorta por
+          ARRIBA y por la IZQUIERDA, y ahí el scroll ya no lo alcanza. */}
+      <div ref={wrapRef} className="flex-1 relative min-h-0 overflow-auto">
         {scale > 0 && (
           <div
+            className="flex items-center justify-center"
             style={{
-              width: Math.floor(W * scale),
-              height: Math.floor(H * scale),
-              position: "relative",
-              boxShadow: "0 6px 30px rgba(0,0,0,.15)",
-              borderRadius: 8,
-              overflow: "hidden",
-              background: "#fff",
-            }}
-            onClick={(e) => {
-              // click fuera del contenido deselecciona
-              if (e.target === e.currentTarget) send({ oc: "deselect" });
+              padding: CANVAS_PAD,
+              // Sin box-border, el min-*:100% se mide CONTRA EL CONTENIDO y el padding
+              // se suma encima: al "Ajustar" quedaban 64px de más y el lienzo nacía con
+              // una barra de scroll que no tenía nada que mostrar.
+              boxSizing: "border-box",
+              minWidth: "100%",
+              minHeight: "100%",
+              width: "max-content",
+              height: "max-content",
             }}
           >
-            <iframe
-              ref={iframeRef}
-              sandbox="allow-scripts allow-same-origin"
-              srcDoc={srcDoc}
-              title="Editor"
+            <div
               style={{
-                width: W,
-                height: H,
-                border: "none",
-                transform: `scale(${scale})`,
-                transformOrigin: "top left",
-                position: "absolute",
-                top: 0,
-                left: 0,
+                width: Math.floor(W * scale),
+                height: Math.floor(H * scale),
+                position: "relative",
+                boxShadow: "0 6px 30px rgba(0,0,0,.15)",
+                borderRadius: 8,
+                overflow: "hidden",
+                background: "#fff",
               }}
-            />
-            {/* Guías de zona segura sobre el lienzo: pointer-events-none, así
-                no interfieren con la selección/arrastre dentro del iframe. */}
-            <SafeZoneOverlay aspectRatio={aspectRatio} visible={showSafeZones} />
+              onClick={(e) => {
+                // click fuera del contenido deselecciona
+                if (e.target === e.currentTarget) send({ oc: "deselect" });
+              }}
+            >
+              <iframe
+                ref={iframeRef}
+                sandbox="allow-scripts allow-same-origin"
+                srcDoc={srcDoc}
+                title="Editor"
+                style={{
+                  width: W,
+                  height: H,
+                  border: "none",
+                  transform: `scale(${scale})`,
+                  transformOrigin: "top left",
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                }}
+              />
+              {/* Guías de zona segura sobre el lienzo: pointer-events-none, así
+                  no interfieren con la selección/arrastre dentro del iframe. */}
+              <SafeZoneOverlay aspectRatio={aspectRatio} visible={showSafeZones} />
+            </div>
           </div>
         )}
+
+        {/* Barra de zoom, flotante sobre el lienzo. Fija abajo a la derecha y no
+            dentro del contenido, para que no se vaya de vista al hacer scroll. */}
+        <div className="pointer-events-none sticky bottom-0 left-0 flex justify-end p-3">
+          <div className="pointer-events-auto flex items-center gap-0.5 rounded-lg border border-border bg-surface/95 p-1 shadow-lg backdrop-blur">
+            <button
+              type="button"
+              onClick={() => setSnap((s) => !s)}
+              title={snap ? "Imán activado — se pega a las guías (Alt lo salta)" : "Imán desactivado — movimiento libre"}
+              className={cn(
+                "flex h-7 items-center gap-1 rounded px-2 text-[11px] font-medium transition-colors",
+                snap ? "bg-accent/15 text-accent-strong" : "text-muted-foreground hover:bg-muted"
+              )}
+            >
+              <Magnet className="h-3.5 w-3.5" />
+              Imán
+            </button>
+            <div className="mx-1 h-5 w-px bg-border" />
+            <button
+              type="button"
+              onClick={() => stepZoom(-1)}
+              title="Alejar"
+              className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted disabled:opacity-30"
+              disabled={(zoom ?? 1) <= ZOOMS[0]}
+            >
+              <Minus className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setZoom(null)}
+              title="Ajustar la lámina a la vista"
+              className={cn(
+                "h-7 min-w-[3.25rem] rounded px-1.5 text-[11px] font-medium tabular-nums transition-colors",
+                zoom === null ? "text-muted-foreground hover:bg-muted" : "bg-accent/15 text-accent-strong"
+              )}
+            >
+              {zoom === null ? "Ajustar" : `${zoomPct}%`}
+            </button>
+            <button
+              type="button"
+              onClick={() => stepZoom(1)}
+              title="Acercar (Ctrl + rueda)"
+              className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted disabled:opacity-30"
+              disabled={(zoom ?? 1) >= ZOOMS[ZOOMS.length - 1]}
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Panel de propiedades */}

@@ -540,6 +540,14 @@ export const EDITOR_RUNTIME = String.raw`
   // imán se mide en px de PANTALLA: sin esto, a 35% de zoom un margen de 9px de
   // lámina son 3px visuales y el imán se siente muerto.
   var viewScale=1;
+  /**
+   * Imán de alineación encendido. Lo apaga la barra del lienzo.
+   *
+   * Alt ya lo saltaba, pero era un atajo que no estaba escrito en ningún lado: la
+   * diseñadora que peleaba con las guías no tenía forma de enterarse. El interruptor
+   * hace visible que existe; Alt sigue funcionando para saltarlo de a un arrastre.
+   */
+  var snapOn=true;
   function tol(){ return Math.max(4, Math.round(7/Math.max(0.12,viewScale))); }
   var MARGIN=60;   // margen de seguridad de la lámina
 
@@ -1179,7 +1187,9 @@ export const EDITOR_RUNTIME = String.raw`
   function flush(){
     raf=0;
     if(!pend) return;
-    var x=pend.x, y=pend.y, noSnap=pend.alt; pend=null;
+    // Dos formas de saltar el imán: el interruptor de la barra (queda apagado) y Alt
+    // (solo mientras dura este arrastre).
+    var x=pend.x, y=pend.y, noSnap=pend.alt||!snapOn; pend=null;
     if(band){ moveBand(x,y); return; }
     if(pan){ doPan(x,y); return; }
     if(rot){ doRotate(x,y); return; }
@@ -2818,6 +2828,7 @@ export const EDITOR_RUNTIME = String.raw`
     else if(m.oc==='setBg') setBg(m.value);
     else if(m.oc==='setTexture') setTexture(m.url, m.opacity);
     else if(m.oc==='scale'){ viewScale=Number(m.value)||1; }
+    else if(m.oc==='snap'){ snapOn=m.value!==false; }
     else if(m.oc==='deselect') clearSel();
     else if(m.oc==='selectLayer') selectLayer(m.id);
     else if(m.oc==='reorderLayers') reorderLayers(m.ids);

@@ -205,7 +205,73 @@ async function main() {
       `esperado=${beforeAlt - 137} real=${sq.left}`
     );
 
+    // ── El interruptor del imán ──────────────────────────────────────────────
+    // Alt ya lo saltaba, pero era un atajo que no estaba escrito en ningún lado: la
+    // diseñadora que peleaba con las guías no tenía forma de enterarse. Ahora la barra
+    // del lienzo lo apaga, y el runtime tiene que hacerle caso.
+    console.log("\nImán: interruptor");
+    const recargar = async () => {
+      await page.setContent(html, { waitUntil: "domcontentloaded" });
+      await new Promise((r) => setTimeout(r, 150));
+    };
+    const setSnap = async (on) => {
+      await page.evaluate((v) => window.postMessage({ oc: "snap", value: v }, "*"), on);
+      await new Promise((r) => setTimeout(r, 40));
+    };
+    // El mismo arrastre que el de las guías: deja el borde de #sq en 103, y el imán lo
+    // corrige a 100 (el borde de #t1/#t2).
+    //
+    // El clic previo NO es adorno: el mousedown solo arrastra lo que YA está
+    // seleccionado (ver el `hit` de slide-editor.ts), así que sobre un elemento suelto
+    // arranca la banda de selección y el elemento no se mueve. Es el mismo orden que
+    // usa el bloque de guías de acá arriba.
+    const arrastrarSq = async (opts) => {
+      await page.mouse.click(800, 300);
+      await new Promise((r) => setTimeout(r, 60));
+      return drag(page, 800, 300, 800 - 597, 300, opts);
+    };
+
+    await recargar();
+    await setSnap(false);
+    const guiasApagado = await arrastrarSq();
+    check(
+      "apagar el imán deja el elemento donde se soltó",
+      Math.abs((await rectOf(page, "sq")).left - 103) < 1.5,
+      `left=${(await rectOf(page, "sq")).left} esperado=103`
+    );
+    check(
+      "y con el imán apagado tampoco se pintan guías",
+      guiasApagado.length === 0,
+      `guías=${guiasApagado.length}`
+    );
+
+    // Volver a prenderlo tiene que revivirlo: si no, apagarlo una vez lo mataría para
+    // toda la sesión y la diseñadora perdería las guías sin saber por qué.
+    await recargar();
+    await setSnap(false);
+    await setSnap(true);
+    await arrastrarSq();
+    check(
+      "volver a prenderlo lo revive",
+      Math.abs((await rectOf(page, "sq")).left - 100) < 0.6,
+      `left=${(await rectOf(page, "sq")).left} esperado=100`
+    );
+
+    // Las dos vías son independientes: el interruptor no puede desactivar a Alt.
+    await recargar();
+    await setSnap(true);
+    await arrastrarSq({ altDuring: true });
+    check(
+      "con el imán prendido, Alt lo sigue salteando",
+      Math.abs((await rectOf(page, "sq")).left - 103) < 1.5,
+      `left=${(await rectOf(page, "sq")).left} esperado=103`
+    );
+
+    await recargar();
     console.log("\nGuías al redimensionar");
+    // El bloque de abajo espera #sq en su posición original y #t1 sin tocar.
+    await page.mouse.click(800, 300);
+    await new Promise((r) => setTimeout(r, 60));
     // Seleccionar #t1 y estirar su lateral derecho hasta cerca del borde izq de #sq.
     await page.mouse.click(150, 225);
     await new Promise((r) => setTimeout(r, 60));
