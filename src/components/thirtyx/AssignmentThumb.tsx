@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { SlideRenderer } from "@/components/editor/SlideRenderer";
 import { cn } from "@/lib/utils";
-import type { AspectRatio, Carousel } from "@/types/carousel";
+import type { AspectRatio, CarouselSummary } from "@/types/carousel";
 import { DIMENSIONS } from "@/types/carousel";
 
 /** Ancho fijo de la miniatura; el alto sale del aspect ratio del carrusel. */
@@ -45,12 +45,13 @@ export function AssignmentThumb({ carouselId, isActive }: AssignmentThumbProps) 
 
     const load = async () => {
       try {
-        const res = await fetch(`/api/carousels/${carouselId}`);
+        // `summary` y no el carrusel completo: acá solo se usa la primera lámina, y
+        // pedir el carrusel entero traía megas de historial de undo por cada refresco.
+        const res = await fetch(`/api/carousels/${carouselId}/summary`);
         if (!res.ok) return;
-        const carousel: Carousel = await res.json();
-        const first = [...(carousel.slides ?? [])].sort((a, b) => a.order - b.order)[0];
-        if (!cancelled && first) {
-          setThumb({ html: first.html, aspectRatio: carousel.aspectRatio });
+        const summary: CarouselSummary = await res.json();
+        if (!cancelled && summary.firstSlideHtml) {
+          setThumb({ html: summary.firstSlideHtml, aspectRatio: summary.aspectRatio });
         }
       } catch {
         // Sin thumbnail la tarjeta sigue funcionando igual; no rompemos nada.

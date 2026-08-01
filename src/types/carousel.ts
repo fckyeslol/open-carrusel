@@ -9,6 +9,17 @@ export interface Slide {
   notes: string;
 }
 
+/**
+ * Lo que devuelve `GET /api/carousels/{id}/summary`: lo que las tarjetas del tablero
+ * necesitan sin arrastrar el carrusel completo (ni su historial de undo).
+ */
+export interface CarouselSummary {
+  aspectRatio: AspectRatio;
+  slideCount: number;
+  referenceCount: number;
+  firstSlideHtml: string | null;
+}
+
 export interface ReferenceImage {
   id: string;
   url: string;       // e.g. "/uploads/abc.png"
