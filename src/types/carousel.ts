@@ -68,4 +68,13 @@ export function otherAspectRatios(ratio: AspectRatio): AspectRatio[] {
 }
 
 export const MAX_SLIDES = 20;
-export const MAX_VERSIONS = 30;
+/**
+ * Versiones de deshacer que se guardan por lámina.
+ *
+ * Cada versión es una copia COMPLETA del HTML de la lámina, así que esto multiplica
+ * el peso del store: con 30, el historial era el 75% de `carousels.json` (20.9 MB de
+ * 28 MB, con 475 carruseles y 2347 láminas) y cada lectura del store tenía que
+ * parsearlo entero. Cinco cubre una sesión de edición real; treinta era guardar para
+ * siempre algo que nadie deshace.
+ */
+export const MAX_VERSIONS = 5;
