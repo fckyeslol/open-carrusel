@@ -5,13 +5,19 @@ import { RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AssignmentThumb } from "@/components/thirtyx/AssignmentThumb";
 import { cn } from "@/lib/utils";
-import { itemDate, refHost, shortDate, type LibraryItem } from "@/lib/library-folders";
+import { itemDate, refHost, shortAvatar, shortDate, type LibraryItem } from "@/lib/library-folders";
 
 interface LibraryRowProps {
   item: LibraryItem;
   kind: "entregado" | "eliminado" | "suelto";
   /** Solo para los eliminados propios: los devuelve al tablero. */
   onRestore?: () => void;
+  /**
+   * Muestra el avenger de la pieza. En la Biblioteca va apagado (adentro de la carpeta el
+   * avenger ya es el título de la vista), pero en el perfil de una diseñadora la lista es
+   * plana y sin esto no se sabe de quién es cada pieza.
+   */
+  showAvatar?: boolean;
 }
 
 /** El verbo de la fecha, por sección. */
@@ -26,10 +32,11 @@ const VERBO = { entregado: "Entregado", eliminado: "Eliminado", suelto: "Creado"
  * (una pieza arrancada desde el home) el renglón lo ocupa el nombre del carrusel: sin eso
  * la fila quedaría en "Sin referente" y no habría forma de distinguir una de otra.
  */
-export function LibraryRow({ item, kind, onRestore }: LibraryRowProps) {
+export function LibraryRow({ item, kind, onRestore, showAvatar }: LibraryRowProps) {
   const entregado = kind === "entregado";
   const fecha = shortDate(itemDate(item));
   const ref = refHost(item.referenceUrl);
+  const avenger = showAvatar ? shortAvatar(item.avatarName, item.avatarSlug) : null;
 
   return (
     <li
@@ -57,6 +64,8 @@ export function LibraryRow({ item, kind, onRestore }: LibraryRowProps) {
           </p>
         )}
         <p className="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
+          {avenger && <span className="font-medium text-foreground/70">{avenger}</span>}
+          {avenger && <span aria-hidden="true">·</span>}
           <span>{fecha ? `${VERBO[kind]} el ${fecha}` : VERBO[kind]}</span>
           {/* El formato solo se muestra en los hermanos de resize, que son la única razón
               por la que dos filas de la misma carpeta pueden parecer la misma pieza. */}

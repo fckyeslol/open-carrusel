@@ -89,7 +89,17 @@ interface AssignmentSeed {
   archivedAt?: string;
 }
 
-async function seed(carousels: CarouselSeed[], assignments: AssignmentSeed[] = []) {
+/** Lo único que importa de una entrada manual acá: a quién le pertenece la pieza. */
+interface ManualSeed {
+  carouselId: string;
+  designerId: string | null;
+}
+
+async function seed(
+  carousels: CarouselSeed[],
+  assignments: AssignmentSeed[] = [],
+  manuales: ManualSeed[] = []
+) {
   await writeFile(
     path.join(DATA, "carousels.json"),
     JSON.stringify({
@@ -133,6 +143,30 @@ async function seed(carousels: CarouselSeed[], assignments: AssignmentSeed[] = [
     path.join(DATA, "style-presets.json"),
     JSON.stringify({
       presets: [{ id: "avatar-ab", name: "30X — Andrés Bilbao", avatarSlug: "andres-bilbao" }],
+    })
+  );
+  // Siempre se reescribe, y con `backfilledAt` puesto. Sin el marcador,
+  // `listManualEntries` sembraría el historial desde los carruseles del seed y cada test
+  // arrastraría entradas del anterior.
+  await writeFile(
+    path.join(DATA, "thirtyx-manual-entries.json"),
+    JSON.stringify({
+      backfilledAt: "2026-07-01T00:00:00.000Z",
+      entries: manuales.map((m, i) => ({
+        id: `entry-${i}`,
+        referenceUrl: "https://instagram.com/p/manual",
+        avatarSlug: "andres-bilbao",
+        avatarName: null,
+        note: null,
+        designerId: m.designerId,
+        status: "ready",
+        carouselId: m.carouselId,
+        referenceCount: 1,
+        stage: null,
+        error: null,
+        createdAt: "2026-07-22T00:00:00.000Z",
+        updatedAt: "2026-07-22T00:00:00.000Z",
+      })),
     })
   );
 }
@@ -271,5 +305,50 @@ describe("buildLibraryItems", () => {
   it("deja afuera los templates, que no son piezas del historial", async () => {
     await seed([{ id: "car-real" }, { id: "car-template", isTemplate: true }]);
     assert.deepEqual((await buildLibraryItems(null)).map((i) => i.key), ["car-real"]);
+  });
+});
+
+describe("atribución por diseñadora (perfiles de /equipo)", () => {
+  it("le pone dueña a la pieza según el pedido que la generó", async () => {
+    await seed(
+      [{ id: "car-1", ...AB }],
+      [{ jobId: "job-1", status: "done", carouselId: "car-1", designerId: "sofia" }]
+    );
+
+    const [item] = await buildLibraryItems(null);
+    assert.equal(item.ownerId, "sofia");
+    assert.deepEqual((await buildLibraryItems(null, { ownedBy: "sofia" })).map((i) => i.key), [
+      "car-1",
+    ]);
+    assert.deepEqual(await buildLibraryItems(null, { ownedBy: "liz" }), []);
+  });
+
+  it("una pieza sin pedido ni entrada manual no es de nadie", async () => {
+    // El carrusel no guarda dueño, así que la del home y el hermano de resize quedan sin
+    // atribuir. Es el hueco que hace falta declarar, no adivinar.
+    await seed([{ id: "car-del-home" }, { id: "car-otro-tamano", resizedFrom: "car-del-home" }]);
+
+    const items = await buildLibraryItems(null);
+    assert.deepEqual(items.map((i) => i.ownerId), [null, null]);
+    assert.deepEqual(await buildLibraryItems(null, { ownedBy: "sofia" }), []);
+  });
+
+  it("el pedido manda sobre la entrada manual cuando las dos apuntan a la pieza", async () => {
+    await seed(
+      [{ id: "car-1", ...AB }],
+      [{ jobId: "job-1", status: "done", carouselId: "car-1", designerId: "sofia" }],
+      [{ carouselId: "car-1", designerId: "liz" }]
+    );
+
+    const [item] = await buildLibraryItems(null);
+    assert.equal(item.ownerId, "sofia", "la pieza salió de la cola: es de quien la tenía asignada");
+  });
+
+  it("una pieza lanzada a mano es de quien la lanzó", async () => {
+    await seed([{ id: "car-m", ...AB }], [], [{ carouselId: "car-m", designerId: "liz" }]);
+
+    assert.deepEqual((await buildLibraryItems(null, { ownedBy: "liz" })).map((i) => i.key), [
+      "car-m",
+    ]);
   });
 });
