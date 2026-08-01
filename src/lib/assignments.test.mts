@@ -49,9 +49,12 @@ process.chdir(workDir);
 const {
   archiveAssignment,
   archiveCancelled,
+  bumpReconcile,
   getAssignment,
   isArchivable,
   listAssignmentsForDesigner,
+  MAX_RECONCILES,
+  reconcilePlan,
   restoreAssignment,
   setStatus,
   upsertFromAgentJob,
@@ -233,5 +236,97 @@ describe("restaurar desde la Biblioteca", () => {
   it("restaurar algo que no está archivado no hace nada", async () => {
     assert.equal(await restoreAssignment("job-generando"), null);
     assert.equal((await getAssignment("job-generando"))?.status, "generating");
+  });
+});
+
+/**
+ * La política de arranque. Antes de esto, `reconcile()` re-encolaba TODO lo que
+ * estuviera en vuelo, en cada arranque, sin memoria entre arranques: en hosteado, donde
+ * el contenedor se reinicia solo, el mismo carrusel se regeneraba una y otra vez
+ * pagando la ingesta y la visión de cero. Se prueba como función pura porque la
+ * alternativa —probarla a través del runner— exige cola, subprocesos y Puppeteer, que
+ * es justamente la razón por la que nadie la miraba.
+ */
+describe("reconcilePlan (qué hacer al arrancar con jobs a medias)", () => {
+  const job = (over: Record<string, unknown>) => ({
+    jobId: "j", briefId: null, avatarId: null, deliveryId: null, event: "pull",
+    avatarSlug: "andres-bilbao", avatarName: null, referenceUrl: "u", designerId: "sofia",
+    carouselId: null, resultUrl: null, error: null, attempts: 1,
+    receivedAt: "2026-07-25T00:00:00.000Z", updatedAt: "2026-07-25T00:00:00.000Z",
+    status: "generating", ...over,
+  }) as never;
+
+  it("un job con checkpoint RETOMA (no vuelve a pagar la ingesta ni la visión)", () => {
+    const plan = reconcilePlan([
+      job({ jobId: "a", generation: { carouselId: "car-1", passesDone: 2, stalls: 0, preemptions: 0 } }),
+    ]);
+    assert.deepEqual(plan.map((d) => [d.jobId, d.action]), [["a", "resume"]]);
+  });
+
+  it("un job sin checkpoint arranca de cero, pero queda contado", () => {
+    const plan = reconcilePlan([job({ jobId: "b", status: "ingesting" })]);
+    assert.deepEqual(plan.map((d) => [d.jobId, d.action]), [["b", "restart"]]);
+  });
+
+  it("al llegar al tope se BLOQUEA en vez de seguir gastando", () => {
+    const plan = reconcilePlan([job({ jobId: "c", reconciles: MAX_RECONCILES })]);
+    assert.equal(plan[0].action, "block");
+    assert.match(plan[0].reason, /Reintentar/, "el mensaje tiene que decirle qué hacer");
+  });
+
+  it("el tope aplica igual con checkpoint: retomar tampoco es gratis para siempre", () => {
+    const plan = reconcilePlan([
+      job({
+        jobId: "d", reconciles: MAX_RECONCILES + 5,
+        generation: { carouselId: "car-9", passesDone: 1, stalls: 0, preemptions: 0 },
+      }),
+    ]);
+    assert.equal(plan[0].action, "block");
+  });
+
+  it("lo que NO está en vuelo ni se mira (un entregado no se regenera nunca)", () => {
+    const plan = reconcilePlan([
+      job({ jobId: "e", status: "delivered" }),
+      job({ jobId: "f", status: "pending_review" }),
+      job({ jobId: "g", status: "archived", reconciles: 99 }),
+      job({ jobId: "h", status: "failed" }),
+      job({ jobId: "i", status: "blocked" }),
+    ]);
+    assert.deepEqual(plan, [], "ninguno de estos estados se re-encola solo");
+  });
+
+  it("cubre las siete etapas en vuelo", () => {
+    const enVuelo = ["received", "queued", "claiming", "ingesting", "generating", "rendering", "preempted"];
+    const plan = reconcilePlan(enVuelo.map((status, i) => job({ jobId: `v${i}`, status })));
+    assert.equal(plan.length, enVuelo.length);
+  });
+});
+
+describe("contador de reconciliaciones", () => {
+  it("suma en cada arranque y frena al tope", async () => {
+    assert.equal(await bumpReconcile("job-generando"), 1);
+    assert.equal(await bumpReconcile("job-generando"), 2);
+    assert.equal(await bumpReconcile("job-generando"), 3);
+
+    const a = await getAssignment("job-generando");
+    assert.equal(reconcilePlan([a!])[0].action, "block");
+  });
+
+  it("se pone en cero al asentarse, para que Reintentar arranque con presupuesto limpio", async () => {
+    await bumpReconcile("job-generando");
+    await bumpReconcile("job-generando");
+    await bumpReconcile("job-generando");
+
+    await setStatus("job-generando", "failed", { error: "reventó" });
+    assert.equal((await getAssignment("job-generando"))?.reconciles, 0);
+
+    await setStatus("job-generando", "received");
+    assert.equal(reconcilePlan([(await getAssignment("job-generando"))!])[0].action, "restart");
+  });
+
+  it("mientras sigue en vuelo NO se reinicia (si no, el tope no frenaría nunca)", async () => {
+    await bumpReconcile("job-generando");
+    await setStatus("job-generando", "rendering");
+    assert.equal((await getAssignment("job-generando"))?.reconciles, 1);
   });
 });

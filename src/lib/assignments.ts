@@ -120,6 +120,13 @@ export interface Assignment {
   priority?: number;
   /** Estado para retomar una generación cortada. Ausente = arrancar de cero. */
   generation?: GenerationCheckpoint;
+  /**
+   * Cuántas veces un ARRANQUE del servidor volvió a encolar este job sin que llegara
+   * a terminar. Vive afuera de `generation` a propósito: los jobs que se re-encolaban
+   * más caro son justamente los que NO tienen checkpoint, y `clearCheckpoint` borra
+   * ese objeto entero. Se pone en cero al terminar (ver `setStatus`).
+   */
+  reconciles?: number;
   /** Cuándo pasó a la Biblioteca. Solo en `archived`. */
   archivedAt?: string;
   /** Estado que tenía antes de archivarse, para poder devolverlo ahí. Solo en `archived`. */
@@ -158,6 +165,82 @@ export async function listAssignmentsForDesigner(designerId: string): Promise<As
 export async function listReprocessable(): Promise<Assignment[]> {
   const store = await readDataSafe<Store>(FILE, EMPTY);
   return store.assignments.filter((a) => IN_FLIGHT.includes(a.status));
+}
+
+/**
+ * Cuántos arranques seguidos puede sobrevivir un job sin terminar antes de que se
+ * deje de re-encolar solo.
+ *
+ * Tres es "un par de reinicios y algo anda mal": una caída aislada se recupera sola,
+ * un job que no termina nunca deja de repetirse.
+ */
+export const MAX_RECONCILES = 3;
+
+export type ReconcileAction = "resume" | "restart" | "block";
+
+export interface ReconcileDecision {
+  jobId: string;
+  action: ReconcileAction;
+  /** Mensaje para la diseñadora cuando la acción es `block`. */
+  reason: string;
+}
+
+/**
+ * Qué hacer, al arrancar el servidor, con cada job que quedó en vuelo.
+ *
+ * Antes esto no existía: se re-encolaba TODO lo que estuviera en un estado en vuelo, en
+ * cada arranque, para siempre. Un job sin checkpoint vuelve a bajar el referente y a
+ * leer las imágenes con visión — el gasto caro — así que en hosteado, donde el
+ * contenedor se reinicia solo, el mismo carrusel se regeneraba una y otra vez. Es el
+ * "hay carruseles que se regeneran gastando créditos y enredando a las diseñadoras"
+ * del reporte. El tope por job (MAX_REQUEUES) no ayudaba: la cola vive en memoria, así
+ * que cada arranque empezaba a contar de cero.
+ *
+ * Es una función PURA para poder probar la política sin runner, sin cola y sin
+ * Puppeteer — que es lo que hacía que nadie la mirara.
+ */
+export function reconcilePlan(
+  assignments: readonly Assignment[],
+  maxReconciles: number = MAX_RECONCILES
+): ReconcileDecision[] {
+  const out: ReconcileDecision[] = [];
+  for (const a of assignments) {
+    if (!IN_FLIGHT.includes(a.status)) continue;
+    const n = a.reconciles ?? 0;
+    if (n >= maxReconciles) {
+      out.push({
+        jobId: a.jobId,
+        action: "block",
+        reason:
+          `El servidor se reinició ${n} veces con este pedido a medias y no llegó a ` +
+          `terminar. Se dejó de reintentar solo para no seguir gastando créditos: ` +
+          `dale a Reintentar cuando quieras volver a correrlo.`,
+      });
+      continue;
+    }
+    // Con checkpoint retoma donde iba (mismo carrusel, misma sesión de Claude): es
+    // barato y es justo para lo que existe el checkpoint. Sin checkpoint arranca de
+    // cero, así que se permite pero se cuenta — el tope de arriba es el que frena.
+    out.push({
+      jobId: a.jobId,
+      action: a.generation?.carouselId ? "resume" : "restart",
+      reason: "",
+    });
+  }
+  return out;
+}
+
+/** Suma uno al contador de reconciliaciones. Devuelve el valor nuevo. */
+export async function bumpReconcile(jobId: string): Promise<number> {
+  let n = 0;
+  await updateData<Store>(FILE, EMPTY, (store) => ({
+    assignments: store.assignments.map((a) => {
+      if (a.jobId !== jobId) return a;
+      n = (a.reconciles ?? 0) + 1;
+      return { ...a, reconciles: n, updatedAt: now() };
+    }),
+  }));
+  return n;
 }
 
 /**
@@ -340,6 +423,11 @@ export async function setStatus(
         resultUrl: patch.resultUrl ?? a.resultUrl,
         // error se limpia al avanzar y se setea explícito al fallar
         error: patch.error !== undefined ? patch.error : status === "failed" ? a.error : null,
+        // El contador de reconciliaciones solo cuenta mientras el job está en vuelo:
+        // en cuanto se asienta (terminó, falló, quedó bloqueado) se pone en cero, para
+        // que un "Reintentar" arranque con presupuesto limpio en vez de chocar con el
+        // tope que dejó una racha vieja de reinicios.
+        reconciles: IN_FLIGHT.includes(status) ? a.reconciles : 0,
         updatedAt: now(),
       };
     }),
