@@ -326,7 +326,18 @@ Cada lámina es HTML A NIVEL BODY. NADA de <!DOCTYPE>, <html>, <head> ni <body> 
 4. Identidad del avatar: titulares "${headFont}", cuerpo "${bodyFont}", texto ${C.primary}, acento ${C.accent}, fondo ${C.background}.
 5. Imágenes: rutas /uploads/{archivo}. Si una imagen no existe aún, poné un background-color de respaldo detrás.
 6. NADA de JavaScript (el sandbox lo bloquea).
-7. Flexbox/grid para layout; position:absolute para superposiciones y decorativos.
+7. **Cada bloque de contenido va POSICIONADO, no en flujo.** El contenedor raíz lleva
+   \`position:relative\` y cada titular, párrafo, dato, foto o forma es un hijo directo con
+   \`position:absolute\` + \`left/top\` (y \`width\` en los textos, para fijar dónde cortan las
+   líneas). Una lámina no es un documento que fluye: es un póster de ${dimensions.width}x${dimensions.height}px
+   donde cada cosa tiene su lugar.
+   **Por qué importa:** después de vos, una diseñadora edita esta lámina a mano. Con los
+   bloques en flujo, alargar un titular empuja todo lo de abajo y hay que reacomodar la
+   lámina entera por cambiar una palabra — "es difícil editar en el open carrusel porque
+   todo está enlazado a todo". Posicionado, cada objeto es independiente, como en Canva.
+   Flex/grid sí ADENTRO de un bloque (una fila de chips, una lista con viñetas, una tarjeta
+   con su ícono al lado del texto): ahí el flujo es el que corresponde y no acopla nada de
+   afuera. Lo que no va es la lámina entera como una columna flex.
 8. **ZONA SEGURA — REGLA DURA, SIEMPRE.** Todo el TEXTO se genera DENTRO del recuadro del grid: padding mínimo de 108px desde los bordes laterales y superior (y mantené también 108px abajo). La forma correcta de cumplirlo es estructural: el contenedor de contenido de cada lámina lleva \`padding: 108px\` (o los bloques de texto posicionados nunca bajan de 108px de offset). Solo los decorativos —fondos, fotos a sangre, formas, pinceladas— pueden salir del recuadro. El detector marca ERROR y bloquea la lámina si hay texto fuera del margen lateral o superior.
 
 ## Diseño — llená el lienzo, con la paleta del avatar
