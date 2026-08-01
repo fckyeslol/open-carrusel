@@ -16,7 +16,7 @@
  * El costo honesto de esta decisión es mantener dos implementaciones. La alternativa era
  * exigirle un Postgres a cada diseñadora, que rompía el modelo de distribución.
  */
-import { readFile, writeFile, rename, mkdir } from "fs/promises";
+import { readFile, writeFile, rename, mkdir, stat } from "fs/promises";
 import { setTimeout as delay } from "timers/promises";
 import path from "path";
 import { Mutex } from "async-mutex";
@@ -58,11 +58,73 @@ const DATA_DIR = path.resolve(process.cwd(), "data");
  * dos escritores del mismo archivo NO se serializarían y se pisarían. Anclándolo a
  * `globalThis` hay un solo mutex por archivo en todo el proceso.
  */
-const g = globalThis as unknown as { __dataMutexes?: Map<string, Mutex> };
+const g = globalThis as unknown as {
+  __dataMutexes?: Map<string, Mutex>;
+  __dataCache?: Map<string, CacheEntry>;
+  __dataInflight?: Map<string, Promise<unknown>>;
+};
 const mutexes = (g.__dataMutexes ??= new Map<string, Mutex>());
+
+/**
+ * Caché de lecturas parseadas + colapso de lecturas concurrentes.
+ *
+ * Esto NO es una optimización de latencia: es lo que evita que el proceso se muera.
+ * `carousels.json` llegó a 28 MB en producción (tres cuartos es el historial de undo,
+ * `MAX_VERSIONS = 30` copias del HTML por lámina) y cada `GET /api/carousels/{id}`
+ * hacía `readFile` + `JSON.parse` del archivo COMPLETO. El tablero pinta una tarjeta
+ * por asignación y cada tarjeta pedía su carrusel, así que ~40 tarjetas polleando
+ * disparaban ~40 parseos simultáneos de 28 MB. El grafo de objetos de cada parseo pesa
+ * varias veces el texto, así que el heap de V8 reventaba:
+ *
+ *     FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory
+ *     Container called exit(134).
+ *
+ * Con `min=max=1` en Cloud Run eso era una caída total —hasta 10 por día— que además
+ * se llevaba las generaciones en vuelo.
+ *
+ * Dos mecanismos, y hacen falta los dos:
+ *
+ *   - **Colapso (single-flight)**: los lectores concurrentes del mismo archivo esperan
+ *     UN solo parseo en vez de hacer uno cada uno. Esto es lo que acota el pico de
+ *     memoria: N lectores dejan de costar N veces el archivo.
+ *   - **Caché validado por `stat`**: si mtime+tamaño no cambiaron, se devuelve lo ya
+ *     parseado sin volver a leer. Esto es lo que baja el costo en régimen.
+ *
+ * INVARIANTE CRÍTICA: el valor cacheado se entrega POR REFERENCIA y lo comparten todos
+ * los lectores. Quien lee NO puede mutarlo. Hoy se cumple —los lectores copian antes de
+ * ordenar (`[...store.assignments]`) o usan `filter`/`find`— y toda mutación va por
+ * `updateData`, que a propósito lee SIN caché (ver ahí). Si algún día un lector muta lo
+ * que leyó, corrompe el store en memoria de todos los demás.
+ */
+type CacheEntry = { mtimeMs: number; size: number; value: unknown };
+const cache = (g.__dataCache ??= new Map<string, CacheEntry>());
+const inflight = (g.__dataInflight ??= new Map<string, Promise<unknown>>());
 
 /** Contador monotónico para nombres de archivo temporal únicos por proceso. */
 let tmpCounter = 0;
+
+/**
+ * Huella del archivo para validar el caché. `null` si no se puede consultar, y eso
+ * fuerza la lectura: ante la duda, releer es correcto; servir caché sin poder
+ * comprobar que sigue vigente, no.
+ */
+async function fileStamp(filePath: string): Promise<{ mtimeMs: number; size: number } | null> {
+  try {
+    const st = await stat(filePath);
+    return { mtimeMs: st.mtimeMs, size: st.size };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Invalida el caché de un archivo. Se llama en TODA escritura del proceso, así que la
+ * vigencia no depende de la granularidad del mtime (dos escrituras en el mismo
+ * milisegundo y con el mismo tamaño serían indistinguibles para `stat`).
+ */
+function invalidate(filename: string): void {
+  cache.delete(filename);
+}
 
 /**
  * Reintentos de lectura ante errores TRANSITORIOS del SO. En Windows, `readFile`
@@ -138,7 +200,39 @@ export async function readData<T>(filename: string): Promise<T> {
   return readDataFs<T>(filename);
 }
 
+/**
+ * Lectura cacheada y colapsada (ver el comentario del caché arriba). Es el camino de
+ * TODA lectura de solo-lectura; `updateData` usa `readDataFsFresh` a propósito.
+ */
 async function readDataFs<T>(filename: string): Promise<T> {
+  const filePath = path.join(DATA_DIR, filename);
+
+  const stamp = await fileStamp(filePath);
+  const hit = stamp && cache.get(filename);
+  if (hit && hit.mtimeMs === stamp.mtimeMs && hit.size === stamp.size) {
+    return hit.value as T;
+  }
+
+  // Los lectores concurrentes se cuelgan del mismo parseo en vez de hacer uno cada uno.
+  const enCurso = inflight.get(filename);
+  if (enCurso) return (await enCurso) as T;
+
+  const promesa = (async () => {
+    const value = await readDataFsFresh<T>(filename);
+    // Se re-consulta el mtime DESPUÉS de leer: si el archivo cambió mientras leíamos,
+    // la huella previa ya no describe lo que tenemos y cachearla dejaría un valor
+    // viejo pasando por vigente. En ese caso se devuelve sin cachear.
+    const post = await fileStamp(filePath);
+    if (post) cache.set(filename, { ...post, value });
+    return value;
+  })().finally(() => inflight.delete(filename));
+
+  inflight.set(filename, promesa);
+  return (await promesa) as T;
+}
+
+/** Lectura cruda: siempre toca el disco y siempre devuelve un objeto recién parseado. */
+async function readDataFsFresh<T>(filename: string): Promise<T> {
   const filePath = path.join(DATA_DIR, filename);
   let raw: string;
   try {
@@ -164,6 +258,7 @@ export async function writeData<T>(filename: string, data: T): Promise<void> {
   const mutex = getMutex(filename);
   await mutex.runExclusive(async () => {
     await atomicWrite(path.join(DATA_DIR, filename), data);
+    invalidate(filename);
   });
 }
 
@@ -205,7 +300,12 @@ export async function updateData<T>(
   return mutex.runExclusive(async () => {
     let current: T;
     try {
-      current = await readDataFs<T>(filename);
+      // SIN caché, a propósito. `mutate` muta `current` en el lugar en varios stores
+      // (`slide.previousVersions.push(...)`, por ejemplo), así que entregarle el objeto
+      // cacheado —que los lectores comparten por referencia— publicaría la mutación
+      // antes de que se escriba, y la dejaría publicada incluso si el mutador devuelve
+      // `SKIP_WRITE`. Cada mutación arranca de un objeto recién parseado.
+      current = await readDataFsFresh<T>(filename);
     } catch (err) {
       if (err instanceof DataFileNotFoundError) {
         current = fallback; // archivo nuevo: arrancar desde el default es seguro
@@ -216,6 +316,7 @@ export async function updateData<T>(
     const next = mutate(current);
     if (next === SKIP_WRITE) return current;
     await atomicWrite(path.join(DATA_DIR, filename), next);
+    invalidate(filename);
     return next;
   });
 }

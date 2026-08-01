@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AssignmentThumb } from "@/components/thirtyx/AssignmentThumb";
 import { cn } from "@/lib/utils";
-import type { Carousel } from "@/types/carousel";
+import type { CarouselSummary } from "@/types/carousel";
 
 /**
  * Card de un pedido EN GENERACIÓN. Además de la miniatura viva, hace poll al
@@ -64,14 +64,12 @@ export function GeneratingCard({
 
     const load = async () => {
       try {
-        const res = await fetch(`/api/carousels/${carouselId}`);
+        // `summary` y no el carrusel completo: acá solo se cuentan láminas y referencias.
+        const res = await fetch(`/api/carousels/${carouselId}/summary`);
         if (!res.ok) return;
-        const c: Carousel = await res.json();
+        const s: CarouselSummary = await res.json();
         if (!cancelled) {
-          setProgress({
-            produced: c.slides?.length ?? 0,
-            target: c.referenceImages?.length ?? 0,
-          });
+          setProgress({ produced: s.slideCount, target: s.referenceCount });
         }
       } catch {
         // Sin conteo la card sigue mostrando la etapa; no rompemos nada.
