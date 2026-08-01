@@ -14,12 +14,35 @@ AI-powered Instagram carousel builder. Next.js 16 + React 19 + TypeScript + Tail
 
 - `src/lib/chat-system-prompt.ts` — Dynamic system prompt (injects brand config + carousel context)
 - `src/lib/slide-html.ts` — `wrapSlideHtml()` wraps slide body HTML into full documents
+- `src/lib/slide-scope.ts` — `toPageBody()`: prepares one slide to share a document with the
+  others (the carousel PDF, the editable HTML, the SVG). The PNG never needs it — it gives each
+  slide its own document. Two things used to collide here, both silently: a slide stored as a
+  full `<!DOCTYPE html>` (110 of 276 are, against the contract) applied its
+  `html,body{overflow:hidden}` to the whole document and **7 slides came out as 1 page**; and
+  slides reuse class names (`.s`, `.top`), so the last slide's `.s{background}` won the cascade
+  and every page took its color. Both are fixed by unnesting the document and scoping its CSS to
+  its page, with `css-tree` rather than regex — `@font-face` and `@keyframes` must survive
+  untouched, `html,body` must be *rerouted* to the page (that's where the slide's background and
+  size live), not deleted
+- `src/lib/fonts.ts` — `getInlinedFontCSS(families, italic, embedding)`. **`embedding` is not a
+  preference**: with the variable font (what Google serves a modern browser, and what the PNG
+  still uses) `page.pdf()` cannot embed the font program and degrades the text to a **Type 3
+  font** — glyph outlines as path procedures. The PDF looks right, which is why nobody noticed,
+  but it carries no typeface: no `/FontFile`, no `/BaseFont`, text you can't copy, and Canva or
+  Illustrator receive curves instead of text. `"static"` asks Google for per-weight instances
+  (the only lever is the User-Agent — there is no API parameter) and the same PDF comes out with
+  `Inter-Bold` really embedded. Verify with `npm run check:export`
 - `src/lib/quality/` — Slide quality engine. Vendored impeccable detector (`engine/`, Apache-2.0,
   do not edit) plus the 30x adaptation layer: `slide-profile.mjs` (which rules apply to a slide),
   `design-system.mjs` (avatar ADN → design system, so drift is measured against the avatar's real
   palette instead of generic taste), `slide-rules.mjs` (30x-specific failure modes)
 - `scripts/slide-check.mjs` — Renders a slide to PNG and lists its defects. Closes the generation
   loop: the agent renders, reads the PNG, fixes, and re-checks before moving on
+- `scripts/check-export-pdf.mjs` (`npm run check:export`) — Smoke test for the multi-slide
+  exports. It opens the produced PDF and counts pages, text operators, embedded font programs and
+  Type 3 fonts, because every defect this path ever had was silent: the file was produced, it
+  opened, it looked fine, and it was wrong. Synthetic slides, not `data/`, so it runs the same on
+  any designer's machine — and it covers both stored shapes (body-level and full-document)
 - `src/lib/slide-editor.ts` — `EDITOR_RUNTIME`: the ~2000-line editor injected into the
   preview iframe (selection, drag with smart guides, groups, layers, text ranges, effects,
   box spacing, photo frames).
@@ -134,7 +157,7 @@ All at localhost:3000:
 - `PUT /api/carousels/[id]/slides` — Reorder slides (body: { slideIds: [...] })
 - `POST /api/carousels/[id]/slides/[slideId]/undo` — Undo slide change
 - `POST /api/carousels/[id]/slides/[slideId]/review` — Render slide to PNG + run the quality detector
-- `POST /api/carousels/[id]/export?slide=N` — Export one slide as direct PNG (2160px wide, 1-based index; defaults to slide 1). The UI downloads every slide as a separate .png — there is no ZIP export
+- `POST /api/carousels/[id]/export?format=png|pdf|html|svg&slide=N` — Export. `png` (default) and `svg` are one file per slide (2160px wide for PNG, 1-based index, defaults to slide 1); `pdf` and `html` are one multi-slide file per carousel (`&slide=N` narrows the PDF to one slide). The UI loops and downloads each slide separately — there is no ZIP export. The multi-slide formats go through `toPageBody()`; the PDF asks for static font instances so the text stays real text (see `slide-scope.ts` and `fonts.ts`)
 - `GET/PUT /api/brand` — Brand configuration
 - `GET/POST /api/templates` — Templates
 - `POST /api/upload` — Image upload (PNG/JPG/WebP only, max 10MB)

@@ -2,6 +2,7 @@ import { inlineImages } from "./export-slides";
 import { getInlinedFontCSS } from "./fonts";
 import { renderPdf, type RenderOptions } from "./render";
 import { extractFontFamilies, usesItalic } from "./slide-html";
+import { toPageBody } from "./slide-scope";
 import type { Slide, AspectRatio } from "@/types/carousel";
 import { DIMENSIONS } from "@/types/carousel";
 
@@ -24,6 +25,13 @@ import { DIMENSIONS } from "@/types/carousel";
  *
  * Alcanza con que UNA lámina use itálica para traer sus caras: el CSS es compartido por
  * todo el documento, así que decidirlo lámina por lámina no serviría de nada.
+ *
+ * Pide las fuentes en instancias ESTÁTICAS, y eso no es un detalle: con la fuente variable
+ * —lo que sirve Google a un navegador moderno, y lo que sigue usando el PNG— `page.pdf()`
+ * no puede embeber el programa de la fuente y degrada el texto a una fuente Type 3 (los
+ * glifos como trazos). El PDF se veía bien pero no llevaba tipografía adentro: ni
+ * `/FontFile` ni `/BaseFont`, texto que no se puede copiar, y Canva/Illustrator recibiendo
+ * curvas en vez de texto. Ver `FontEmbedding` en fonts.ts.
  */
 async function collectInlineFontCss(slides: Slide[]): Promise<string> {
   const families = new Set<string>();
@@ -31,7 +39,7 @@ async function collectInlineFontCss(slides: Slide[]): Promise<string> {
     for (const family of extractFontFamilies(slide.html)) families.add(family);
   }
   const italic = slides.some((slide) => usesItalic(slide.html));
-  return getInlinedFontCSS(Array.from(families), italic);
+  return getInlinedFontCSS(Array.from(families), italic, "static");
 }
 
 type DocMode = "pdf" | "view";
@@ -49,10 +57,17 @@ async function buildMultiSlideDocument(
   const { width, height } = DIMENSIONS[aspectRatio];
   const inlineFontCss = await collectInlineFontCss(slides);
 
+  // Cada lámina se acota a SU página antes de entrar al documento. Sin esto, dos cosas se
+  // rompían en silencio: el `html,body{overflow:hidden}` de una lámina guardada como
+  // documento completo recortaba el documento entero (7 láminas → 1 página), y las clases
+  // repetidas entre láminas (`.s`, `.top`) se pisaban por cascada, dejando todas las
+  // páginas del color de la última. Ver src/lib/slide-scope.ts.
   const pages: string[] = [];
-  for (const slide of slides) {
-    const inlined = await inlineImages(slide.html);
-    pages.push(`<div class="oc-page">${inlined}</div>`);
+  for (const [i, slide] of slides.entries()) {
+    const pageId = `oc-p${i + 1}`;
+    const acotada = toPageBody(slide.html, `#${pageId}`);
+    const inlined = await inlineImages(acotada);
+    pages.push(`<div class="oc-page" id="${pageId}">${inlined}</div>`);
   }
 
   const bodyStyle =
@@ -133,12 +148,15 @@ export async function exportSvg(
     extractFontFamilies(slide.html),
     usesItalic(slide.html)
   );
-  const inlined = await inlineImages(slide.html);
+  // Igual que en el PDF: una lámina guardada como documento completo no puede entrar cruda
+  // acá — un `<!DOCTYPE html>` dentro de un `<foreignObject>` es SVG inválido.
+  const acotada = toPageBody(slide.html, "#oc-p1");
+  const inlined = await inlineImages(acotada);
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
   <foreignObject x="0" y="0" width="${width}" height="${height}">
-    <div xmlns="http://www.w3.org/1999/xhtml" style="width:${width}px;height:${height}px;overflow:hidden;position:relative;">
-      <style>* { margin: 0; padding: 0; box-sizing: border-box; } ${inlineFontCss}</style>
+    <div xmlns="http://www.w3.org/1999/xhtml" id="oc-p1" style="width:${width}px;height:${height}px;overflow:hidden;position:relative;">
+      <style>#oc-p1, #oc-p1 * { margin: 0; padding: 0; box-sizing: border-box; } ${inlineFontCss}</style>
       ${inlined}
     </div>
   </foreignObject>
