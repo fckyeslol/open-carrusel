@@ -14,7 +14,8 @@ import { describe, it, afterEach } from "node:test";
 
 import "./test-resolve.mts";
 
-const { fontsReadyPredicate, CONTRACT_VERSION } = await import("./slide-render-contract.mjs");
+const { fontsReadyPredicate, imagesReadyPredicate, decodeImagesInPage, CONTRACT_VERSION } =
+  await import("./slide-render-contract.mjs");
 
 /** Monta un `document.fonts` con los estados dados y devuelve el resultado del predicado. */
 async function conFuentes(estados: string[]): Promise<boolean> {
@@ -26,6 +27,13 @@ async function conFuentes(estados: string[]): Promise<boolean> {
     },
   };
   return fontsReadyPredicate();
+}
+
+/** Monta un `document` con las `<img>` dadas. */
+function conImagenes(imgs: unknown[]): void {
+  (globalThis as { document?: unknown }).document = {
+    querySelectorAll: () => imgs,
+  };
 }
 
 afterEach(() => {
@@ -50,6 +58,57 @@ describe("fontsReadyPredicate", () => {
 
   it("sin fuentes declaradas resuelve en true", async () => {
     assert.equal(await conFuentes([]), true);
+  });
+});
+
+describe("imagesReadyPredicate", () => {
+  it("espera mientras una imagen siga en vuelo", () => {
+    // El caso real: la foto guardada como URL absoluta bajando por red mientras la captura
+    // ya se disparó. Salía un PNG de 22KB con la lámina vacía.
+    conImagenes([{ complete: true }, { complete: false }]);
+    assert.equal(imagesReadyPredicate(), false);
+  });
+
+  it("resuelve cuando ya no queda ninguna en vuelo", () => {
+    conImagenes([{ complete: true }, { complete: true }]);
+    assert.equal(imagesReadyPredicate(), true);
+  });
+
+  it("una imagen que falló no bloquea para siempre", () => {
+    // Un 404 deja `complete: true` con `naturalWidth: 0`. Exigir píxeles la haría esperar
+    // 20s por lámina para terminar capturando exactamente lo mismo.
+    conImagenes([{ complete: true, naturalWidth: 0 }]);
+    assert.equal(imagesReadyPredicate(), true);
+  });
+
+  it("una lámina sin imágenes no espera nada", () => {
+    conImagenes([]);
+    assert.equal(imagesReadyPredicate(), true);
+  });
+});
+
+describe("decodeImagesInPage", () => {
+  it("espera el decode de todas las imágenes", async () => {
+    let decodificadas = 0;
+    const img = () => ({
+      decode: () => {
+        decodificadas++;
+        return Promise.resolve();
+      },
+    });
+    conImagenes([img(), img(), img()]);
+    await decodeImagesInPage();
+    assert.equal(decodificadas, 3);
+  });
+
+  it("un decode que rechaza no aborta el render", async () => {
+    // `decode()` rechaza en una imagen que falló. Sin el catch, esa promesa tumbaría el
+    // render de una lámina que igual se puede entregar con el resto de su contenido.
+    conImagenes([
+      { decode: () => Promise.reject(new Error("imagen rota")) },
+      { decode: () => Promise.resolve() },
+    ]);
+    await decodeImagesInPage();
   });
 });
 
