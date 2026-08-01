@@ -2,16 +2,20 @@
  * Quién puede ver los datos de TODO el equipo.
  *
  * El resto de la app está scopeada por diseñadora: cada una ve sus pedidos, su historial,
- * sus lotes. El dashboard de revisiones (/revisiones) es la primera pantalla que cruza esa
- * línea, así que necesita una lista explícita en vez de asumir que "toda usuaria logueada
- * puede".
+ * sus lotes. Dos pantallas cruzan esa línea — el dashboard de revisiones (/revisiones) y
+ * los perfiles del equipo (/equipo) — así que necesitan una lista explícita en vez de
+ * asumir que "toda usuaria logueada puede".
  *
  * Se configura con THIRTYX_ADMIN_USERS (usuarias separadas por coma; en modo hosteado el
  * `username` es el email). Es una env var y no una constante para que sumar a alguien no
  * exija tocar código: se cambia la variable y se reinicia. Si no está seteada — o queda
  * vacía — vale el default, para que un typo en el deploy no deje a nadie adentro.
+ *
+ * OJO al sumar gente por la env var: **reemplaza el default, no lo extiende**. Hay que
+ * listar a TODAS, porque setearla con un solo email deja a las demás afuera sin aviso —
+ * por eso las dos Isabellas van acá y no en la variable del deploy.
  */
-const DEFAULT_ADMINS: readonly string[] = ["isabella@30x.com"];
+const DEFAULT_ADMINS: readonly string[] = ["isabella@30x.com", "isabellameneses@30x.com"];
 
 /** Las usuarias con acceso al dashboard del equipo, normalizadas a minúscula. */
 export function adminUsernames(): string[] {

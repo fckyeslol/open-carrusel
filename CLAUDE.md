@@ -86,8 +86,21 @@ AI-powered Instagram carousel builder. Next.js 16 + React 19 + TypeScript + Tail
   batch silently lost overnight is the worst failure here
 - `src/lib/reviews.ts` — Per-designer review counter. One mark per (designer, job, day),
   so the number is auditable instead of a raw click tally
-- `src/lib/admin.ts` — `THIRTYX_ADMIN_USERS`: who may see team-wide data (`/revisiones`).
-  Defaults to `isabella@30x.com`
+- `src/lib/admin.ts` — `THIRTYX_ADMIN_USERS`: who may see team-wide data (`/revisiones`,
+  `/equipo`). Defaults to both Isabellas. The env var **replaces** the default rather than
+  extending it, so setting it with one email silently locks the others out — that's why the
+  roster lives in code
+- `src/lib/team.ts` — `/equipo`: one folder per designer, so a lead can walk into someone's
+  work and edit it. What it deliberately cannot do is guess ownership: the carousel records
+  no owner, so a piece is attributable only through the job that generated it
+  (`Assignment.designerId`) or the manual entry that launched it (`ManualEntry.designerId`).
+  Anything else — created from the home page, or a resize sibling — belongs to nobody, and the
+  roster reports that count instead of dividing them up on a hunch. A profile that invents
+  pieces is worse than one that's incomplete, because nobody can audit it; closing the gap
+  means giving the carousel a `designerId`. The profile is read-only over the *job*:
+  approve/retry/delete/restore stay with the owner (approving writes back to Prewave and closes
+  the job on the other side — not something to do in passing from someone else's profile).
+  Editing the carousel works because `/carousel/[id]` was never scoped
 - `src/lib/library.ts` — Assembles what `/biblioteca` shows. **The unit is the carousel, not
   the job.** It used to be the job, and that quietly hid every carousel made by hand — the
   ones from pasting a URL into `/30x`, the ones started from the home page, and every
@@ -186,6 +199,9 @@ All at localhost:3000:
 - `POST /api/thirtyx/assignments/[jobId]/reviewed` — Count this carousel as reviewed today.
   Idempotent; changes nothing else about the assignment
 - `GET /api/thirtyx/reviews?days=7|14|30` — Team review dashboard. Admin-only (`admin.ts`)
+- `GET /api/thirtyx/team` — Designer roster with per-person counts. Admin-only (`admin.ts`)
+- `GET /api/thirtyx/team/[designerId]` — One designer's pieces (`buildLibraryItems(…, {ownedBy})`).
+  Admin-only, and read-only: the job actions keep their own per-owner checks
 - `GET /api/thirtyx/library` — The Biblioteca's pieces (see `src/lib/library.ts`). Separate from
   `/mine` on purpose: `/mine` is what the board polls and only reads the small assignments
   store, while this also reads `carousels.json` — the biggest file in the project. It shows the

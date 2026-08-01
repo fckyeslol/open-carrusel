@@ -12,7 +12,8 @@ export type Section =
   | "manual"
   | "cuenta"
   | "carruseles"
-  | "revisiones";
+  | "revisiones"
+  | "equipo";
 
 interface NavLink {
   href: string;
@@ -41,10 +42,13 @@ const LOCAL_LINKS: readonly NavLink[] = [
 ];
 
 /**
- * Solo para las usuarias de THIRTYX_ADMIN_USERS: es la única sección que muestra datos de
- * TODO el equipo. Va antes de "Mi cuenta" para no partir el bloque de trabajo diario.
+ * Solo para las usuarias de THIRTYX_ADMIN_USERS: las únicas secciones que muestran datos de
+ * TODO el equipo. Van antes de "Mi cuenta" para no partir el bloque de trabajo diario.
  */
-const ADMIN_LINK: NavLink = { href: "/revisiones", label: "Revisiones", key: "revisiones" };
+const ADMIN_LINKS: readonly NavLink[] = [
+  { href: "/equipo", label: "Equipo", key: "equipo" },
+  { href: "/revisiones", label: "Revisiones", key: "revisiones" },
+];
 
 interface BoardHeaderProps {
   /** Sección actual: se marca como activa. */
@@ -82,7 +86,7 @@ export function BoardHeader({ active }: BoardHeaderProps) {
   const base = hosted === null ? [] : hosted ? HOSTED_LINKS : LOCAL_LINKS;
   const links =
     hosted && isAdmin
-      ? [...base.slice(0, -1), ADMIN_LINK, ...base.slice(-1)] // antes de "Mi cuenta"
+      ? [...base.slice(0, -1), ...ADMIN_LINKS, ...base.slice(-1)] // antes de "Mi cuenta"
       : base;
 
   return (

@@ -73,8 +73,16 @@ const username = usuarioArg?.trim().toLowerCase();
 switch (comando) {
   case "add": {
     if (!username) usage("Falta el usuario.");
-    if (!/^[a-z0-9._-]{2,32}$/.test(username)) {
-      usage("Usuario inválido: solo minúsculas, números, punto, guion (2-32 chars).");
+    // Espejo de `createUser` en src/lib/users.ts — esa es la fuente de verdad.
+    //
+    // Tiene que aceptar el `@`: en modo hosteado el login ES el email, y este script es el
+    // único camino para dar de alta a alguien. Con la regla vieja (`[a-z0-9._-]{2,32}`) el
+    // alta de cualquier email fallaba con "Usuario inválido", que se lee como si el email
+    // estuviera mal escrito y no como que el script no los soporta.
+    if (!/^[a-z0-9._+@-]{2,64}$/.test(username)) {
+      usage(
+        "Usuario inválido: minúsculas, números y . _ + - @ (2-64 chars). En hosteado usá el email."
+      );
     }
     const users = await loadUsers();
     if (users.some((u) => u.username === username)) {

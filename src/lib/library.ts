@@ -20,25 +20,50 @@
  */
 import { listAssignments, type Assignment } from "./assignments";
 import { listCarousels } from "./carousels";
+import { listManualEntries } from "./manual-entries";
 import { listAvatarPresets } from "./style-presets";
 import type { LibraryItem } from "./library-folders";
 import type { Carousel } from "@/types/carousel";
 
+export interface LibraryOptions {
+  /**
+   * Deja solo las piezas de esta diseñadora. Es lo que pide el perfil de `/equipo`.
+   *
+   * Atención a lo que NO puede devolver: el carrusel no guarda dueño, así que "de quién
+   * es" solo se puede deducir del pedido que lo generó o de la entrada manual que lo
+   * lanzó. Una pieza sin ninguno de los dos —creada desde el home, o un hermano de
+   * resize— no es atribuible a nadie y no entra en ningún perfil. Aparece igual en la
+   * Biblioteca, que no filtra.
+   */
+  ownedBy?: string;
+}
+
 /**
  * Arma las piezas de la Biblioteca.
  *
- * `designerId` NO filtra: la Biblioteca muestra el trabajo de todo el equipo, igual que
- * el home, porque el carrusel no guarda de quién es y filtrar por la asignación es
- * justamente lo que hacía desaparecer piezas. Solo decide quién ve el botón Restaurar,
- * que sí está scopeado del lado del server (`POST …/restore` responde 403 si el pedido no
- * es tuyo). `null` = modo local, donde no hay sesión y ese POST no chequea nada.
+ * `designerId` NO filtra (para eso está `opts.ownedBy`): la Biblioteca muestra el trabajo
+ * de todo el equipo, igual que el home, porque el carrusel no guarda de quién es y filtrar
+ * por la asignación es justamente lo que hacía desaparecer piezas. Solo decide quién ve el
+ * botón Restaurar, que sí está scopeado del lado del server (`POST …/restore` responde 403
+ * si el pedido no es tuyo). `null` = modo local, donde no hay sesión y ese POST no chequea
+ * nada.
  */
-export async function buildLibraryItems(designerId: string | null): Promise<LibraryItem[]> {
-  const [carousels, assignments, presets] = await Promise.all([
+export async function buildLibraryItems(
+  designerId: string | null,
+  opts: LibraryOptions = {}
+): Promise<LibraryItem[]> {
+  const [carousels, assignments, presets, manuales] = await Promise.all([
     listCarousels(),
     listAssignments(),
     listAvatarPresets(),
+    // Solo por el dueño: para lo demás el carrusel ya tiene todo (referente, avenger,
+    // fechas). Es el único lugar donde queda registrado quién lanzó una pieza a mano.
+    listManualEntries(),
   ]);
+
+  const duenoManual = new Map(
+    manuales.filter((e) => e.carouselId && e.designerId).map((e) => [e.carouselId!, e.designerId!])
+  );
 
   const nombrePorSlug = new Map(
     presets
@@ -72,6 +97,9 @@ export async function buildLibraryItems(designerId: string | null): Promise<Libr
       status: a?.status ?? "",
       carouselId: c.id,
       aspectRatio: c.aspectRatio,
+      // El pedido manda sobre la entrada manual: si la pieza salió de la cola, es de
+      // quien la tenía asignada, aunque después alguien la haya relanzado a mano.
+      ownerId: a?.designerId ?? duenoManual.get(c.id) ?? null,
       ...(c.resizedFrom ? { resizedFrom: c.resizedFrom } : {}),
       ...(a?.archivedAt ? { archivedAt: a.archivedAt } : {}),
       updatedAt: c.updatedAt || c.createdAt,
@@ -96,13 +124,14 @@ export async function buildLibraryItems(designerId: string | null): Promise<Libr
       referenceUrl: a.referenceUrl || "",
       status: a.status,
       carouselId: null,
+      ownerId: a.designerId,
       ...(a.archivedAt ? { archivedAt: a.archivedAt } : {}),
       updatedAt: a.updatedAt,
       canRestore: puedeRestaurar(a),
     });
   }
 
-  return items;
+  return opts.ownedBy ? items.filter((i) => i.ownerId === opts.ownedBy) : items;
 }
 
 /**

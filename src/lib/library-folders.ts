@@ -37,6 +37,12 @@ export interface LibraryItem {
   aspectRatio?: string;
   /** Id del carrusel original si esta pieza nació de "Generar otros tamaños". */
   resizedFrom?: string;
+  /**
+   * De quién es la pieza, para los perfiles de `/equipo`. Sale del pedido o de la entrada
+   * manual — el carrusel no lo guarda —, así que `null` significa "no atribuible a nadie"
+   * (creada desde el home, o un hermano de resize), no "de nadie".
+   */
+  ownerId?: string | null;
   /** Solo en `archived`: cuándo pasó a la Biblioteca. */
   archivedAt?: string;
   updatedAt: string;
