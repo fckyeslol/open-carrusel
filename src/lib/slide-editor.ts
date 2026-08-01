@@ -307,12 +307,51 @@ export const EDITOR_RUNTIME = String.raw`
     }
     return false;
   }
+  /**
+   * ¿Es un VELO? Una capa a lámina completa que oscurece o tiñe lo que hay debajo:
+   * el degradado que se pone sobre una foto para que el titular se lea, o la sombra
+   * rectangular con la que el generador tapa el texto que quedó en una imagen.
+   *
+   * Existe porque tooBig manda a la basura todo lo que ocupe >80% del lienzo, y el
+   * único rescate era para IMG/SVG. Medido sobre las 276 láminas guardadas: 110 velos
+   * en 77 láminas (28%) que no se podían tomar, ni mover, ni recolorear, ni BORRAR.
+   * Es el "una sombra que NO es editable" del reporte de las diseñadoras.
+   *
+   * El fondo BASE de la lámina no entra acá a propósito: es un color plano y opaco,
+   * ya se cambia desde el selector de fondo, y volverlo seleccionable haría que clicar
+   * en un lugar vacío eligiera el fondo en vez de deseleccionar. Un velo, en cambio,
+   * SIEMPRE deja ver a través: es un degradado, un color con alfa, o lleva opacity.
+   * (110/110 de los medidos son degradados.)
+   */
+  function isScrim(el){
+    if(!el||el.tagName==='IMG'||el.ownerSVGElement) return false;
+    if(el.tagName&&el.tagName.toLowerCase()==='svg') return false;
+    var cs=getComputedStyle(el);
+    if(cs.backgroundImage&&cs.backgroundImage!=='none') return true;      // degradado
+    if(parseFloat(cs.opacity)<0.99) return true;                          // capa atenuada
+    var bg=cs.backgroundColor||'';
+    var m=bg.match(/^rgba?\(([^)]+)\)/);
+    if(m){
+      var p=m[1].split(',');
+      if(p.length>3){
+        var a=parseFloat(p[3]);
+        if(a>0.02&&a<0.99) return true;                                   // color con alfa
+      }
+    }
+    return false;
+  }
   // ── selección inteligente: prefiere texto/imagen; si no hay, toma el decorativo ──
   // Los elementos "tooBig" (contenedores de fondo) se saltan… pero una IMG grande
-  // (foto a lámina completa) debe poder seleccionarse como último recurso: si no,
-  // queda pegada para siempre (ni mover, ni enviar atrás, ni borrar).
+  // (foto a lámina completa) y un VELO (ver isScrim) deben poder seleccionarse como
+  // último recurso: si no, quedan pegados para siempre (ni mover, ni enviar atrás,
+  // ni borrar).
   function candidateAt(x,y,sub){
-    var list=document.elementsFromPoint(x,y)||[], first=null, bigImg=null;
+    // bigs va en orden de arriba hacia abajo (el de elementsFromPoint). Se guardan
+    // TODOS los rescatables, no solo el primero, para que Alt baje una capa: sobre una
+    // foto a sangre con su velo encima, el clic toma el velo (es el de arriba, como en
+    // cualquier editor) y Alt+clic toma la foto. Con un solo rescate, hacer alcanzable
+    // el velo habría vuelto inalcanzable la foto — cambiar un problema por el otro.
+    var list=document.elementsFromPoint(x,y)||[], first=null, bigs=[];
     for(var i=0;i<list.length;i++){
       var el=list[i], svgHit=false;
       // Un clic sobre una flecha/forma SVG devuelve el <path>/<line> interno.
@@ -335,7 +374,13 @@ export const EDITOR_RUNTIME = String.raw`
       if(el.hasAttribute && el.hasAttribute('data-oc-owner')) continue;
       // svgHit cuenta como "tinta real": el punto tocó una forma dentro del svg,
       // así que un svg-overlay a lámina completa sigue siendo seleccionable.
-      if(tooBig(el)){ if((el.tagName==='IMG'||svgHit)&&!bigImg) bigImg=el; continue; }
+      // El rescate es ÚLTIMO recurso (solo si "first" quedó vacío): donde el velo tapa un
+      // texto o una forma, gana el de abajo — el velo solo se toma en su zona vacía,
+      // que es justo donde una capa de Canva se deja tomar.
+      if(tooBig(el)){
+        if((el.tagName==='IMG'||svgHit||isScrim(el)) && bigs.indexOf(el)<0) bigs.push(el);
+        continue;
+      }
       // Las formas de la librería son ciudadanas de primera: gana la de más arriba
       // (elementsFromPoint viene ordenado top→bottom), igual que texto e imagen.
       // Un texto se devuelve por su PÁRRAFO: clicar la palabra en negrita
@@ -353,7 +398,7 @@ export const EDITOR_RUNTIME = String.raw`
       if(el.tagName==='IMG' || (el.getAttribute&&el.getAttribute('data-oc-shape'))) return el;
       if(!first) first=el;
     }
-    return first||bigImg;
+    return first || (sub ? (bigs[1]||bigs[0]) : bigs[0]) || null;
   }
 
   // ── overlay persistente: se crea al cambiar la selección y se REPOSICIONA
