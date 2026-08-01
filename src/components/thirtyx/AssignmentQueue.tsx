@@ -152,12 +152,21 @@ export function AssignmentQueue() {
     [sync]
   );
 
+  /**
+   * Reintentar CONSERVA el checkpoint: retoma en la etapa que falló en vez de volver a
+   * bajar el referente y a leer las imágenes con visión, que es el gasto caro. El que
+   * descarta el borrador es "Regenerar desde 0", en el tablero.
+   */
   const retry = useCallback(
     async (jobId: string) => {
       if (busyRef.current.has(jobId)) return;
       busyRef.current.add(jobId);
       try {
-        await fetch(`/api/thirtyx/assignments/${jobId}/retry`, { method: "POST" });
+        await fetch(`/api/thirtyx/assignments/${jobId}/retry`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ resume: true }),
+        });
         await sync();
       } finally {
         busyRef.current.delete(jobId);

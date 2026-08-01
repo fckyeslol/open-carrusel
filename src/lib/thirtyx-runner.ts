@@ -50,6 +50,8 @@ import {
   setStatus,
   incrementAttempts,
   listReprocessable,
+  reconcilePlan,
+  bumpReconcile,
   saveCheckpoint,
   clearCheckpoint,
   type GenerationCheckpoint,
@@ -685,9 +687,25 @@ function createRunner(): Runner {
       if (!opts?.force && isTracked(jobId)) return;
       void runWithRequeue(jobId);
     },
+    /**
+     * Al arrancar: retomar lo que quedó a medias, pero SIN volver a pagar lo mismo una
+     * y otra vez. La política vive en `reconcilePlan` (pura y probada); acá solo se
+     * ejecuta. Ver el comentario de esa función para el porqué.
+     */
     async reconcile() {
-      const pending = await listReprocessable();
-      for (const a of pending) runner.enqueue(a.jobId);
+      const plan = reconcilePlan(await listReprocessable());
+      for (const d of plan) {
+        if (d.action === "block") {
+          await setStatus(d.jobId, "blocked", { error: d.reason });
+          console.warn(`[reconcile] ${d.jobId} bloqueado: se reinició demasiadas veces sin terminar`);
+          continue;
+        }
+        // Se cuenta ANTES de encolar: si el proceso se cae de nuevo en el medio, el
+        // intento ya quedó anotado. Contarlo después dejaría el bucle sin freno, que
+        // es exactamente el problema que esto arregla.
+        await bumpReconcile(d.jobId);
+        runner.enqueue(d.jobId);
+      }
     },
   };
 

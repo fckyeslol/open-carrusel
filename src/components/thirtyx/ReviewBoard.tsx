@@ -264,12 +264,25 @@ export function ReviewBoard() {
     }
   }, []);
 
+  /**
+   * `resume` decide si se conserva el checkpoint de generación.
+   *
+   * "Reintentar" (un pedido bloqueado o fallido) lo CONSERVA: retoma en la etapa que
+   * falló en vez de volver a bajar el referente y a leer las imágenes con visión, que
+   * es el gasto caro. Reintentar tres veces algo que falla en el render no tiene por
+   * qué pagar tres veces la generación. "Regenerar desde 0" es el que lo descarta —
+   * ese nombre es una promesa y la cumple.
+   */
   const retry = useCallback(
-    async (jobId: string) => {
+    async (jobId: string, resume = false) => {
       if (busyRef.current.has(jobId)) return;
       busyRef.current.add(jobId);
       try {
-        await fetch(`/api/thirtyx/assignments/${jobId}/retry`, { method: "POST" });
+        await fetch(`/api/thirtyx/assignments/${jobId}/retry`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ resume }),
+        });
         await loadMine();
       } finally {
         busyRef.current.delete(jobId);
@@ -532,7 +545,7 @@ export function ReviewBoard() {
                       size="sm"
                       variant="outline"
                       className="mt-2 h-7 text-[11px]"
-                      onClick={() => retry(a.jobId)}
+                      onClick={() => retry(a.jobId, true)}
                     >
                       Reintentar
                     </Button>
