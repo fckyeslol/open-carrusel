@@ -277,3 +277,106 @@ export async function generarImagen(options: GenerateImageOptions): Promise<Gene
   const { bytes, contentType } = await downloadImage(rawUrl);
   return { url: rawUrl, bytes, contentType, seed: effectiveSeed };
 }
+
+// ── SoulIds: la identidad de una persona real ────────────────────────────────
+//
+// Una imagen de referencia (image→image) le da a Soul la COMPOSICIÓN: el encuadre,
+// la luz, el ambiente. No le da la CARA. Por eso pedir "Elon Musk" pasando su foto
+// devolvía a alguien parecido pero distinto — y la diseñadora terminaba buscando la
+// foto a mano, que es justo el trabajo que la herramienta venía a sacarle.
+//
+// El mecanismo de identidad de Higgsfield es otro: una SoulId, una referencia de
+// personaje entrenada con varias fotos, que después se pasa como `custom_reference_id`
+// en cada generación. El parámetro ya estaba cableado hasta el endpoint; lo que no
+// existía era forma de CREAR una: `crearSoulId` era solo una mención en un comentario.
+
+/** Una SoulId ya creada en la cuenta, lista para usar como referencia de persona. */
+export interface SoulReference {
+  id: string;
+  nombre: string;
+  /** `completed` = usable. Entrenar tarda; hasta entonces no sirve para generar. */
+  estado: string;
+}
+
+/** Cuántas fotos pide una SoulId decente. Menos de 3 y el parecido se cae. */
+export const SOUL_MIN_IMAGENES = 3;
+export const SOUL_MAX_IMAGENES = 20;
+
+/**
+ * Crea una SoulId a partir de varias fotos de la MISMA persona.
+ *
+ * Las fotos se suben primero al CDN de Higgsfield: la API solo acepta URLs públicas,
+ * así que una ruta local no sirve. Devuelve sin esperar a que termine de entrenar
+ * (`withPolling: false`) porque tarda minutos y el que llama es una request HTTP —
+ * el estado se consulta después con `listarSoulIds`.
+ *
+ * @param nombre  Con qué se va a listar (ej. "Elon Musk").
+ * @param fotos   Bytes JPEG de 3–20 fotos de la misma persona, caras distintas mejor.
+ */
+export async function crearSoulId(nombre: string, fotos: Buffer[]): Promise<SoulReference> {
+  const limpio = nombre.trim();
+  if (!limpio) {
+    throw new HiggsfieldError("La referencia necesita un nombre.", 400);
+  }
+  if (fotos.length < SOUL_MIN_IMAGENES) {
+    throw new HiggsfieldError(
+      `Hacen falta al menos ${SOUL_MIN_IMAGENES} fotos de la persona (llegaron ${fotos.length}). ` +
+        `Con menos, el parecido no se sostiene entre generaciones.`,
+      400
+    );
+  }
+  if (fotos.length > SOUL_MAX_IMAGENES) {
+    throw new HiggsfieldError(`Máximo ${SOUL_MAX_IMAGENES} fotos por referencia.`, 400);
+  }
+
+  const client = await getClient();
+
+  const urls: string[] = [];
+  for (const bytes of fotos) {
+    try {
+      urls.push(await client.uploadImage(bytes, "jpeg"));
+    } catch (err) {
+      const msg = (err as Error)?.message || "error desconocido";
+      throw new HiggsfieldError(`No se pudo subir una de las fotos a Higgsfield: ${msg}`);
+    }
+  }
+
+  try {
+    const soul = await client.createSoulId(
+      {
+        name: limpio,
+        input_images: urls.map((url) => ({ type: "image_url", image_url: url })),
+      } as Parameters<HiggsfieldClient["createSoulId"]>[0],
+      false
+    );
+    return { id: soul.id, nombre: soul.name ?? limpio, estado: String(soul.status ?? "in_progress") };
+  } catch (err) {
+    const name = (err as Error)?.name || "";
+    const msg = (err as Error)?.message || "Error desconocido de Higgsfield.";
+    if (name === "AuthenticationError" || name === "CredentialsMissedError") {
+      throw new HiggsfieldError("Credenciales de Higgsfield inválidas.", 401);
+    }
+    if (name === "NotEnoughCreditsError" || /credit/i.test(msg)) {
+      throw new HiggsfieldError("No hay créditos suficientes en la cuenta de Higgsfield.", 402);
+    }
+    throw new HiggsfieldError(`No se pudo crear la referencia de persona: ${msg}`);
+  }
+}
+
+/** Lista las SoulIds de la cuenta. Devuelve [] si Higgsfield no está configurado. */
+export async function listarSoulIds(): Promise<SoulReference[]> {
+  if (!(await isHiggsfieldConfigured())) return [];
+  try {
+    const client = await getClient();
+    const res = await client.listSoulIds(1, 100);
+    return (res.items ?? []).map((s) => ({
+      id: s.id,
+      nombre: s.name,
+      estado: String(s.status ?? ""),
+    }));
+  } catch {
+    // Listar es informativo: si falla, la feature se muestra vacía en vez de romper
+    // el panel entero. El error real reaparece al intentar crear o generar.
+    return [];
+  }
+}

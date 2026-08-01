@@ -163,7 +163,23 @@ Cada llamada lleva las DOS cosas:
    iluminación y hora del día; ambiente/locación; estilo fotográfico (lente, película,
    editorial/documental); y la paleta del avatar como cast de color. Cerrá SIEMPRE con
    "no text, no letters, no watermark". El prompt manda sobre la referencia: describí qué
-   conservar de ella y qué cambiar.`
+   conservar de ella y qué cambiar.
+
+### PERSONAS REALES — con \`customReferenceId\`, nunca solo con el prompt
+Si el referente muestra una persona identificable (Elon Musk, Messi, el propio avenger),
+una \`imageReference\` NO alcanza: le da a Soul el encuadre y la luz, no la CARA. El
+resultado es alguien parecido pero distinto — y eso no sirve, hay que rehacerlo a mano.
+
+1. Mirá qué referencias de persona hay creadas:
+   \`GET ${baseUrl}/api/soul-references\` → \`[{ id, nombre, estado }]\`.
+2. Si hay una que coincide y su \`estado\` es \`completed\`, pasá su \`id\` como
+   \`customReferenceId\` en la llamada a \`/api/generate-image\`. Ahí sí sale la persona.
+3. Si NO hay ninguna para esa persona, **no la inventes con el prompt**: el parecido va a
+   fallar y nadie se va a dar cuenta hasta la revisión. Resolvé la lámina con lo que
+   tengas (la foto del referente recortada como imagen normal, o la composición sin la
+   cara) y **decílo en tu respuesta**: "la lámina 3 necesita a <persona>; creá su
+   referencia en /30x y regenero". Crear una pide 3+ fotos de la persona y la carga una
+   diseñadora, no vos.`
     : "";
 
   // Paso extra del FLUJO cuando hay generación de imágenes: inventariar los assets
@@ -213,6 +229,9 @@ Calibración: renderizá, abrí tu PNG y el referente lado a lado, y preguntate 
 - La respuesta trae \`url\` (ej. \`/uploads/generated/xxx.jpg\`): referenciala tal cual en el HTML.
 - \`imageReference\` acepta rutas locales \`/uploads/...\` o \`/avatar-assets/...\`;
   \`referenceCrop\` (opcional) recorta la referencia antes de subirla, en fracciones 0–1.
+- \`customReferenceId\` (opcional): el \`id\` de una referencia de persona de
+  \`GET ${baseUrl}/api/soul-references\`. Es lo ÚNICO que hace que una persona real salga
+  con SU cara — ver la sección PERSONAS REALES.
 
 python3 -c "
 import json, urllib.request
