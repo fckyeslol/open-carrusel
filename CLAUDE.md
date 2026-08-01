@@ -88,8 +88,22 @@ AI-powered Instagram carousel builder. Next.js 16 + React 19 + TypeScript + Tail
   so the number is auditable instead of a raw click tally
 - `src/lib/admin.ts` — `THIRTYX_ADMIN_USERS`: who may see team-wide data (`/revisiones`).
   Defaults to `isabella@30x.com`
-- `src/lib/library-folders.ts` — Groups `/biblioteca` into one folder per avenger. Pure, so
-  the grouping is tested on its own. The board only shows the 3 most recent `Entregados`
+- `src/lib/library.ts` — Assembles what `/biblioteca` shows. **The unit is the carousel, not
+  the job.** It used to be the job, and that quietly hid every carousel made by hand — the
+  ones from pasting a URL into `/30x`, the ones started from the home page, and every
+  "Generar otros tamaños" sibling have no `Assignment`, so 60 of 72 carousels existed on the
+  home page and nowhere in the Biblioteca. The job is now what *adds status* (entregado /
+  eliminado) to a piece that has one. `emparejar()` is the subtle part: a retry creates a new
+  carousel while the old one keeps its `prewaveJobId`, so matching on that field alone printed
+  the same delivered piece two or three times — worse than losing it, since nothing tells you
+  which to open. The assignment's `carouselId` wins; `prewaveJobId` is only the fallback for
+  jobs that point at no piece, and there the newest carousel takes it. Earlier attempts land
+  as "hechos a mano"
+- `src/lib/library-folders.ts` — Groups those pieces into one folder per avenger. Pure, so the
+  grouping is tested on its own. `bucketOf()` decides the section: a piece with no job always
+  shows (nothing about it can be in flight), a piece with a job only once the job settled —
+  while it lives on the board, showing it here would put the same work in two places with
+  different actions. The board only shows the 3 most recent `Entregados`
   (`ENTREGADOS_VISIBLES` in `ReviewBoard.tsx`) and links the rest here: that column never
   empties by itself, so uncapped it pushed the rest of the board off screen. The open folder
   travels in `?avenger=`, read server-side in `src/app/biblioteca/page.tsx`
@@ -172,6 +186,11 @@ All at localhost:3000:
 - `POST /api/thirtyx/assignments/[jobId]/reviewed` — Count this carousel as reviewed today.
   Idempotent; changes nothing else about the assignment
 - `GET /api/thirtyx/reviews?days=7|14|30` — Team review dashboard. Admin-only (`admin.ts`)
+- `GET /api/thirtyx/library` — The Biblioteca's pieces (see `src/lib/library.ts`). Separate from
+  `/mine` on purpose: `/mine` is what the board polls and only reads the small assignments
+  store, while this also reads `carousels.json` — the biggest file in the project. It shows the
+  whole team's work, like the home page does, because a carousel records no owner; the
+  per-designer scope that only `restore` needs travels as `canRestore` per row
 
 ## Conventions
 

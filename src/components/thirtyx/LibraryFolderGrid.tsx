@@ -10,6 +10,7 @@ interface LibraryFolderGridProps {
   loaded: boolean;
   totalEntregados: number;
   totalEliminados: number;
+  totalSueltos: number;
   onOpen: (key: string) => void;
 }
 
@@ -19,6 +20,7 @@ export function LibraryFolderGrid({
   loaded,
   totalEntregados,
   totalEliminados,
+  totalSueltos,
   onOpen,
 }: LibraryFolderGridProps) {
   return (
@@ -26,14 +28,20 @@ export function LibraryFolderGrid({
       <div className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight">Biblioteca</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Tu historial en carpetas, una por avenger: lo que ya entregaste y lo que eliminaste del
-          tablero.
+          Todos los carruseles en carpetas, una por avenger: los que entregaste, los que hiciste a
+          mano y los que eliminaste del tablero.
         </p>
         {folders.length > 0 && (
           <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-muted-foreground">
             <Contador n={folders.length} singular="carpeta" muchos="carpetas" />
             <span aria-hidden="true">·</span>
             <Contador n={totalEntregados} singular="entregado" muchos="entregados" />
+            {totalSueltos > 0 && (
+              <>
+                <span aria-hidden="true">·</span>
+                <Contador n={totalSueltos} singular="a mano" muchos="a mano" />
+              </>
+            )}
             <span aria-hidden="true">·</span>
             <Contador n={totalEliminados} singular="eliminado" muchos="eliminados" />
           </p>
@@ -43,7 +51,7 @@ export function LibraryFolderGrid({
       {folders.length === 0 ? (
         <p className="rounded-xl border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
           {loaded
-            ? "Todavía no hay nada guardado. Cuando entregues un carrusel —o elimines un pedido del tablero— aparece acá, en la carpeta de su avenger."
+            ? "Todavía no hay nada guardado. Todo carrusel que crees aparece acá, en la carpeta de su avenger."
             : "Cargando…"}
         </p>
       ) : (
@@ -62,6 +70,7 @@ export function LibraryFolderGrid({
                   </p>
                   <p className="mt-0.5 text-[11px] text-muted-foreground">
                     {plural(folder.entregados.length, "entregado", "entregados")}
+                    {folder.sueltos.length > 0 && ` · ${folder.sueltos.length} a mano`}
                     {folder.eliminados.length > 0 &&
                       ` · ${plural(folder.eliminados.length, "eliminado", "eliminados")}`}
                   </p>

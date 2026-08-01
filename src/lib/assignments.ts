@@ -518,21 +518,36 @@ export async function restoreAssignment(jobId: string): Promise<AssignmentStatus
 }
 
 /**
- * Descarta los huérfanos de Diseño: TODO assignment SIN avatar resuelto (`avatarSlug`
- * vacío), sin importar el estado. Son los jobs de origen Diseño ("El job no trae
- * avatar (origen Diseño sin resolver)"): Producción SIEMPRE trae el avatar resuelto
- * por FK, así que un slug vacío ⇒ no es Producción. Ahora que la ingesta solo trae
- * Producción (ver isProduccionJob en prewave.ts) ya no vuelven a entrar; esto limpia
- * los que quedaron guardados de antes (blocked, failed, etc.). NO toca los que tienen
- * avatar aunque estén `blocked`/`failed` (p.ej. "Cora Bilbao", sin preset local, o
- * "crece30x", que falló generando): esos son Producción y se resuelven aparte. Nunca
- * se reclamaron en Prewave, así que borrarlos localmente es seguro. Devuelve cuántos
- * se quitaron.
+ * Estados que ya son historial: la pieza se entregó, o la diseñadora la mandó a la
+ * Biblioteca. Nada que corra en background puede borrarlos — ver `pruneDesignOrphans`.
+ */
+const ASENTADOS: readonly AssignmentStatus[] = ["delivered", "done", "archived"];
+
+/**
+ * Descarta los huérfanos de Diseño: los assignments SIN avatar resuelto (`avatarSlug`
+ * vacío). Son los jobs de origen Diseño ("El job no trae avatar (origen Diseño sin
+ * resolver)"): Producción SIEMPRE trae el avatar resuelto por FK, así que un slug vacío
+ * ⇒ no es Producción. Ahora que la ingesta solo trae Producción (ver isProduccionJob en
+ * prewave.ts) ya no vuelven a entrar; esto limpia los que quedaron guardados de antes
+ * (blocked, failed, etc.). NO toca los que tienen avatar aunque estén `blocked`/`failed`
+ * (p.ej. "Cora Bilbao", sin preset local, o "crece30x", que falló generando): esos son
+ * Producción y se resuelven aparte. Nunca se reclamaron en Prewave, así que borrarlos
+ * localmente es seguro. Devuelve cuántos se quitaron.
+ *
+ * NUNCA borra lo que ya está asentado, aunque le falte el avatar. Esto corre en CADA
+ * `sync-mine`, o sea varias veces por minuto y sin que nadie lo pida, y era el único
+ * punto del código que destruía registros de forma irreversible: un `delivered` o un
+ * `archived` con el slug vacío desaparecía del store y con él su fila en la Biblioteca —
+ * sin rastro y sin forma de restaurarlo. Un huérfano de Diseño no llega nunca a esos
+ * estados, así que la excepción no le deja basura adentro; y si algo llegó ahí, es
+ * trabajo real y su lugar es la Biblioteca, con la carpeta "Sin avatar" para agruparlo.
  */
 export async function pruneDesignOrphans(): Promise<number> {
   let removed = 0;
   await updateData<Store>(FILE, EMPTY, (store) => {
-    const kept = store.assignments.filter((a) => Boolean(a.avatarSlug));
+    const kept = store.assignments.filter(
+      (a) => Boolean(a.avatarSlug) || ASENTADOS.includes(a.status)
+    );
     removed = store.assignments.length - kept.length;
     return { assignments: kept };
   });
