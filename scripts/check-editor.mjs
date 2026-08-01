@@ -87,6 +87,22 @@ const SLIDE = `
   </div>
 </div>`;
 
+/**
+ * El caso del velo: una foto a sangre, el degradado que la oscurece para que el
+ * titular se lea, y un titular encima. Medido sobre las 276 láminas guardadas, 77
+ * (28%) tienen un velo así y NINGUNO se podía tomar — "una sombra que NO es
+ * editable". `#fondo` es el otro lado de la moneda: un color plano y opaco a lámina
+ * completa que debe seguir SIN tomarse, para que clicar en un vacío deseleccione.
+ */
+const SLIDE_VELO = `
+<div id="root" style="position:relative;width:${W}px;height:${H}px;background:#f6f5f0">
+  <div id="fondo" style="position:absolute;inset:0;background:#242424"></div>
+  <img id="foto" src="${PIX}" style="position:absolute;left:0;top:0;width:${W}px;height:${H}px;object-fit:cover">
+  <div id="velo" style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0) 35%,rgba(0,0,0,.85) 100%)"></div>
+  <div id="titulo" style="position:absolute;left:100px;top:1100px;width:700px;font-size:56px;font-family:Inter;color:#fff">Titular sobre el velo</div>
+  <div id="chip" data-oc-shape="1" style="position:absolute;left:760px;top:120px;width:180px;height:80px;background:#ff3b7f"></div>
+</div>`;
+
 const results = [];
 function check(name, ok, detail = "") {
   results.push({ name, ok, detail });
@@ -2087,6 +2103,75 @@ async function main() {
       "el motion blur derrama el borde hacia afuera",
       bordeIzq[0] < 250,
       `rgb=${bordeIzq.join(",")}`
+    );
+
+    // ── El velo a lámina completa ────────────────────────────────────────────
+    // `tooBig` descarta todo lo que ocupe >80% del lienzo y el único rescate era
+    // para IMG/SVG, así que el degradado que oscurece una foto quedaba pegado a la
+    // lámina: 110 velos en 77 de las 276 láminas guardadas, ni movibles ni
+    // borrables. Es el "una sombra que NO es editable" del reporte.
+    console.log("\nVelo a lámina completa");
+    // El velo, la foto y el fondo comparten rect exacto (los tres son a sangre), así
+    // que "cuál quedó seleccionado" no se puede leer de la caja del overlay: se lee
+    // BORRÁNDOLO, que además es lo que las diseñadoras pedían poder hacer.
+    const vivos = () =>
+      page.evaluate(() =>
+        [...document.querySelectorAll("#root > *")].map((el) => el.id).filter(Boolean)
+      );
+
+    await pageFor(SLIDE_VELO);
+    await page.mouse.click(540, 400); // zona alta: solo velo + foto + fondo debajo
+    check("el velo se puede seleccionar", (await selCount(page)) === 1, `sel=${await selCount(page)}`);
+    await page.keyboard.press("Delete");
+    let quedan = await vivos();
+    check(
+      "el clic toma el velo (el de arriba) y se puede borrar",
+      !quedan.includes("velo") && quedan.includes("foto"),
+      `quedan=${quedan.join(",")}`
+    );
+
+    await pageFor(SLIDE_VELO);
+    await page.keyboard.down("Alt");
+    await page.mouse.click(540, 400);
+    await page.keyboard.up("Alt");
+    await page.keyboard.press("Delete");
+    quedan = await vivos();
+    check(
+      "Alt+clic baja una capa y toma la foto",
+      !quedan.includes("foto") && quedan.includes("velo"),
+      `quedan=${quedan.join(",")}`
+    );
+
+    await pageFor(SLIDE_VELO);
+    await page.mouse.click(300, 1130); // sobre el titular, que va encima del velo
+    await page.keyboard.press("Delete");
+    quedan = await vivos();
+    check(
+      "el velo no le roba el clic al texto que tiene encima",
+      !quedan.includes("titulo") && quedan.includes("velo"),
+      `quedan=${quedan.join(",")}`
+    );
+
+    await pageFor(SLIDE_VELO);
+    await page.mouse.click(850, 160); // sobre el chip, una forma chica sobre el velo
+    await page.keyboard.press("Delete");
+    quedan = await vivos();
+    check(
+      "el velo no le roba el clic a una forma",
+      !quedan.includes("chip") && quedan.includes("velo"),
+      `quedan=${quedan.join(",")}`
+    );
+
+    // La otra mitad: un fondo plano y opaco NO es un velo. Si se volviera
+    // seleccionable, clicar en un vacío elegiría el fondo en vez de deseleccionar.
+    await pageFor(SLIDE_VELO);
+    await page.evaluate(() => document.getElementById("velo").remove());
+    await page.evaluate(() => document.getElementById("foto").remove());
+    await page.mouse.click(540, 400);
+    check(
+      "un fondo plano y opaco sigue sin tomarse (clicar el vacío deselecciona)",
+      (await selCount(page)) === 0,
+      `sel=${await selCount(page)}`
     );
 
     console.log("\nSerialización");
