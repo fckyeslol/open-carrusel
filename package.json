@@ -21,6 +21,7 @@
     "test": "node --test \"src/**/*.test.mts\"",
     "doctor": "node scripts/doctor.mjs",
     "check:editor": "node scripts/check-editor.mjs",
+    "check:export": "node scripts/check-export-pdf.mjs",
     "hosted:setup": "node scripts/setup-hosted.mjs",
     "hosted:up": "docker compose -f docker-compose.hosted.yml up -d --build",
     "hosted:down": "docker compose -f docker-compose.hosted.yml down",
@@ -60,6 +61,7 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/cross-spawn": "^6.0.6",
+    "@types/css-tree": "^2.3.11",
     "@types/node": "^20",
     "@types/pg": "^8.20.0",
     "@types/react": "^19",

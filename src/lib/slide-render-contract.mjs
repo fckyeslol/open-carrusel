@@ -30,7 +30,7 @@
  * Versión del contrato. Subir en cualquier cambio de comportamiento de los scripts
  * de abajo o de la forma del payload.
  */
-export const CONTRACT_VERSION = 1;
+export const CONTRACT_VERSION = 2;
 
 /**
  * Timeout de `setContent` para el PNG por lámina. El HTML ya viene autocontenido
@@ -45,15 +45,23 @@ export const SET_CONTENT_TIMEOUT_PDF_MS = 20000;
 export const FONTS_READY_TIMEOUT_MS = 10000;
 
 /**
- * Predicado para `page.waitForFunction`: todas las @font-face resolvieron.
+ * Predicado para `page.waitForFunction`: ya no queda ninguna fuente cargando.
  *
  * Sin esto, la captura puede salir con la fuente de fallback y el texto se ve
  * distinto del preview. Si expira, se captura igual con lo que haya cargado — es
  * mejor una lámina con fuente de fallback que ninguna.
+ *
+ * Antes exigía que TODAS las caras estuvieran `loaded`, y eso no se cumplía nunca: el CSS
+ * inlineado de una familia trae ~63 caras (grosor × subset de unicode) y una lámina usa dos
+ * o tres. Las que no se usan se quedan en `unloaded` para siempre —el navegador no baja lo
+ * que nadie pide, que es justamente la gracia— así que el predicado era falso hasta que
+ * expiraba el timeout. Resultado: 10s de espera inútil en CADA export, y ninguna garantía
+ * a cambio. Lo correcto es que no quede ninguna EN VUELO: `ready` ya espera a las que
+ * arrancaron, y el chequeo de `loading` cubre las que arrancaron después.
  */
 export function fontsReadyPredicate() {
   return document.fonts.ready.then(() =>
-    [...document.fonts].every((f) => f.status === "loaded")
+    ![...document.fonts].some((f) => f.status === "loading")
   );
 }
 
