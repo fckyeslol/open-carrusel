@@ -15,11 +15,12 @@ import {
 } from "@/lib/library-folders";
 
 /**
- * Biblioteca: el historial de la diseñadora, en carpetas por avenger.
+ * Biblioteca: el historial en carpetas por avenger.
  *
- * Lee el mismo GET /api/thirtyx/mine que el tablero y filtra por estado — la Biblioteca
- * no es otra base de datos, es otra vista de la misma. Sin poll: es historial, no cambia
- * solo mientras se mira.
+ * Lee GET /api/thirtyx/library, que arma las piezas a partir de los CARRUSELES y no de las
+ * asignaciones. Antes leía el mismo `mine` que el tablero y solo mostraba lo que tuviera un
+ * pedido detrás: todo lo hecho a mano quedaba invisible acá aunque el home lo listara (ver
+ * `src/lib/library.ts`). Sin poll: es historial, no cambia solo mientras se mira.
  *
  * La carpeta abierta vive en la URL (`?avenger=slug`, que llega como prop desde el server)
  * y no en un useState, para que el botón "atrás" del navegador vuelva a la reja de carpetas
@@ -28,15 +29,15 @@ import {
 export function Library({ openKey }: { openKey: string | null }) {
   const router = useRouter();
 
-  const [assignments, setAssignments] = useState<LibraryItem[]>([]);
+  const [items, setItems] = useState<LibraryItem[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const busyRef = useRef<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch("/api/thirtyx/mine");
-      let data: { error?: string; assignments?: LibraryItem[] } = {};
+      const res = await fetch("/api/thirtyx/library");
+      let data: { error?: string; items?: LibraryItem[] } = {};
       try {
         data = await res.json();
       } catch {
@@ -47,7 +48,7 @@ export function Library({ openKey }: { openKey: string | null }) {
         return;
       }
       setError(null);
-      setAssignments(data.assignments || []);
+      setItems(data.items || []);
     } catch {
       setError("Error de red al cargar");
     } finally {
@@ -78,11 +79,12 @@ export function Library({ openKey }: { openKey: string | null }) {
     [load]
   );
 
-  const folders = useMemo(() => buildAvengerFolders(assignments), [assignments]);
+  const folders = useMemo(() => buildAvengerFolders(items), [items]);
   const open = openKey ? folders.find((f) => f.key === openKey) : undefined;
 
   const totalEntregados = folders.reduce((n, f) => n + f.entregados.length, 0);
   const totalEliminados = folders.reduce((n, f) => n + f.eliminados.length, 0);
+  const totalSueltos = folders.reduce((n, f) => n + f.sueltos.length, 0);
 
   return (
     <main className="min-h-screen bg-muted/20">
@@ -107,6 +109,7 @@ export function Library({ openKey }: { openKey: string | null }) {
             loaded={loaded}
             totalEntregados={totalEntregados}
             totalEliminados={totalEliminados}
+            totalSueltos={totalSueltos}
             onOpen={(key) => router.push(`/biblioteca?avenger=${encodeURIComponent(key)}`)}
           />
         )}
@@ -153,7 +156,19 @@ function FolderView({
         empty="Todavía no entregaste ningún carrusel de este avenger."
       >
         {folder.entregados.map((a) => (
-          <LibraryRow key={a.jobId} item={a} kind="entregado" />
+          <LibraryRow key={a.key} item={a} kind="entregado" />
+        ))}
+      </Section>
+
+      {/* Las piezas sin pedido van después de los entregados y antes de los eliminados:
+          son trabajo vivo, pero nadie las está esperando del otro lado. */}
+      <Section
+        title="Hechos a mano"
+        count={folder.sueltos.length}
+        empty="No hay carruseles de este avenger creados por fuera de la cola."
+      >
+        {folder.sueltos.map((a) => (
+          <LibraryRow key={a.key} item={a} kind="suelto" />
         ))}
       </Section>
 
@@ -163,7 +178,12 @@ function FolderView({
         empty="No eliminaste ningún pedido de este avenger."
       >
         {folder.eliminados.map((a) => (
-          <LibraryRow key={a.jobId} item={a} kind="eliminado" onRestore={() => onRestore(a.jobId)} />
+          <LibraryRow
+            key={a.key}
+            item={a}
+            kind="eliminado"
+            onRestore={a.jobId && a.canRestore ? () => onRestore(a.jobId!) : undefined}
+          />
         ))}
       </Section>
     </>
