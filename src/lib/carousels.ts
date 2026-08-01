@@ -1,4 +1,4 @@
-import { readDataSafe, updateData, SKIP_WRITE } from "./data";
+import { readDataSafe, updateData, writeData, SKIP_WRITE } from "./data";
 import { generateId, now } from "./utils";
 import type { Carousel, CarouselsData, Slide, AspectRatio, ReferenceImage } from "@/types/carousel";
 import { MAX_SLIDES, MAX_VERSIONS } from "@/types/carousel";
@@ -21,6 +21,20 @@ const EMPTY: CarouselsData = { carousels: [] };
  */
 async function load(): Promise<CarouselsData> {
   return readDataSafe<CarouselsData>(FILE, EMPTY);
+}
+
+/**
+ * Deja el historial de deshacer en MAX_VERSIONS, saque lo que haya que sacar.
+ *
+ * Antes esto era `if (length > MAX) shift()`: UN elemento por push. Mientras MAX no
+ * cambiara daba lo mismo, pero al bajarlo las pilas ya guardadas NO convergían nunca —
+ * una de 30 subía a 31 con el push, el shift la devolvía a 30, y ahí se quedaba para
+ * siempre. Es decir que bajar la constante no compactaba nada, y una compactación de
+ * una vez se habría vuelto a llenar hasta 30. `splice` saca el excedente completo.
+ */
+function recortarHistorial(slide: Slide): void {
+  const excedente = slide.previousVersions.length - MAX_VERSIONS;
+  if (excedente > 0) slide.previousVersions.splice(0, excedente);
 }
 
 export async function listCarousels(): Promise<Carousel[]> {
@@ -276,9 +290,7 @@ export async function updateSlide(
     // Save current HTML to version history before overwriting
     if (updates.html && updates.html !== slide.html) {
       slide.previousVersions.push(slide.html);
-      if (slide.previousVersions.length > MAX_VERSIONS) {
-        slide.previousVersions.shift();
-      }
+      recortarHistorial(slide);
       // Una edición nueva invalida el futuro: se descarta lo que se pudiera rehacer.
       slide.redoVersions = [];
     }
@@ -377,7 +389,7 @@ export async function redoSlide(
 
     // El HTML actual vuelve a la pila de deshacer antes de reponer el siguiente.
     slide.previousVersions.push(slide.html);
-    if (slide.previousVersions.length > MAX_VERSIONS) slide.previousVersions.shift();
+    recortarHistorial(slide);
 
     const nextHtml = slide.redoVersions.pop()!;
     slide.html = nextHtml;
@@ -426,4 +438,117 @@ export async function removeReferenceImage(
     return data;
   });
   return removed;
+}
+
+export interface CompactacionResultado {
+  laminas: number;
+  laminasRecortadas: number;
+  versionesDescartadas: number;
+  bytesAntes: number;
+  bytesDespues: number;
+  conservar: number;
+  aplicado: boolean;
+  respaldo: string | null;
+}
+
+/**
+ * Recorta el historial de deshacer de TODAS las láminas guardadas.
+ *
+ * Por qué existe como operación aparte y no como script que edita el archivo: los datos
+ * están vivos y la app escribe el store más de 1600 veces por día. Bajar el JSON,
+ * editarlo y subirlo pisaría todo lo que se hubiera escrito en el medio. Acá la
+ * compactación entra por `updateData`, o sea una sola pasada leer-modificar-escribir
+ * dentro del mismo mutex que usa cualquier otra escritura: se serializa con ellas y la
+ * escritura es atómica.
+ *
+ * `conservar` no usa MAX_VERSIONS por defecto a propósito: quien compacta decide cuánto
+ * corta, y así el número queda en el registro de la corrida en vez de depender de qué
+ * valor tenía la constante ese día.
+ *
+ * Con `aplicar: false` (el default) no escribe nada: mide y devuelve. `SKIP_WRITE`
+ * garantiza que ni siquiera se toque el archivo.
+ */
+export async function compactarHistorial(
+  conservar: number,
+  aplicar = false
+): Promise<CompactacionResultado> {
+  if (!Number.isInteger(conservar) || conservar < 0) {
+    throw new Error(`conservar debe ser un entero >= 0, recibí ${conservar}`);
+  }
+
+  /*
+   * Con la MISMA indentación que usa `atomicWrite`, o el informe miente: medido compacto
+   * daba 15.5 MB para un archivo que en disco queda en 16.1 MB, y ese número es lo único
+   * con lo que se decide si vale la pena compactar.
+   */
+  const pesar = (v: unknown) => Buffer.byteLength(JSON.stringify(v, null, 2), "utf-8");
+  let resultado: CompactacionResultado | null = null;
+
+  /*
+   * Respaldo antes de tocar nada, con el mismo nombre que ya usa el bucket
+   * (`carousels.pre-restore-2026-07-27.json`). El historial descartado no se puede
+   * reconstruir de ninguna otra parte, así que esto es la única vuelta atrás.
+   *
+   * Queda una ventana de milisegundos entre el respaldo y la compactación en la que
+   * podría entrar otra escritura, porque son dos tomas del mutex y no una. Es inofensivo:
+   * el respaldo sale apenas viejo, y la compactación en sí sigue siendo atómica.
+   */
+  let respaldo: string | null = null;
+  if (aplicar) {
+    respaldo = `carousels.pre-compact-${now().slice(0, 10)}.json`;
+    await writeData(respaldo, await readDataSafe<CarouselsData>(FILE, EMPTY));
+  }
+
+  await updateData<CarouselsData>(FILE, EMPTY, (data) => {
+    const bytesAntes = pesar(data);
+    let laminas = 0;
+    let laminasRecortadas = 0;
+    let versionesDescartadas = 0;
+
+    // Se cuenta sobre una proyección y no mutando `data`, así el dry-run mide lo mismo
+    // que escribiría el modo real sin haber tocado nada.
+    const compactado: CarouselsData = {
+      ...data,
+      carousels: data.carousels.map((c) => ({
+        ...c,
+        slides: (c.slides ?? []).map((s) => {
+          laminas++;
+          const previas = s.previousVersions ?? [];
+          const rehacer = s.redoVersions ?? [];
+          // Cada pila por separado y con piso en 0: una lámina con 2 versiones y un
+          // tope de 5 no descarta -3, descarta 0. Sumarlo crudo restaba de lo que
+          // descartaba la otra pila y el informe salía por debajo de lo real.
+          const sobran =
+            Math.max(0, previas.length - conservar) +
+            Math.max(0, rehacer.length - conservar);
+          if (sobran > 0) {
+            laminasRecortadas++;
+            versionesDescartadas += sobran;
+          }
+          return {
+            ...s,
+            // OJO: slice(-0) devuelve el array ENTERO, no vacío.
+            previousVersions: conservar === 0 ? [] : previas.slice(-conservar),
+            redoVersions: conservar === 0 ? [] : rehacer.slice(-conservar),
+          };
+        }),
+      })),
+    };
+
+    resultado = {
+      laminas,
+      laminasRecortadas,
+      versionesDescartadas,
+      bytesAntes,
+      bytesDespues: pesar(compactado),
+      conservar,
+      aplicado: aplicar,
+      respaldo,
+    };
+
+    return aplicar ? compactado : SKIP_WRITE;
+  });
+
+  if (!resultado) throw new Error("la compactación no pudo leer el store");
+  return resultado;
 }
