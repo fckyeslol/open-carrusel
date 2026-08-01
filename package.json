@@ -21,6 +21,7 @@
     "test": "node --test \"src/**/*.test.mts\"",
     "doctor": "node scripts/doctor.mjs",
     "check:editor": "node scripts/check-editor.mjs",
+    "probe:editor": "node scripts/probe-editor.mjs",
     "check:export": "node scripts/check-export-pdf.mjs",
     "hosted:setup": "node scripts/setup-hosted.mjs",
     "hosted:up": "docker compose -f docker-compose.hosted.yml up -d --build",
