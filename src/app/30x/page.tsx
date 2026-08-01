@@ -10,6 +10,7 @@ import { IngestProgress } from "@/components/thirtyx/IngestProgress";
 import { SectionLabel } from "@/components/thirtyx/SectionLabel";
 import { AssignmentQueue } from "@/components/thirtyx/AssignmentQueue";
 import { AvatarAssetsPanel } from "@/components/thirtyx/AvatarAssetsPanel";
+import { SoulReferencesPanel } from "@/components/thirtyx/SoulReferencesPanel";
 import { ManualHistory, type ManualEntry } from "@/components/thirtyx/ManualHistory";
 import { BatchUpload } from "@/components/thirtyx/BatchUpload";
 import { BatchList } from "@/components/thirtyx/BatchList";
@@ -298,6 +299,8 @@ export default function ThirtyXPage() {
             <Button size="sm" className="mt-5" onClick={saveConfig} disabled={savingConfig}>
               {savingConfig ? "Guardando…" : "Guardar"}
             </Button>
+
+            <SoulReferencesPanel configurado={!!higgsfield?.configured} />
             </div>
           </section>
         )}
