@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import { getCarousel } from "@/lib/carousels";
 import { exportSlide } from "@/lib/export-slides";
 import { exportPdf, exportHtml, exportSvg } from "@/lib/export-formats";
+import {
+  allPages,
+  pageFileSuffix,
+  parsePageSelection,
+  type PageSelection,
+} from "@/lib/page-selection";
 import type { Slide, AspectRatio } from "@/types/carousel";
 
 export const runtime = "nodejs";
@@ -21,14 +27,17 @@ const CONTENT_TYPE: Record<ExportFormat, string> = {
  * Exporta un carrusel en varios formatos.
  *
  * `?format=` elige el formato (default `png`):
- *   - `png`  — UNA lámina como PNG (requiere `?slide=N`, 1-based; default 1).
- *   - `pdf`  — carrusel completo en un PDF (texto editable). Con `?slide=N`
- *              exporta solo esa lámina en su propio PDF.
- *   - `html` — carrusel completo como HTML autocontenido y editable.
- *   - `svg`  — UNA lámina como SVG (requiere `?slide=N`; default 1).
+ *   - `png`  — UNA lámina como PNG.
+ *   - `pdf`  — las láminas pedidas en un solo PDF (texto editable).
+ *   - `html` — las láminas pedidas como un HTML autocontenido y editable.
+ *   - `svg`  — UNA lámina como SVG.
  *
- * PNG y SVG son por-lámina: el cliente llama una vez por lámina y recibe
- * archivos sueltos. PDF y HTML son un único archivo por carrusel.
+ * `?pages=` elige QUÉ láminas, con la misma sintaxis que el menú de exportación
+ * ("1", "1,3", "5-7"; ver `page-selection.ts`). Sin él se exportan todas.
+ * `?slide=N` es el alias viejo y equivale a `?pages=N`.
+ *
+ * PNG y SVG son por-lámina: aceptan una sola lámina por llamada y el cliente
+ * hace el bucle. PDF y HTML son un único archivo con todas las pedidas.
  */
 export async function POST(
   request: Request,
@@ -57,61 +66,56 @@ export async function POST(
 
   const safeName = carousel.name.replace(/[^a-zA-Z0-9-_]/g, "_") || carousel.id;
   const aspectRatio = carousel.aspectRatio as AspectRatio;
+  const total = carousel.slides.length;
 
-  // Láminas por-lámina (png/svg) validan y resuelven la lámina pedida.
-  const slideParam = url.searchParams.get("slide");
-  const slideNumber = slideParam ? Number.parseInt(slideParam, 10) : 1;
-  const slideIndexValid =
-    Number.isInteger(slideNumber) &&
-    slideNumber >= 1 &&
-    slideNumber <= carousel.slides.length;
+  // Sin selección explícita, PNG y SVG siguen dando la primera lámina — es lo que
+  // documentaba `?slide=N` desde el principio y lo que espera cualquier curl viejo.
+  const porDefecto =
+    format === "png" || format === "svg" ? [1] : allPages(total);
+  const selection = resolveSelection(url.searchParams, total, porDefecto);
+  if (!selection.ok) {
+    return NextResponse.json({ error: selection.error }, { status: 400 });
+  }
+  const pages = selection.pages;
+  const suffix = pageFileSuffix(pages, total);
 
   try {
     switch (format) {
       case "png": {
-        if (!slideIndexValid) return invalidSlide(slideParam, carousel.slides);
+        if (pages.length !== 1) return unaSolaLamina("PNG", pages);
         // ?transparent=1 → PNG sin la capa de fondo (para componer en otra
         // herramienta). El nombre del archivo lo marca con `-sin-fondo`.
         const transparent = url.searchParams.get("transparent") === "1";
         const buffer = await exportSlide(
-          carousel.slides[slideNumber - 1],
+          carousel.slides[pages[0] - 1],
           aspectRatio,
           { transparent }
         );
-        const suffix = transparent ? "-sin-fondo" : "";
+        const alpha = transparent ? "-sin-fondo" : "";
         return binary(
           buffer,
           "png",
-          `${safeName}-slide-${slideNumber}${suffix}.png`,
-          { "X-Slide-Count": String(carousel.slides.length) }
+          `${safeName}-slide-${pages[0]}${alpha}.png`,
+          { "X-Slide-Count": String(total) }
         );
       }
 
       case "svg": {
-        if (!slideIndexValid) return invalidSlide(slideParam, carousel.slides);
-        const svg = await exportSvg(carousel.slides[slideNumber - 1], aspectRatio);
-        return text(svg, "svg", `${safeName}-slide-${slideNumber}.svg`, {
-          "X-Slide-Count": String(carousel.slides.length),
+        if (pages.length !== 1) return unaSolaLamina("SVG", pages);
+        const svg = await exportSvg(carousel.slides[pages[0] - 1], aspectRatio);
+        return text(svg, "svg", `${safeName}-slide-${pages[0]}.svg`, {
+          "X-Slide-Count": String(total),
         });
       }
 
       case "pdf": {
-        // Con ?slide=N → PDF de una sola lámina; sin él → carrusel completo.
-        const slides: Slide[] = slideParam
-          ? slideIndexValid
-            ? [carousel.slides[slideNumber - 1]]
-            : []
-          : carousel.slides;
-        if (slideParam && !slideIndexValid)
-          return invalidSlide(slideParam, carousel.slides);
-        const buffer = await exportPdf(slides, aspectRatio);
-        const suffix = slideParam ? `-slide-${slideNumber}` : "";
+        const buffer = await exportPdf(slidesOf(carousel.slides, pages), aspectRatio);
         return binary(buffer, "pdf", `${safeName}${suffix}.pdf`);
       }
 
       case "html": {
-        const html = await exportHtml(carousel.slides, aspectRatio);
-        return text(html, "html", `${safeName}.html`);
+        const html = await exportHtml(slidesOf(carousel.slides, pages), aspectRatio);
+        return text(html, "html", `${safeName}${suffix}.html`);
       }
     }
   } catch (error) {
@@ -124,10 +128,30 @@ export async function POST(
   }
 }
 
-function invalidSlide(slideParam: string | null, slides: Slide[]) {
+/**
+ * Qué láminas se piden. `?pages=` es la forma nueva (la misma sintaxis que escribe la
+ * diseñadora en el menú); `?slide=N` se mantiene porque era la única que existía y sigue
+ * siendo un alias válido. Sin ninguna de las dos, `porDefecto`.
+ */
+function resolveSelection(
+  params: URLSearchParams,
+  total: number,
+  porDefecto: number[]
+): PageSelection {
+  const pedido = params.get("pages") ?? params.get("slide");
+  if (pedido !== null) return parsePageSelection(pedido, total);
+  return { ok: true, pages: porDefecto };
+}
+
+function slidesOf(slides: Slide[], pages: number[]): Slide[] {
+  return pages.map((page) => slides[page - 1]);
+}
+
+/** PNG y SVG son un archivo por lámina: el bucle lo hace el cliente, no la ruta. */
+function unaSolaLamina(format: string, pages: number[]) {
   return NextResponse.json(
     {
-      error: `Invalid slide number "${slideParam}" — carousel has ${slides.length} slide(s)`,
+      error: `${format} es un archivo por lámina: pedí una sola (llegaron ${pages.length})`,
     },
     { status: 400 }
   );
